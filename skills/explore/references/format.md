@@ -68,7 +68,7 @@ An import accepts an export or a bare format-1 `map.json`. It is untrusted data 
 - **Different content:** the import is a conflict. Nothing is written, and the user may import a copy instead.
 - **A copy:** asked for, or the ID is outside the `map-` + 8 hex format. It gets a new map ID, a " (copy)" title and `importedFrom: { mapId, revision, exportedAt }`. Idea IDs and content are unchanged.
 
-Queued or running work arrives `interrupted`, so nothing runs until the user retries. The import is recorded as a `map-imported` event.
+Queued or running work arrives `interrupted` and releases what it held, so nothing runs until the user retries. The map's history is unchanged: the import names its first version `map-imported`. A folder with the map's ID that cannot be opened (even one without `map.json`) counts as taken, and a new map is only ever saved where no file exists yet. Imports are limited to 5,000 ideas.
 
 ## Reading procedure
 

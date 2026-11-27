@@ -78,7 +78,7 @@ const versionWords = {
   'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
   'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
-  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart',
+  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported',
 };
 export function versionLabel(version) {
   if (version.name) return version.name;
@@ -304,7 +304,7 @@ export const briefFilename = title => downloadName(title, '-brief.md');
 // Import (I2): a map with this ID is already here and the file differs. Nothing has been changed yet.
 export function importConflictHtml({ existing, incoming }, { esc }) {
   const when = at => Number.isNaN(Date.parse(at)) ? '' : ` · updated ${esc(new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }))}`;
-  const side = (label, map) => `<div class="import-side"><h3 class="section-label">${label}</h3><p><strong>${esc(map.title)}</strong></p><p class="form-note">${count(map.ideas, 'idea')} · revision ${esc(map.revision)}${when(map.updatedAt)}</p></div>`;
+  const side = (label, map) => `<div class="import-side"><h3 class="section-label">${label}</h3>${map.unreadable ? '<p class="form-note">A map folder with this ID is here but cannot be opened.</p>' : `<p><strong>${esc(map.title)}</strong></p><p class="form-note">${count(map.ideas, 'idea')} · revision ${esc(map.revision)}${when(map.updatedAt)}</p>`}</div>`;
   return `<p>A map with the same ID is already in this workspace, and the file is different. Nothing has been changed.</p><div class="import-sides">${side('Already here', existing)}${side('In the file', incoming)}</div>`;
 }
 

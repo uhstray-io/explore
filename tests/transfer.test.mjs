@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
-import { exportMap, importMap } from '../skills/explore/scripts/transfer.mjs';
+import { exportMap } from '../skills/explore/scripts/transfer.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 
 // Export and import a complete map (I2, #40). Fixtures under .test-output, never ideas/.
@@ -40,10 +40,11 @@ test('an export holds the whole map and nothing machine-local', async () => {
 test('importing into an empty workspace gives the same map, with running work interrupted and views generated', async () => {
   const from = await workspace(), to = await workspace();
   const { map } = await workedMap(from.store);
-  const result = await importMap(to.store, await exportMap(from.store, map.id));
+  const result = await to.store.importMap(await exportMap(from.store, map.id));
   assert.equal(result.imported, map.id);
   const copy = await to.store.get(map.id);
-  assert.deepEqual(copy.history.slice(0, -1), map.history); assert.equal(copy.history.at(-1).type, 'map-imported');
+  assert.deepEqual(copy.history, map.history, 'the import is not an event in the map; it names its version instead');
+  assert.deepEqual((await to.store.versions.list(map.id)).versions[0].labels, ['map-imported']);
   for (const field of ['nodes', 'edges']) assert.deepEqual(sorted(copy[field].map(item => ({ ...item, status: undefined }))), sorted(map[field].map(item => ({ ...item, status: undefined }))), field);
   assert.equal(copy.nodes[0].questions[0].answer, 'Yes.');
   assert.ok(copy.jobs.every(j => !['queued', 'running'].includes(j.status)), 'no active work arrives');
@@ -57,14 +58,14 @@ test('an identical map opens the existing one and a changed one is never overwri
   const { map } = await workedMap(store);
   const exported = await exportMap(store, map.id);
   const before = await readFile(store.file(map.id), 'utf8');
-  assert.deepEqual(await importMap(store, exported), { existing: map.id });
+  assert.deepEqual(await store.importMap(exported), { existing: map.id });
   assert.equal(await readFile(store.file(map.id), 'utf8'), before, 'nothing written');
   const changed = structuredClone(exported); changed.map.title = 'Field notebook, revised';
-  const conflict = await importMap(store, changed);
+  const conflict = await store.importMap(changed);
   assert.equal(conflict.conflict.existing.title, 'Field notebook'); assert.equal(conflict.conflict.incoming.title, 'Field notebook, revised');
   assert.equal(conflict.conflict.incoming.ideas, map.nodes.length);
   assert.equal(await readFile(store.file(map.id), 'utf8'), before);
-  const copy = await importMap(store, changed, { asCopy: true });
+  const copy = await store.importMap(changed, { asCopy: true });
   assert.notEqual(copy.imported, map.id);
   const saved = await store.get(copy.imported);
   assert.equal(saved.title, 'Field notebook, revised (copy)'); assert.deepEqual(saved.importedFrom, { mapId: map.id, revision: exported.map.revision, exportedAt: exported.exportedAt });
@@ -76,9 +77,9 @@ test('a bare map.json imports too; an ID outside the format always becomes a cop
   const from = await workspace(), to = await workspace();
   const { map } = await workedMap(from.store);
   const bare = JSON.parse(await readFile(from.store.file(map.id), 'utf8'));
-  assert.equal((await importMap(to.store, bare)).imported, map.id);
+  assert.equal((await to.store.importMap(bare)).imported, map.id);
   const odd = structuredClone(bare); odd.id = 'my-map';
-  const result = await importMap(to.store, odd);
+  const result = await to.store.importMap(odd);
   assert.match(result.imported, /^map-[a-f0-9]{8}$/); assert.notEqual(result.imported, map.id);
 });
 
@@ -94,7 +95,7 @@ test('invalid files are refused with nothing written', async () => {
     [data => { delete data.map; data.format = 'something-else'; }, /not an Explore map/],
   ]) {
     const data = structuredClone(good); change(data);
-    await assert.rejects(importMap(to.store, data), error => error.status >= 400 && message.test(error.message), String(message));
+    await assert.rejects(to.store.importMap(data), error => error.status >= 400 && message.test(error.message), String(message));
   }
   await assert.rejects(readdir(to.store.directory), 'no ideas folder was even created');
 });
@@ -135,4 +136,65 @@ test('the conflict view and file names say what they mean', async () => {
   assert.match(html, /In the file.*Plan B.*1 idea · revision 9<\/p>/s, 'an unreadable date is left out');
   assert.equal(downloadName('A/B: notes.', '-map.json'), 'A-B- notes-map.json');
   assert.equal(briefFilename('Field notebook'), 'Field notebook-brief.md');
+});
+
+test('importing the same file twice opens the map the first import made', async () => {
+  const from = await workspace(), to = await workspace();
+  const { map } = await workedMap(from.store);
+  const exported = await exportMap(from.store, map.id);
+  assert.equal((await to.store.importMap(exported)).imported, map.id);
+  const before = await readFile(to.store.file(map.id), 'utf8');
+  assert.deepEqual(await to.store.importMap(exported), { existing: map.id });
+  assert.equal(await readFile(to.store.file(map.id), 'utf8'), before);
+});
+
+test('a map folder without a readable map.json is never written into', async () => {
+  const from = await workspace(), to = await workspace();
+  const { map } = await workedMap(from.store);
+  const folder = path.join(to.store.directory, map.id);
+  await mkdir(path.join(folder, 'versions'), { recursive: true });
+  await writeFile(path.join(folder, 'versions', 'keep.json'), 'old history');
+  const result = await to.store.importMap(await exportMap(from.store, map.id));
+  assert.deepEqual(result.conflict.existing, { unreadable: true });
+  assert.deepEqual(await readdir(folder), ['versions']); assert.equal(await readFile(path.join(folder, 'versions', 'keep.json'), 'utf8'), 'old history');
+  const { importConflictHtml } = await import('../skills/explore/assets/workspace-view.js');
+  assert.match(importConflictHtml(result.conflict, { esc: String }), /is here but cannot be opened/);
+  assert.match((await to.store.importMap(await exportMap(from.store, map.id), { asCopy: true })).imported, /^map-[a-f0-9]{8}$/);
+});
+
+test('a new map never replaces a file that appeared meanwhile', async () => {
+  const { store } = await workspace();
+  const map = await store.create({ title: 'First', idea: 'Here first.' });
+  const twin = store.isNew({ ...structuredClone(map), title: 'Second' });
+  await assert.rejects(store.save(twin), error => error.code === 'map-exists');
+  assert.equal((await store.get(map.id)).title, 'First');
+});
+
+test('imported work releases what it held, and views that cannot be made stop the import', async () => {
+  const from = await workspace(), to = await workspace();
+  const { map, job } = await workedMap(from.store);
+  await from.store.fail(map.id, job.jobId, job.claimKey, 'Stopped for the test.');
+  // A regeneration still queued in the export: its question must come back, not wait forever.
+  const exported = await exportMap(from.store, map.id);
+  const question = exported.map.nodes[0].questions[0];
+  Object.assign(question, { answer: null, dismissedAt: '2026-11-27T10:00:00.000Z', replacedBy: 'pending' });
+  exported.map.jobs.push({ id: 'job-0000aaaa', type: 'regenerate-question', nodeId: map.rootId, subjectId: question.id, status: 'queued', reason: 'A better question.', createdAt: '2026-11-27T10:00:00.000Z' });
+  const result = await to.store.importMap(exported);
+  const imported = await to.store.get(result.imported);
+  assert.equal(imported.nodes[0].questions[0].replacedBy, undefined, 'the original question is given back');
+  const broken = await exportMap(from.store, map.id);
+  Object.assign(broken.map.nodes[0], { stale: true, reviewCauses: [null] }); broken.map.id = 'map-0000beef';
+  const target = await workspace();
+  await assert.rejects(target.store.importMap(broken), error => error.status === 400 && /cannot show/.test(error.message));
+  await assert.rejects(readdir(target.store.directory), 'nothing written');
+});
+
+test('a map with more ideas than Explore imports is refused', async () => {
+  const from = await workspace(), to = await workspace();
+  const { map } = await workedMap(from.store);
+  const exported = await exportMap(from.store, map.id);
+  const { maxImportIdeas } = await import('../skills/explore/scripts/transfer.mjs');
+  const template = exported.map.nodes[1];
+  for (let i = exported.map.nodes.length; i <= maxImportIdeas; i++) exported.map.nodes.push({ ...template, id: `node-${i.toString(16).padStart(8, '0')}`, questions: [], sources: [] });
+  await assert.rejects(to.store.importMap(exported), error => error.status === 413);
 });

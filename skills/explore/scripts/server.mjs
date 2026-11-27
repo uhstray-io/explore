@@ -7,7 +7,7 @@ import { Store, Problem, atomicJson, publicMap } from './store.mjs';
 import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
-import { exportMap, importMap } from './transfer.mjs';
+import { exportMap } from './transfer.mjs';
 import { previewRestart } from './restart.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
@@ -113,7 +113,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (url.pathname === '/api/maps') return send(res, 201, store.view(await store.create(body)));
         if (url.pathname === '/api/demo') return send(res, 201, store.view(await store.demo()));
         if (url.pathname === '/api/settings') return send(res, 200, await store.updateSettings(body));
-        if (url.pathname === '/api/import') return send(res, 200, await importMap(store, body.data, { asCopy: body.asCopy === true }));
+        if (url.pathname === '/api/import') return send(res, 200, await store.importMap(body.data, { asCopy: body.asCopy === true }));
         if (match?.[2] === 'action') return send(res, 200, store.view(await store.action(match[1], body, { actor: await contributor() })));
         if (match?.[2] === 'result') return send(res, 200, store.view(await store.complete(match[1], body.jobId, body.claimKey, body.result)));
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));

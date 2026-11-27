@@ -1,16 +1,17 @@
-import { mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile, rm, access } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
-import { Versions, compareVersion, restorableHash, shouldRecord } from './versions.mjs';
+import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
+import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
-import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, decodeMap, readProblem, generatedFrom } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, decodeMap, readProblem, generatedFrom, validateMap } from './map-validation.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -152,8 +153,6 @@ export class Store {
     }
     await rm(dir, { recursive: true, force: true });
   }
-  // A map that has never been saved here (an import): its versions record only what happens from now on.
-  adoptNew(map) { this.eventsAtLoad.set(map, map.history.length); }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
   async list() {
     await mkdir(this.directory, { recursive: true });
@@ -175,23 +174,27 @@ export class Store {
   // A save writes only over the version its change was based on; otherwise someone changed the file meanwhile.
   // Each content change is recorded as a version just before map.json is replaced; moving ideas and the
   // queue's own bookkeeping are not. `actor` is the contributor who made the change, if known.
-  async save(map, { actor = null } = {}) {
+  // A map that is not on disk yet (created or imported here): its save refuses to replace any file.
+  isNew(map) { this.basis.set(map, null); return map; }
+  // `labels` names the change for version history when it is not an event, such as an import.
+  async save(map, { actor = null, labels: named } = {}) {
     // Converted on every write, not on read: a restore copies jobs from version files that never pass
     // parseMap, so only this keeps a raw key out of map.json.
     for (const job of map.jobs) if (job.claimKey) { job.claimHash = claimHashOf(job.claimKey); delete job.claimKey; }
     map.revision += 1;
     map.updatedAt = now();
-    const labels = [...new Set(map.history.slice(this.eventsAtLoad.get(map) ?? 0).map(event => event.type))];
+    const labels = named ?? [...new Set(map.history.slice(this.eventsAtLoad.get(map) ?? 0).map(event => event.type))];
     const bytes = Buffer.from(JSON.stringify(map, null, 2) + '\n'), fingerprint = fingerprintOf(bytes);
     let versionError = null;
     await this.withMapLock(map.id, async () => {
       const basis = this.basis.get(map);
       // Checked after the new file is written and synced, just before it replaces the old one.
       await atomicWrite(this.file(map.id), bytes, async () => {
-        if (basis) {
+        // A loaded map must still be the file it came from; a new one (null) must find no file at all.
+        if (basis !== undefined) {
           let onDisk = null;
           try { onDisk = fingerprintOf(await readFile(this.file(map.id))); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-          if (onDisk !== basis) { map.revision -= 1; throw new Problem(changedOutside, 409, 'changed-outside'); }
+          if (onDisk !== basis) { map.revision -= 1; throw basis === null ? new Problem('A map with this ID already exists here.', 409, 'map-exists') : new Problem(changedOutside, 409, 'changed-outside'); }
         }
       });
       this.adopted.set(map.id, { fingerprint, bytes }); this.basis.set(map, fingerprint); this.eventsAtLoad.set(map, map.history.length);
@@ -207,9 +210,10 @@ export class Store {
     }
     return map;
   }
-  async project(map) {
-    const dir = path.dirname(this.file(map.id));
-    await mkdir(path.join(dir, 'nodes'), { recursive: true });
+  // The readable views of a map, as text: README.md and one file per idea. Pure, so a map whose views cannot
+  // be generated is refused before anything is written (an import), not after.
+  renderViews(map) {
+    const nodes = new Map();
     const overview = [`# ${map.title}`, '', `${generatedFrom(map.revision)} Canonical source: [map.json](map.json).`,
       '', '> Read this overview, then only relevant node documents. Node files are generated; use the application or CLI to make changes.',
       '', '## Original idea', '', map.originalIdea || map.nodes[0].prompt || map.nodes[0].body, '', '## Exploration', ''];
@@ -236,12 +240,32 @@ export class Store {
         lines.push('', j.restartedAt ? '## Earlier result before this branch was restarted' : '## Earlier investigation result', '', `Job: ${j.id}${j.restartedAt ? ` | Kept from before the restart on ${j.restartedAt.slice(0, 10)}; the full branch is in its checkpoint version.` : j.stale ? ' | A premise changed while this investigation was running.' : ' | Retained history; use the current premise and findings above.'}`, '', j.result.summary, '', j.result.body);
         if (j.result.sources?.length) lines.push('', '### Evidence recorded for this result', ...j.result.sources.flatMap(s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`]));
       }
-      await writeFile(path.join(dir, 'nodes', `${n.id}.md`), lines.join('\n') + '\n');
+      nodes.set(n.id, lines.join('\n') + '\n');
     }
+    return { readme: overview.join('\n') + '\n', nodes };
+  }
+  async project(map, views = this.renderViews(map)) {
+    const dir = path.dirname(this.file(map.id));
+    await mkdir(path.join(dir, 'nodes'), { recursive: true });
+    for (const [id, text] of views.nodes) await writeFile(path.join(dir, 'nodes', `${id}.md`), text);
     // Views of ideas that no longer exist, after a restart or restore, are removed; map.json is the source.
     const current = new Set(map.nodes.map(n => `${n.id}.md`));
     for (const name of await readdir(path.join(dir, 'nodes'))) if (/^node-[a-z0-9-]+\.md$/.test(name) && !current.has(name)) await rm(path.join(dir, 'nodes', name), { force: true });
-    await writeFile(path.join(dir, 'README.md'), overview.join('\n') + '\n');
+    await writeFile(path.join(dir, 'README.md'), views.readme);
+  }
+  // Stops open work without running anything. An investigation leaves its idea interrupted; other kinds
+  // release what they held, so a pending regeneration gives its question back. Returns the stopped jobs.
+  deactivateOpenWork(map, { error, at, only = isOpenJob } = {}) {
+    const stopped = map.jobs.filter(only);
+    for (const job of stopped) {
+      Object.assign(job, { status: 'interrupted' }, at ? { finishedAt: at } : {}, error ? { error } : {});
+      if (!isInvestigation(job)) { this.jobType(jobTypeOf(job))?.release?.({ map, job }); continue; }
+      const node = map.nodes.find(n => n.id === job.nodeId);
+      if (node) node.status = 'interrupted';
+    }
+    // Once all open work has stopped, no idea can still be waiting or running.
+    if (only === isOpenJob) for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
+    return stopped;
   }
   event(map, type, nodeId, detail = '') { map.history.push({ at: now(), type, nodeId, detail }); }
   affectedBy(map, nodeIds) {
@@ -344,7 +368,7 @@ export class Store {
         originalIdea: idea, createdAt: now(), updatedAt: now(), nodes: [root], edges: [], jobs: [], history: [], view: { positions: {} } };
       this.recordGrowth(map, [root]);
       this.enqueue(map, root, 'User described a new idea. Identify useful directions and ask focused questions.');
-      return this.save(map);
+      return this.save(this.isNew(map));
     });
   }
   demo() {
@@ -363,7 +387,7 @@ export class Store {
         jobs: [], history: [], view: { positions: {} } };
       this.recordGrowth(map, nodes, map.edges);
       this.event(map, 'example-created', root.id, 'Illustrative content, not agent research.');
-      return this.save(map);
+      return this.save(this.isNew(map));
     });
   }
   // `actor` is { name } from the server's own Git lookup, never from the request body.
@@ -397,9 +421,8 @@ export class Store {
           need(!readProblem(snapshot, map.id), 'This version is damaged and cannot be restored. Choose another version.', 409);
           need(restorableHash(snapshot) !== restorableHash(map), 'The map already matches this version.', 409);
           const positions = map.view?.positions || {};
-          Object.assign(map, { title: snapshot.title, originalIdea: snapshot.originalIdea, rootId: snapshot.rootId, nodes: snapshot.nodes, edges: snapshot.edges,
-            jobs: snapshot.jobs.map(job => isOpenJob(job) ? { ...job, status: 'interrupted', finishedAt: now(), error: 'Interrupted by restoring an earlier version. Retry to continue.' } : job) });
-          for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
+          Object.assign(map, { title: snapshot.title, originalIdea: snapshot.originalIdea, rootId: snapshot.rootId, nodes: snapshot.nodes, edges: snapshot.edges, jobs: snapshot.jobs });
+          this.deactivateOpenWork(map, { at: now(), error: 'Interrupted by restoring an earlier version. Retry to continue.' });
           // Today's layout wins for ideas that still exist; the event log and growth history only grow.
           map.view = { ...map.view, positions: Object.fromEntries(map.nodes.map(node => [node.id, positions[node.id] ?? snapshot.view?.positions?.[node.id]]).filter(([, point]) => point)) };
           this.event(map, input.undo ? 'change-undone' : 'version-restored', null, input.version);
@@ -740,16 +763,51 @@ export class Store {
         for (const n of map.nodes) if (isCompleted(map, n) && n.status !== 'explored') {
           this.stopCompletedRepeat(map, n); changed = true;
         }
-        for (const j of map.jobs.filter(j => j.status === 'running')) {
-          j.status = 'interrupted'; j.finishedAt = now(); changed = true;
-          const node = isInvestigation(j) ? map.nodes.find(n => n.id === j.nodeId) : null;
-          if (node) node.status = 'interrupted';
-          if (!isInvestigation(j)) this.jobType(j.type)?.release?.({ map, job: j });
+        for (const j of this.deactivateOpenWork(map, { at: now(), only: job => job.status === 'running' })) {
+          changed = true;
           this.event(map, 'interrupted', j.nodeId, isInvestigation(j) ? 'Server restarted. Retry explicitly to continue.' : 'Server restarted. Request this work again to continue.');
         }
         if (changed) await this.save(map); else await this.project(map);
       }
     });
+  }
+  // Import a map (I2). The data is untrusted and never overwrites anything here: an identical map opens the
+  // one already here, and a taken ID (even a folder that cannot be opened) is a conflict the user settles by
+  // importing a copy. Imported work never runs until the user acts.
+  importMap(data, { asCopy = false } = {}) {
+    return this.serial(async () => {
+      const { map: incoming, exportedAt } = unwrapExport(data, message => { throw new Problem(message); });
+      const problems = validateMap(incoming).errors;
+      need(!problems.length, `This map cannot be imported: ${problems.slice(0, 5).map(problem => `${problem.message.replace(/[.]$/, '')} (${problem.code} at ${problem.at})`).join('; ')}${problems.length > 5 ? '; and more' : ''}.`);
+      need(incoming.nodes.length <= maxImportIdeas, `This map has more than ${maxImportIdeas} ideas, more than Explore imports.`, 413);
+      const map = this.asImported(incoming);
+      const taken = mapFolderPattern.test(map.id) && await this.taken(map.id);
+      if (taken && !asCopy) {
+        if (taken.map && contentHash(this.asImported(taken.map)) === contentHash(map)) return { existing: map.id };
+        return { conflict: { mapId: map.id, existing: taken.map ? mapSummary(taken.map) : { unreadable: true }, incoming: mapSummary(map) } };
+      }
+      if (taken || !mapFolderPattern.test(map.id)) Object.assign(map, { id: id('map'), title: `${map.title.slice(0, 93)} (copy)`, createdAt: now(), importedFrom: { mapId: incoming.id, revision: incoming.revision, exportedAt } });
+      try { this.renderViews(map); } catch { throw new Problem('This map has parts Explore cannot show, so it was not imported.'); }
+      await this.save(this.isNew(map), { labels: ['map-imported'] });
+      return { imported: map.id };
+    });
+  }
+  // A map as an import would store it: without claim data, and with open work stopped but no timestamps added,
+  // so the same map compares equal whether it was imported once, twice, or is the one it was exported from.
+  asImported(map) {
+    const copy = snapshotOf(map);
+    this.deactivateOpenWork(copy, { error: 'Imported while queued or running. Retry to continue.' });
+    return copy;
+  }
+  // Whether a map ID is in use here: { map } when it opens, { map: null } for a folder that exists but cannot
+  // be opened, false when it is free.
+  async taken(mapId) {
+    try { return { map: await this.get(mapId) }; }
+    catch (error) {
+      if (!(error instanceof Problem)) throw error;
+      if (error.code !== 'not-found') return { map: null };
+      return access(path.dirname(this.file(mapId))).then(() => ({ map: null }), () => false);
+    }
   }
   settingsFile() { return path.join(this.directory, 'settings.json'); }
   // Shared settings live in the repo beside the maps, so everyone who opens it gets the same experience.
