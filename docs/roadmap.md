@@ -12,10 +12,8 @@ Status as of 2026-11-27. Start here in a new session. The GitHub issues are the 
 
 ## Branch state
 
-- `main` (`bb4a054`) predates both the workspace improvements and the rename.
-- `codex/exploration-workspace` (`63efdf0`) holds the reviewed workspace improvements described in [the review guide](review-guide.md).
-- `rename-to-explore` builds on `codex/exploration-workspace`. It renames the project to Explore, adds this page, and commits the owner's latest `ideas/` map edits in a separate commit.
-- Next step, for the owner: merge `rename-to-explore` into `main`; it contains both branches. The issues assume work starts from `main` after that merge. Until then, start from `rename-to-explore`.
+- `main` contains everything: the workspace improvements from `codex/exploration-workspace` (described in [the review guide](review-guide.md)) and the rename from `rename-to-explore`, fast-forwarded on 2026-11-27. Start new work from `main` on a feature branch.
+- Both feature branches stay on GitHub for reference and can be deleted.
 
 ## How the plan was made
 
@@ -44,8 +42,8 @@ Confirm these with the owner before implementing them.
 - The browser's saved theme and last-opened map reset once, because their storage keys changed.
 - The owner's Copilot Explore plugin also ships a skill named `explore`. Installing both in Copilot would clash; Claude Code alone is unaffected.
 
-## Verification state of `rename-to-explore`
+## Verification state
 
-- Passed on 2026-11-27: `node scripts/check.mjs`, `node scripts/verify-prototypes.mjs`, `node scripts/test.mjs` (90/90).
+- Passed on 2026-11-27 in a fresh clone, before the merge into `main`: `node scripts/check.mjs`, `node scripts/verify-prototypes.mjs`, `node scripts/test.mjs` (90/90).
 - Not yet checked: visual rendering after the rename, and live Claude Code and Copilot runs.
 - Browser checks: the Playwright MCP plugin blocks `file://` pages by default, and the owner chose to keep that block. Serve pages over `http://127.0.0.1` instead, through the app server or `node scripts/review-demo.mjs --serve`.
