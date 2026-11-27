@@ -1,7 +1,8 @@
-import { readFile, readdir, stat, unlink } from 'node:fs/promises';
+import { readFile, readdir, lstat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { atomicJson } from './files.mjs';
+import { undoTarget } from '../assets/workspace-view.js';
 
 // Version history (E1). Each saved change to a map is one standalone file in the map's folder,
 // ideas/<map-id>/versions/<time>-<random>.json, committed with the map so anyone who pulls can
@@ -34,6 +35,18 @@ export function shouldRecord(labels) { return labels.some(label => !bookkeeping.
 const describe = (id, record, bytes) => ({ id, mapId: record.mapId, revision: record.revision, at: record.at, labels: record.labels,
   ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.checkpoint ? { checkpoint: true } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
 
+// The versions history may let go of, newest first: unnamed, unimported, beyond the newest `keepNewest` such
+// versions, and older than every version Undo could restore for anyone who saved one. Undo walks every undone
+// change and the change it cancelled, so nothing newer than the deepest Undo target is ever offered.
+export function removable(versions, { keepNewest }) {
+  let floor = 0;
+  for (const author of new Set([null, ...versions.map(version => version.author).filter(Boolean)])) {
+    const undo = undoTarget(versions, author);
+    if (undo) floor = Math.max(floor, versions.indexOf(undo.target));
+  }
+  return versions.filter(version => !version.name && !version.kept).slice(keepNewest).filter(version => versions.indexOf(version) > floor);
+}
+
 export class Versions {
   constructor(directory, limits = {}) { this.directory = directory; this.limits = { ...versionLimits, ...limits }; this.headers = new Map(); }
   folder(mapId) { return path.join(this.directory, mapId, 'versions'); }
@@ -47,7 +60,8 @@ export class Versions {
     for (const name of names) {
       const file = path.join(this.folder(mapId), name), id = name.slice(0, -5);
       let info;
-      try { info = await stat(file); } catch { continue; }
+      try { info = await lstat(file); } catch { continue; }
+      if (!info.isFile()) continue; // A link or folder is never a version.
       const key = file;
       let cached = this.headers.get(key);
       if (!cached || cached.mtimeMs !== info.mtimeMs || cached.size !== info.size) {
@@ -93,20 +107,21 @@ export class Versions {
     await this.prune(map.id);
     return id;
   }
-  // Keeps every named or imported version, and the newest others within the count and byte limits.
+  // Keeps every named or imported version, the versions Undo needs, and the newest others within the count and
+  // byte limits.
   async prune(mapId) {
+    const versions = await this.scan(mapId), allowed = new Set(removable(versions, { keepNewest: 1 }).map(version => version.id));
     let kept = 0, bytes = 0;
-    for (const version of (await this.scan(mapId)).filter(version => !version.name && !version.kept)) {
+    for (const version of versions.filter(version => !version.name && !version.kept)) {
       kept += 1; bytes += version.bytes;
-      if (kept > 1 && (kept > this.limits.count || bytes > this.limits.bytes)) await unlink(this.file(mapId, version.id)).catch(() => {});
+      if ((kept > this.limits.count || bytes > this.limits.bytes) && allowed.has(version.id)) await this.unlinkVersion(mapId, version.id).catch(() => {});
     }
   }
-  // Removes one unnamed, unimported version: the storage cleanup's only way to delete history (J5).
-  async remove(mapId, id) {
-    const file = this.file(mapId, id), version = (await this.scan(mapId)).find(item => item.id === id);
-    need(version, 'Version not found.', 404);
-    need(!version.name && !version.kept, 'Named and imported versions are always kept.', 409);
-    await unlink(file); this.headers.delete(file);
+  async unlinkVersion(mapId, id) { const file = this.file(mapId, id); await unlink(file); this.headers.delete(file); }
+  // Removes one version the shared rule allows: the storage cleanup's only way to delete history (J5).
+  async remove(mapId, id, { keepNewest }) {
+    need(removable(await this.scan(mapId), { keepNewest }).some(version => version.id === id), 'This version is kept: it is named, imported, among the newest, or needed by Undo.', 409);
+    await this.unlinkVersion(mapId, id);
   }
   async name(mapId, id, name) {
     const file = this.file(mapId, id), versions = await this.scan(mapId);
