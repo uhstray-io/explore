@@ -171,7 +171,7 @@ export function answerChoices(map) {
 }
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // The Check answers panel: what will be read, progress, and the latest points to keep or dismiss.
 export function checkAnswersHtml({ map, preview, listening, esc }) {
   const records = preview?.records || [], omitted = preview?.omittedRecords || [];

@@ -57,7 +57,7 @@ function browser(address = '') {
   const context = vm.createContext({ state, location, history, toast: message => toasts.push(message), nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage,
     showWelcome: () => { state.map = null; state.selected = null; }, returnLive: () => { state.historyStep = null; },
     // The real openMap runs; only its page and server edges are stubbed.
-    api: async route => structuredClone(maps[route.split('/').pop()]), openVersion: 0, localStorage: { setItem() {} }, $: () => ({}), navigation() {}, renderMap() {}, renderRail() {}, checkGitStatus() {},
+    api: async route => structuredClone(maps[route.split('/').pop()]), openVersion: 0, localStorage: { setItem() {} }, $: () => ({}), navigation() {}, renderMap() {}, renderRail() {}, checkGitStatus() {}, sinceVisit: { open() {}, render() {} },
     focusNode: id => { state.selected = id; context.showAddress(); } });
   vm.runInContext(routing, context);
   return { context, state, toasts, entries: () => entries.slice(), at: () => index,
