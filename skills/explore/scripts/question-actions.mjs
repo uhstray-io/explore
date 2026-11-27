@@ -149,9 +149,9 @@ export const questionJobTypes = {
     // A tidied wording only fits a question still waiting for this answer.
     isStale: ({ job, node }) => { const question = subjectOf(job, node); return !question || !isOpen(question); },
     recheck: true,
-    release: ({ job }) => { delete job.input; }, // Stopped, failed or interrupted: the draft leaves the map.
     // Only the newest unresolved request of a question still open keeps the user's texts. Every other one gives
-    // them up, and a queued one whose question was answered or set aside is stopped before an agent reads it.
+    // them up (a stopped, failed or interrupted one included), and a queued one whose question was answered or set
+    // aside is stopped before an agent reads it. That stop records no event: it would only repeat the user's answer.
     beforeSave: map => {
       const newest = new Map();
       for (const job of map.jobs) if (job.type === TIDY && !job.outcome && ['queued', 'running', 'completed'].includes(job.status)) newest.set(job.subjectId, job);

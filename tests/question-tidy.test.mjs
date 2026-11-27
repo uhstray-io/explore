@@ -1,14 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Store, isCompleted } from '../skills/explore/scripts/store.mjs';
 import { questionMenuHtml, questionTidyHtml, tidyArrived } from '../skills/explore/assets/workspace-view.js';
 import { questionClick } from '../skills/explore/assets/question-clicks.js';
-import { readdir } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { writeFile } from 'node:fs/promises';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 
 // Tidy my wording (Z3, #61). Illustrative fixtures under .test-output, never ideas/.
@@ -156,7 +154,8 @@ test('a tidied wording that arrives is noticed for the selected idea only', () =
   assert.equal(tidyArrived([job('a', 'n2', 'running')], [job('a', 'n2', 'completed', { text: 'x' })], 'n1'), false);
 });
 
-test('the question clicks work outside app.js: dismiss, answer later, and using, keeping and restoring a tidied wording', async () => {
+test('the question clicks work outside app.js: dismiss, answer later, and using, keeping and restoring a tidied wording', async t => {
+  t.after(() => { delete globalThis.document; });
   const fields = { 'q-1': { value: 'my draft', focus() {} } };
   globalThis.document = { querySelector: selector => { const match = selector.match(/data-draft="([^"]+)"/); return match ? fields[match[1]] ?? null : null; } };
   const calls = [], toasts = [];
@@ -178,7 +177,6 @@ test('the question clicks work outside app.js: dismiss, answer later, and using,
   assert.equal(state.drafts['q-1'], 'my draft'); assert.equal(state.tidyRestore['q-1'], undefined);
   await click({ 'tidy-keep': '', dataset: { tidyKeep: 'job-t', questionId: 'q-1' } });
   assert.deepEqual(calls.at(-1), [null, 'resolve-clean', { jobId: 'job-t', outcome: 'rejected' }]);
-  delete globalThis.document;
 });
 
 test('the CLI hands out a tidy request and delivers the tidied wording', async () => {
