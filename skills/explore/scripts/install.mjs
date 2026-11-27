@@ -41,25 +41,30 @@ export async function install({ source = thisPackage, project, host, update = fa
     if (!lockIsFree(await inspectLock(project))) fail('Stop the Explore server for this project first; it may be using the installed copy.');
     if (compareVersions(oldVersion, newVersion) > 0 && !allowDowngrade) fail(`The installed copy (${shown(oldVersion)}) is newer than this package (${shown(newVersion)}). Add --allow-downgrade to replace it anyway.`);
   }
-  const before = installed ? await files(target) : new Map(), after = await files(source);
+  const before = installed ? await files(target) : null, after = installed ? await files(source) : null;
   if (installed && sameFiles(before, after)) return { action: 'up-to-date', target, version: newVersion };
 
   const runtime = await ensureRuntime(project), staging = path.join(runtime, `install-staging-${randomBytes(4).toString('hex')}`);
-  const discard = () => rm(staging, { recursive: true, force: true });
+  const discard = () => rm(staging, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
+  // A discovery folder linked to another drive cannot be renamed into; copy there instead.
+  const place = async (from, to) => {
+    try { await rename(from, to); }
+    catch (error) { if (error.code !== 'EXDEV') throw error; await cp(from, to, { recursive: true, errorOnExist: true, force: false }); await rm(from, { recursive: true, force: true, maxRetries: 5 }).catch(() => {}); }
+  };
   try { await cp(source, staging, { recursive: true, errorOnExist: true, force: false }); }
   catch (error) { await discard(); fail(`The new copy could not be prepared, so nothing was changed: ${error.message}`, error); }
   if (!installed) {
-    try { await mkdir(path.dirname(target), { recursive: true }); await rename(staging, target); }
+    try { await mkdir(path.dirname(target), { recursive: true }); await place(staging, target); }
     catch (error) { await discard(); fail(`The new copy could not be moved into place, so nothing was installed: ${error.message}`, error); }
     return { action: 'installed', target, version: newVersion };
   }
   const backups = path.join(runtime, 'skill-backups'), backup = path.join(backups, `${host}-${shown(oldVersion)}-${new Date().toISOString().replace(/[-:.]/g, '')}`);
   await mkdir(backups, { recursive: true });
-  try { await rename(target, backup); }
+  try { await place(target, backup); }
   catch (error) { await discard(); await rmdir(backups).catch(() => {}); fail(`The installed copy could not be moved aside, so it was not changed: ${error.message}`, error); }
-  try { await rename(staging, target); }
+  try { await place(staging, target); }
   catch (error) {
-    try { await rename(backup, target); }
+    try { await place(backup, target); }
     catch { fail(`The update failed and the previous copy could not be put back. It is safe at ${backup}; the new copy is at ${staging}. Move the backup to ${target} to restore it.`, error); }
     await discard();
     fail(`The new copy could not be moved into place, so the previous copy was put back: ${error.message}`, error);
