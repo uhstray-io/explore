@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { mapFolderPattern } from './map-validation.mjs';
 import { packageVersion } from './package-version.mjs';
+import { runtimePath, inspectLock } from './server-lock.mjs';
 import { fileURLToPath } from 'node:url';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 
 const skillDirectory = fileURLToPath(new URL('../', import.meta.url));
-const runtimePath = workspace => path.join(workspace, '.explore');
 
 // Never send the local bearer token to an address supplied by an unchecked file.
 export async function readConnection(workspace) {
@@ -28,15 +28,6 @@ export async function readConnection(workspace) {
   return { ...value, address: address.origin };
 }
 
-export async function inspectLock(workspace) {
-  try {
-    const lock = JSON.parse(await readFile(path.join(runtimePath(workspace), 'server.lock'), 'utf8'));
-    if (!Number.isInteger(lock.pid) || lock.pid <= 0) return { state: 'invalid' };
-    try { process.kill(lock.pid, 0); return { state: 'process-present', pid: lock.pid }; }
-    catch (error) { return { state: error.code === 'ESRCH' ? 'process-absent' : 'unknown', pid: lock.pid }; }
-  } catch (error) { return { state: error.code === 'ENOENT' ? 'absent' : 'invalid' }; }
-}
-
 export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {}) {
   workspace = path.resolve(workspace);
   const checks = [];
@@ -46,7 +37,7 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
   let workspaceExists = false;
   try { workspaceExists = (await stat(workspace)).isDirectory(); } catch { /* Report missing/inaccessible without raw errors. */ }
   add('workspace', workspaceExists ? 'ok' : 'error', workspaceExists ? 'Workspace directory is accessible.' : 'Use an existing, accessible workspace directory.');
-  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/package-version.mjs', 'scripts/install.mjs', 'version.json', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
+  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/package-version.mjs', 'scripts/install.mjs', 'scripts/server-lock.mjs', 'version.json', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
   const missing = [];
   for (const file of files) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
   add('package', missing.length ? 'error' : 'ok', missing.length ? `Restore the complete skill package; missing: ${missing.join(', ')}.` : 'Skill scripts, references, and browser assets are accessible.');

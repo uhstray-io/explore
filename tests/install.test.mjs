@@ -6,7 +6,8 @@ import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { versionProblems, compareVersions } from '../skills/explore/scripts/package-version.mjs';
+import { compareVersions } from '../skills/explore/scripts/package-version.mjs';
+import { versionProblems } from '../scripts/version-check.mjs';
 
 // Versions and safe updates (J4, #46). Every fixture lives under .test-output.
 const exec = promisify(execFile);
@@ -96,15 +97,57 @@ test('--update refuses while the server runs, refuses a downgrade unless allowed
   assert.equal(result.code, 0); assert.equal(await installedVersion(project), '0.2.0');
 });
 
-test('a failure during the final move puts the original installation back', async () => {
+// Runs the new package's install() with moves that fail on the given calls.
+async function failingUpdate(failOn) {
   const { dir, project } = await sandbox();
   const old = await packageAt(dir, '0.1.0'), next = await packageAt(dir, '0.2.0');
   await install(old, project);
   const before = await tree(installed(project));
-  const { updateInstallation } = await import(pathToFileURL(path.join(next, 'scripts/install.mjs')).href);
+  const { install: run } = await import(pathToFileURL(path.join(next, 'scripts/install.mjs')).href);
   let moves = 0;
-  const failingRename = async (from, to) => { if (++moves === 2) throw new Error('disk unplugged'); return rename(from, to); };
-  await assert.rejects(updateInstallation({ source: next, project, host: 'codex', rename: failingRename }), /disk unplugged/);
+  const failing = async (from, to) => { if (failOn.includes(++moves)) throw new Error('disk unplugged'); return rename(from, to); };
+  const error = await run({ source: next, project, host: 'codex', update: true, rename: failing }).then(() => null, caught => caught);
+  const runtime = await readdir(path.join(project, '.explore'));
+  return { project, before, error, runtime };
+}
+
+test('if the installed copy cannot be moved aside, nothing changes and nothing is left behind', async () => {
+  const { project, before, error, runtime } = await failingUpdate([1]);
+  assert.match(error.message, /could not be moved aside, so it was not changed: disk unplugged/);
+  assert.deepEqual(await tree(installed(project)), before);
+  assert.deepEqual(runtime, ['.gitignore'], 'no staging folder and no empty backup folder');
+});
+
+test('a failure during the final move puts the original installation back and cleans up', async () => {
+  const { project, before, error, runtime } = await failingUpdate([2]);
+  assert.match(error.message, /could not be moved into place, so the previous copy was put back/);
+  assert.equal(error.cause.message, 'disk unplugged');
   assert.deepEqual(await tree(installed(project)), before);
   assert.deepEqual(await readdir(path.join(project, '.agents', 'skills')), ['explore']);
+  assert.ok(!runtime.some(name => name.startsWith('install-staging-')));
+});
+
+test('if putting the original back fails too, the message says where it is safe', async () => {
+  const { project, before, error } = await failingUpdate([2, 3]);
+  const backup = error.message.match(/It is safe at (.+?); the new copy/)?.[1];
+  assert.ok(backup, error.message); assert.equal(error.cause.message, 'disk unplugged');
+  assert.deepEqual(await tree(backup), before, 'the backup is the complete previous copy');
+});
+
+test('a fresh install is staged too, and the runtime folder ignores itself in Git', async () => {
+  const { dir, project } = await sandbox();
+  assert.equal((await install(await packageAt(dir, '0.2.0'), project)).code, 0);
+  assert.deepEqual(await readdir(path.join(project, '.explore')), ['.gitignore']);
+  assert.equal(await readFile(path.join(project, '.explore', '.gitignore'), 'utf8'), '*\n');
+});
+
+test('a briefly refused rename is retried; a real error is not', async () => {
+  const { renameWithRetry } = await import('../skills/explore/scripts/files.mjs');
+  const code = process.platform === 'win32' ? 'EPERM' : 'EBUSY';
+  let calls = 0;
+  await renameWithRetry('a', 'b', { move: async () => { if (++calls < 3) throw Object.assign(new Error('busy'), { code }); } });
+  assert.equal(calls, 3);
+  calls = 0;
+  await assert.rejects(renameWithRetry('a', 'b', { move: async () => { calls++; throw Object.assign(new Error('gone'), { code: 'ENOENT' }); } }), /gone/);
+  assert.equal(calls, 1);
 });

@@ -2,7 +2,8 @@ import { readdir, readFile, access } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { versionProblems, readVersionFile } from '../skills/explore/scripts/package-version.mjs';
+import { readVersionFile } from '../skills/explore/scripts/package-version.mjs';
+import { versionProblems } from './version-check.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 async function walk(directory) {

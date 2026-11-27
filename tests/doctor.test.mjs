@@ -40,7 +40,8 @@ test('doctor reconnects to a live bridge and diagnoses a stopped bridge without 
     const result = JSON.parse(response.stdout);
     assert.equal(result.ready, true); assert.equal(result.state, 'ready'); assert.equal(result.bridge.listening, false);
     assert.ok(!response.stdout.includes(connection.token)); assert.ok(!response.stdout.includes('"token"'));
-    assert.deepEqual((await readdir(path.join(workspace, '.explore'))).sort(), ['connection.json', 'server.lock']);
+    assert.deepEqual((await readdir(path.join(workspace, '.explore'))).sort(), ['.gitignore', 'connection.json', 'server.lock']);
+    assert.equal(await readFile(path.join(workspace, '.explore/.gitignore'), 'utf8'), '*\n', 'the runtime folder ignores itself in Git');
   } finally { await app.close(); }
   await saveConnection(workspace, connection);
   const result = JSON.parse((await run(workspace)).stdout);

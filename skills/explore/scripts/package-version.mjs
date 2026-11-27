@@ -24,12 +24,3 @@ export function compareVersions(a, b) {
   for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i] ? 1 : -1;
   return 0;
 }
-// What check.mjs reports when version.json is missing, malformed, or differs from the root package.json.
-export function versionProblems({ packageJson, versionJson }) {
-  if (!versionJson || typeof versionJson !== 'object') return ['skills/explore/version.json is missing or not valid JSON.'];
-  const problems = [];
-  if (versionJson.name !== 'explore') problems.push('skills/explore/version.json name must be "explore".');
-  if (!isVersion(versionJson.version)) problems.push('skills/explore/version.json version must look like 1.2.3.');
-  else if (versionJson.version !== packageJson?.version) problems.push(`skills/explore/version.json version ${versionJson.version} differs from package.json version ${packageJson?.version}. Bump both together.`);
-  return problems;
-}
