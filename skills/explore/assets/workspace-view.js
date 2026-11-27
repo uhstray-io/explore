@@ -112,7 +112,8 @@ function findUndo(versions, me) {
 // Removing any other version cannot change what my Undo does. With no `me`, everything down to the target.
 export function undoDependencies(versions, me) {
   const undo = findUndo(versions, me);
-  if (!undo) return [];
+  // No target: the walk still looked at every version it could use, so all of those stay.
+  if (!undo) return me ? versions.filter(version => version.author === me) : versions;
   const end = versions.indexOf(undo.target);
   return versions.slice(0, end + 1).filter(version => !me || version.author === me || version === undo.target);
 }

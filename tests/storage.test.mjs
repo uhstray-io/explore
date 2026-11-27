@@ -136,3 +136,11 @@ test('a history folder that is itself a link is never read or cleaned', async t 
   await storage.clean({ previewId: preview.id });
   assert.equal((await readdir(outside)).length, before, 'nothing behind the link was removed');
 });
+
+test('a contributor whose Undo found nothing to restore keeps the versions it looked at', async () => {
+  const { removable } = await import('../skills/explore/scripts/versions.mjs');
+  const v = (id, author, labels = ['suggested'], name) => ({ id, author, labels, ...(name ? { name } : {}) });
+  // W named a change, then undid it, and saved nothing else; both are older than the newest five.
+  const versions = [v('b0', 'B'), v('b1', 'B'), v('b2', 'B'), v('b3', 'B'), v('b4', 'B'), v('b5', 'B'), v('w0', 'W', ['change-undone']), v('w1', 'W', ['suggested'], 'Named'), v('b6', 'B'), v('b7', 'B')];
+  assert.ok(!removable(versions, { keepNewest: 5 }).some(version => version.id === 'w0'), 'removing it would change what the Undo of W does');
+});
