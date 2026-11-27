@@ -665,3 +665,12 @@ test('each changed snapshot of the open map reaches the alerts with the one show
   await h.refresh();
   assert.deepEqual(h.events.noticed, [['Shown', 'Changed']]);
 });
+
+test('a refresh asked for while one runs waits for that one instead of starting another', async () => {
+  const pulled = { id: 'map-a', revision: 6, fingerprint: 'f2', title: 'Changed', outsideChange: null };
+  const h = refreshHarness({ listed: { id: 'map-a', revision: 6, fingerprint: 'f2' }, fetched: pulled });
+  const first = h.refresh(), second = h.refresh();
+  assert.equal(first, second);
+  await second;
+  assert.equal(h.events.noticed.length, 1, 'one run, one snapshot');
+});

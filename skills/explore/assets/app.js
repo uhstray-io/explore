@@ -8,7 +8,7 @@ import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerSta
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -65,6 +65,12 @@ function refresh() {
   if (state.mutating || gesture) return Promise.resolve();
   state.refreshing = refreshOnce().finally(() => { state.refreshing = null; });
   return state.refreshing;
+}
+// Checks again after 2.5 s, or 15 s while the tab is hidden; showing the tab reschedules at the visible rate.
+let pollTimer = null;
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => { try { await refresh(); } finally { schedulePoll(); } }, pollDelay(document.hidden));
 }
 async function refreshOnce() {
   const version = openVersion;
@@ -300,8 +306,8 @@ const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $
 // render runs even when nothing changed, only to finish that summary.
 document.addEventListener('visibilitychange', async () => {
   if (document.hidden) return;
-  await refresh(); if (state.map) renderMap();
-  const held = state.heldToasts; state.heldToasts = null; if (held?.length) toast(held.join(' '));
+  await refresh(); if (state.map) renderMap(); schedulePoll();
+  const held = state.heldToasts; state.heldToasts = null; if (held?.length) toast([...new Set(held)].join(' '));
 });
 $('#overview-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]'); if (!button) return;
@@ -924,6 +930,5 @@ try {
   await refresh();
   const saved = localStorage.getItem('explore-map');
   if (!(await followAddress()) && saved && state.maps.some(m => m.id === saved)) await openMap(saved, { push: false });
-  const poll = async () => { await refresh(); setTimeout(poll, pollDelay(document.hidden)); };
-  setTimeout(poll, pollDelay(document.hidden));
+  schedulePoll();
 } catch (error) { toast(`Cannot connect to the workspace: ${error.message}`); connectionView(true); }
