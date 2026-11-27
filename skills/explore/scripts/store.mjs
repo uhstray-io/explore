@@ -72,6 +72,13 @@ function researchLines(job, stale) {
 // One source as the Markdown views list evidence.
 const evidenceLine = s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`];
 export { atomicJson } from './files.mjs';
+// Whether two saved forms of a map differ only in pin or archive state and the counters every save changes.
+function onlyLibraryChanged(before, after) {
+  try {
+    const strip = bytes => { const { library, revision, updatedAt, ...rest } = JSON.parse(bytes.toString('utf8')); return JSON.stringify(rest); };
+    return strip(before) === strip(after);
+  } catch { return false; }
+}
 
 export class Store {
   // `onSaved(map)` is told about every saved change, whatever caused it (the server restarts listening windows).
@@ -117,6 +124,7 @@ export class Store {
     const known = this.adopted.get(mapId);
     this.adopted.set(mapId, { fingerprint, bytes });
     if (!known || known.fingerprint === fingerprint) return; // The first read after start adopts silently.
+    if (onlyLibraryChanged(known.bytes, bytes)) return; // Pin and archive state, like a layout, is not news (I1).
     const change = { at: now(), preserved: null, inGit: false };
     this.outside.set(mapId, change);
     // Keep the version that was replaced as a version, unless version history or Git already has it,
@@ -165,9 +173,11 @@ export class Store {
         throw error;
       }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
-        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length });
+        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length,
+        pinned: !!m.library?.pinned, archived: !!m.library?.archived, busy: m.jobs.some(j => j.status === 'queued' || j.status === 'running') });
     }
-    return [...readable.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), ...maps];
+    // Pinned maps first, then the most recently changed (I1).
+    return [...readable.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)), ...maps];
   }
   // A save writes only over the version its change was based on; otherwise someone changed the file meanwhile.
   // Each content change is recorded as a version just before map.json is replaced; moving ideas and the

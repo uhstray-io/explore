@@ -276,7 +276,7 @@ function refreshHarness({ listed, fetched, mutateDuringFetch = false }) {
   const events = { renders: 0, toasts: [], welcome: 0, noticed: [] };
   const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers, alerts: { notice: (before, after) => events.noticed.push([before.title, after.title]) },
     api: async route => {
-      if (route === '/maps') return { maps: listed ? [listed] : [], bridge: {} };
+      if (route.startsWith('/maps?')) return { maps: listed ? [listed] : [], bridge: {} };
       if (mutateDuringFetch) state.mutations++;
       return fetched;
     },

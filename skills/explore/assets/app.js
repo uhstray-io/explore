@@ -1,5 +1,6 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
+import { railHtml, searchResultsHtml } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
@@ -56,7 +57,7 @@ function connectionView(offline = false) {
   hint.textContent = 'Queued safely. Use the agent button above to continue.';
 }
 function renderRail() {
-  const html = state.maps.length ? state.maps.map(m => m.unreadable ? `<button class="map-link unreadable" data-map="${m.id}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.id)}</strong><small>${esc(unreadableLabel(m.problem))}</small></span></button>` : `<button class="map-link ${state.map?.id === m.id ? 'current' : ''}" data-map="${m.id}" ${state.map?.id === m.id ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.title)}</strong><small>${m.demo ? 'Example map' : `${m.count} ${m.count === 1 ? 'idea' : 'ideas'}`}${m.pending ? ` · ${m.pending} queued` : ''}</small></span></button>`).join('') : '<p class="empty-list">Your ideas will find a home here.</p>';
+  const html = railHtml(state.maps, { esc, currentId: state.map?.id, showArchived: !!state.showArchived, unreadableLabel });
   if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
 }
 // One refresh at a time: a caller waits for the one already running instead of skipping it, so a tab shown again
@@ -77,7 +78,7 @@ async function refreshOnce() {
   const version = openVersion;
   const previouslyListening = agentListening();
   try {
-    const data = await api('/maps'); state.maps = data.maps; state.bridge = data.bridge; renderRail(); connectionView();
+    const data = await api('/maps?archived=include'); state.maps = data.maps; state.bridge = data.bridge; renderRail(); connectionView();
     // A list requested before another map opened says nothing about the map open now.
     const current = version === openVersion ? state.map : null;
     const listed = current && data.maps.find(m => m.id === current.id), change = openMapChange(listed, current);
@@ -132,7 +133,7 @@ function renderMap(fit = false, preserveView = false) {
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
   $('#map-title').textContent = state.map.title; $('#canvas-title').textContent = state.map.title;
   const overview = mapOverview(state.visibleMap);
-  $('#canvas-subtitle').textContent = `${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
+  $('#canvas-subtitle').textContent = `${state.map.library?.archived ? 'Archived · ' : ''}${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
   showGitStatus();
   $('#workspace').classList.toggle('history-mode', historic);
   $('#canvas').setAttribute('aria-label', historic ? 'Map growth history. Read-only. Drag the background to pan; select an idea to view today’s findings.' : 'Constellation. Drag a node to move it or the background to pan. Focus a node and use Alt plus arrow keys to move it.');
@@ -742,6 +743,20 @@ $('#new-map').addEventListener('click', showCreate); $('#start-exploration').add
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
 // Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
+// Pin and archive (I1): a map in the rail, not necessarily the open one, so the action names its own revision.
+async function libraryAction(button) {
+  const id = button.dataset.mapPin || button.dataset.mapArchive, listed = state.maps.find(map => map.id === id); if (!listed) return;
+  const input = button.dataset.mapPin ? { type: 'pin', pinned: button.dataset.pinned === 'true' } : { type: 'archive', archived: button.dataset.archived === 'true' };
+  try { await api(`/maps/${id}/action`, { ...input, expectedRevision: listed.revision }); await refresh(); if (state.map?.id === id) state.map = await api(`/maps/${id}`), renderMap(); }
+  catch (error) { toast(error.message); }
+}
+$('#archived-toggle').addEventListener('click', () => { state.showArchived = !state.showArchived; $('#archived-toggle').setAttribute('aria-pressed', String(state.showArchived)); renderRail(); });
+let searchTimer = null;
+$('#map-search').addEventListener('input', event => {
+  clearTimeout(searchTimer); const query = event.target.value.trim(), box = $('#map-search-results');
+  if (query.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+  searchTimer = setTimeout(async () => { try { box.innerHTML = searchResultsHtml(await api(`/search?query=${encodeURIComponent(query)}`), { esc }); box.hidden = false; } catch (error) { box.innerHTML = `<p class="empty-list">${esc(error.message)}</p>`; box.hidden = false; } }, 300);
+});
 const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
 $('#storage-open').addEventListener('click', storageDialog({ api, esc, titleOf: id => state.maps.find(map => map.id === id)?.title ?? id }));
@@ -824,6 +839,8 @@ document.addEventListener('click', async event => {
     catch { state.linkFallbackFor = node.id; renderDetail(true); $('#link-fallback')?.select(); }
     return;
   }
+  const libraryButton = event.target.closest('[data-map-pin], [data-map-archive]');
+  if (libraryButton) { closeMenus(); await libraryAction(libraryButton); return; }
   const menuToggle = event.target.closest('[data-menu]');
   if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeMenus(); if (opening) openMenu(menuToggle); return; }
   if (!event.target.closest('.item-menu')) closeMenus();
