@@ -6,10 +6,10 @@ import { promisify } from 'node:util';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord } from './versions.mjs';
-import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName } from '../assets/questions.js';
+import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
-import { questionFeedback, questionImportance } from './question-actions.mjs';
+import { questionFeedback } from './question-actions.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -240,7 +240,7 @@ export class Store {
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
       else if (n.reaffirmedAt) lines.push('', `_Reaffirmed ${n.reaffirmedAt.slice(0, 10)}: the user re-checked it against the change; it was not re-researched._`);
       const dismissedQuestions = n.questions.filter(q => q.dismissedAt);
-      if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.importance || q.why ? [`_Importance: ${importanceName(q)}${q.why ? ` — ${q.why}` : ''}_`, ''] : []), ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
+      if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.importance || q.why ? [`_Importance: ${importanceName(q.importance)}${q.why ? ` — ${q.why}` : ''}_`, ''] : []), ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
         ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []),
         ...(q.previousAnswers || []).map(p => `_Earlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}_`),
         ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : [])]));
@@ -666,10 +666,7 @@ export class Store {
   validateResultFields(result, map, node) {
     const list = (value, name, max) => { if (value === undefined) return []; need(Array.isArray(value) && value.length <= max, `${name} must be an array of at most ${max} items.`); return value; };
     return { summary: text(result.summary, 'Summary', 800), body: text(result.body, 'Findings', 24000),
-      questions: list(result.questions, 'Questions', 5).map(q => {
-        const asked = typeof q === 'string' ? { text: q } : object(q, 'Question');
-        return { id: id('q'), text: text(asked.text, 'Question', 1600), answer: null, ...questionImportance(asked, message => { throw new Problem(message); }) };
-      }),
+      questions: list(result.questions, 'Questions', 5).map(q => ({ id: id('q'), ...normalizeQuestion(q, message => { throw new Problem(message); }), answer: null })),
       suggestions: list(result.suggestions, 'Suggestions', 8).map(s => {
         object(s, 'Suggestion');
         return { title: text(s.title, 'Suggestion title', 100), body: text(s.body || s.summary, 'Suggestion detail', 4000), kind: kinds.has(s.kind) ? s.kind : 'research' };

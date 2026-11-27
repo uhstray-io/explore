@@ -23,11 +23,31 @@ export function certaintyText(question) {
 // the question as asked. It is not confidence or urgency, and it is never reassessed.
 export const importanceLevels = ['high', 'medium', 'low'];
 const importanceWords = { high: 'High', medium: 'Medium', low: 'Low' };
-export function importanceName(question) { return importanceWords[question.importance] ?? 'Unranked'; }
-export function importanceLabel(question) { return importanceLevels.includes(question.importance) ? `${importanceWords[question.importance]} importance` : null; }
-// Unranked questions come last. Sorting by rank is stable, so map order holds within a level.
-export function importanceRank(question) { const index = importanceLevels.indexOf(question.importance); return index < 0 ? importanceLevels.length : index; }
-export function highestImportance(questions) { return importanceLevels[Math.min(importanceLevels.length, ...questions.filter(isOpen).map(importanceRank))] ?? null; }
+export function importanceName(level) { return Object.hasOwn(importanceWords, level) ? importanceWords[level] : 'Unranked'; }
+// Unranked sorts last. Sorting by rank is stable, so map order holds within a level.
+export function importanceRank(level) { const index = importanceLevels.indexOf(level); return index < 0 ? importanceLevels.length : index; }
+export function highestImportance(questions) { return importanceLevels[Math.min(importanceLevels.length, ...questions.filter(isOpen).map(q => importanceRank(q.importance)))] ?? null; }
+// A question as an agent sends it: a string, or { text, importance, why } where null means not given.
+// A rank always comes with its reason. `fail(message)` must throw, as in normalizeComparison.
+export function normalizeQuestion(value, fail) {
+  const asked = typeof value === 'string' ? { text: value } : value;
+  if (!asked || typeof asked !== 'object' || Array.isArray(asked)) fail('A question must be text or { text, importance, why }.');
+  const text = typeof asked.text === 'string' ? asked.text.trim() : '';
+  if (!text) fail('A question needs its text.');
+  if (text.length > 1600) fail('A question must be at most 1,600 characters.');
+  const question = { text };
+  if (asked.why != null) {
+    if (typeof asked.why !== 'string' || !asked.why.trim()) fail("A question's why must be text.");
+    if (asked.why.trim().length > 600) fail("A question's why must be at most 600 characters.");
+    question.why = asked.why.trim();
+  }
+  if (asked.importance != null) {
+    if (!importanceLevels.includes(asked.importance)) fail('Importance must be low, medium or high.');
+    if (!question.why) fail('Importance needs a reason: add why, saying what the answer would change.');
+    question.importance = asked.importance;
+  }
+  return question;
+}
 // A saved answer that still stands: not from an earlier premise and not set aside.
 export function hasCurrentAnswer(question) { return !!question.answer && !question.supersededAt && !question.dismissedAt; }
 // When the current answer was given: a changed answer counts from its change.

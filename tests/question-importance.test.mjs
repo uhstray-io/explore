@@ -5,8 +5,8 @@ import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { contextExcerpt } from '../skills/explore/scripts/context.mjs';
-import { importanceLabel, highestImportance } from '../skills/explore/assets/questions.js';
-import { importanceHtml } from '../skills/explore/assets/workspace-view.js';
+import { importanceName, highestImportance, normalizeQuestion } from '../skills/explore/assets/questions.js';
+import { importanceHtml, overviewNote } from '../skills/explore/assets/workspace-view.js';
 
 // Importance and "Why this question?" (B2, #4). Illustrative fixtures under .test-output, never ideas/.
 async function fixture() {
@@ -75,23 +75,32 @@ test('reading a node\'s questions shows importance and why', async () => {
   assert.match(text, /Importance: Unranked/);
 });
 
-test('labels and the overview use the highest open importance', () => {
-  assert.equal(importanceLabel({ importance: 'high' }), 'High importance');
-  assert.equal(importanceLabel({ text: 'x' }), null);
-  assert.equal(highestImportance([{ importance: 'low', answer: null }, { importance: 'medium', answer: null }, { importance: 'high', answer: 'Done.' }]), 'medium');
+test('levels have words, and the overview notes the highest open importance under Needs your answer', () => {
+  assert.equal(importanceName('high'), 'High');
+  assert.equal(importanceName(undefined), 'Unranked'); assert.equal(importanceName('__proto__'), 'Unranked');
+  const questions = [{ importance: 'low', answer: null }, { importance: 'medium', answer: null }, { importance: 'high', answer: 'Done.' }];
+  assert.equal(highestImportance(questions), 'medium');
   assert.equal(highestImportance([{ answer: null }]), null);
+  assert.equal(overviewNote({ id: 'answer' }, { questions }), ' · Medium importance');
+  assert.equal(overviewNote({ id: 'queued' }, { questions }), '', 'only the Needs your answer list shows it');
 });
 
-test('the question box shows the label and a Why? link; answered questions show a quieter label', () => {
+test('an open question shows its label, and Why? is a native disclosure only when there is a reason', () => {
   const esc = value => String(value).replace(/</g, '&lt;');
-  const open = importanceHtml({ id: 'q-1', importance: 'high', why: 'Sync <must> queue.' }, { esc });
-  assert.match(open, /High importance/);
-  assert.match(open, /<button type="button" class="text-button" data-why-toggle aria-expanded="false" aria-controls="why-q-1">Why\?<\/button>/);
-  assert.match(open, /<p class="question-why" id="why-q-1" hidden>Sync &lt;must> queue\.<\/p>/);
-  assert.doesNotMatch(importanceHtml({ id: 'q-2', importance: 'low' }, { esc }), /Why\?/, 'no Why? link without a reason');
-  assert.match(importanceHtml({ id: 'q-3', why: 'Only a reason.' }, { esc }), /Why\?/, 'a reason alone still has its link');
+  assert.equal(importanceHtml({ id: 'q-1', importance: 'high', why: 'Sync <must> queue.' }, { esc }),
+    '<details class="question-importance question-why"><summary><span>High importance</span><span class="why-link">Why?</span></summary><p>Sync &lt;must> queue.</p></details>');
+  assert.equal(importanceHtml({ id: 'q-2', importance: 'low' }, { esc }), '<p class="question-importance"><span>Low importance</span></p>');
+  assert.match(importanceHtml({ id: 'q-3', why: 'Only a reason.' }, { esc }), /<summary><span class="why-link">Why\?<\/span><\/summary>/);
   assert.equal(importanceHtml({ id: 'q-4' }, { esc }), '');
-  assert.match(importanceHtml({ id: 'q-5', importance: 'medium', why: 'x' }, { esc, quiet: true }), /^<small class="certainty-label importance-quiet">Medium importance<\/small>$/);
+});
+
+test('a null importance or why counts as not given, and wrong shapes are refused', () => {
+  const fail = message => { throw new Error(message); };
+  assert.deepEqual(normalizeQuestion({ text: ' Offline? ', importance: null, why: null }, fail), { text: 'Offline?' });
+  assert.deepEqual(normalizeQuestion('Offline?', fail), { text: 'Offline?' });
+  assert.throws(() => normalizeQuestion({ text: 'Offline?', why: 42 }, fail), /why must be text/);
+  assert.throws(() => normalizeQuestion({ text: '  ' }, fail), /needs its text/);
+  assert.throws(() => normalizeQuestion(['Offline?'], fail), /text or/);
 });
 
 test('a regenerated question can carry importance too', async () => {

@@ -1,4 +1,4 @@
-import { isOpen, isBlocking, importanceLevels } from '../assets/questions.js';
+import { isOpen, isBlocking, normalizeQuestion } from '../assets/questions.js';
 
 // The question ⋯ menu (B7): rate a question, dismiss it, bring it back, or ask for a better one.
 // Ratings and dismissals are the user's feedback, never content: they don't re-run research, and
@@ -78,22 +78,6 @@ export const questionActions = {
   } },
 };
 
-// A question may say how much its answer matters and why (B2). A rank always comes with its reason.
-export function questionImportance(question, fail) {
-  const fields = {};
-  if (question.why !== undefined) {
-    if (typeof question.why !== 'string' || !question.why.trim()) fail('A question\'s why must be text.');
-    if (question.why.trim().length > 600) fail('A question\'s why must be at most 600 characters.');
-    fields.why = question.why.trim();
-  }
-  if (question.importance !== undefined) {
-    if (!importanceLevels.includes(question.importance)) fail('Importance must be low, medium or high.');
-    if (!fields.why) fail('Importance needs a reason: add why, saying what the answer would change.');
-    fields.importance = question.importance;
-  }
-  return fields;
-}
-
 const regenerateInstruction = 'Ask one replacement question that serves the same purpose better. Take the user\'s reason into account. Do not repeat the original or any dismissed question, and do not answer it. Return {"question": {"text": "…", "importance": "low|medium|high", "why": "…"}} through the CLI; importance and why are optional, and importance needs why.';
 
 export const questionJobTypes = {
@@ -102,7 +86,7 @@ export const questionJobTypes = {
     packet: ({ map, job, node }) => {
       const original = node.questions.find(q => q.id === job.subjectId);
       return {
-        question: { id: original?.id, text: clip(original?.text, 600) }, userReason: job.input?.reason ?? null,
+        question: { id: original?.id, text: clip(original?.text, 600), ...(original?.why ? { why: clip(original.why, 600) } : {}) }, userReason: job.input?.reason ?? null,
         node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 600), summary: clip(node.summary, 400) },
         answeredQuestions: node.questions.filter(q => q.answer && !q.supersededAt).slice(-6).map(q => ({ question: clip(q.text, 200), answer: clip(q.answer, 300) })),
         openQuestions: node.questions.filter(isOpen).map(q => clip(q.text, 200)),
@@ -110,9 +94,7 @@ export const questionJobTypes = {
       };
     },
     validate: result => {
-      need(result.question && typeof result.question === 'object' && typeof result.question.text === 'string' && result.question.text.trim(), 'Return {"question": {"text": "…"}}.');
-      need(result.question.text.length <= 1600, 'The question must be at most 1,600 characters.');
-      return { question: { text: result.question.text.trim(), ...questionImportance(result.question, message => need(false, message)) } };
+      return { question: normalizeQuestion(result.question, message => need(false, message)) };
     },
     // A replacement only makes sense while the original is still waiting to be replaced.
     isStale: ({ job, node }) => { const original = node?.questions.find(q => q.id === job.subjectId); return !original || original.replacedBy !== 'pending' || !!original.supersededAt; },

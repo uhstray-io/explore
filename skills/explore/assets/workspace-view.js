@@ -1,5 +1,5 @@
 import { presentation } from './graph.js';
-import { isBlocking, importanceLabel } from './questions.js';
+import { isBlocking, importanceName, highestImportance } from './questions.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
@@ -112,15 +112,16 @@ export function undoTarget(versions, me) {
 }
 
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-// Importance on a question (B2): a text label, and a Why? link that reveals the agent's reason in place.
-// Answered questions keep only a quieter label.
-export function importanceHtml(question, { esc, quiet = false }) {
-  const label = importanceLabel(question);
-  if (quiet) return label ? `<small class="certainty-label importance-quiet">${label}</small>` : '';
-  if (!label && !question.why) return '';
-  const id = `why-${esc(question.id)}`;
-  return `<p class="question-importance">${label ? `<span>${label}</span>` : ''}${question.why ? `<button type="button" class="text-button" data-why-toggle aria-expanded="false" aria-controls="${id}">Why?</button>` : ''}</p>`
-    + (question.why ? `<p class="question-why" id="${id}" hidden>${esc(question.why)}</p>` : '');
+// Importance on an open question (B2): a text label, and a Why? disclosure with the agent's reason.
+export function importanceHtml(question, { esc }) {
+  const label = question.importance ? `<span>${importanceName(question.importance)} importance</span>` : '';
+  if (!question.why) return label ? `<p class="question-importance">${label}</p>` : '';
+  return `<details class="question-importance question-why"><summary>${label}<span class="why-link">Why?</span></summary><p>${esc(question.why)}</p></details>`;
+}
+// The note beside an idea in the overview list: its most important open question, under "Needs your answer".
+export function overviewNote(group, node) {
+  const level = group.id === 'answer' ? highestImportance(node.questions || []) : null;
+  return level ? ` · ${importanceName(level)} importance` : '';
 }
 
 export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo = false } = {}) {
