@@ -19,12 +19,13 @@
 // Settings fields: { default, validate(value) } stored in the shared `ideas/settings.json`.
 import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
 import { questionJobTypes, questionActions } from './question-actions.mjs';
+import { restartActions } from './restart.mjs';
 
 export const INVESTIGATE = 'investigate';
 
 const builtInJobTypes = { [INVESTIGATE]: { label: 'Branch investigation', target: 'node' } };
 // Store.action handles these itself; a registry entry may not replace them.
-const builtInActions = new Set(['activate', 'answer', 'suggest', 'cancel', 'cancel-job', 'accept', 'revise', 'fork-revision', 'position', 'restore-version', 'name-version', 'unname-version', 'change-answer', 'restart-branch', 'reaffirm', 'clear-finding']);
+const builtInActions = new Set(['activate', 'answer', 'suggest', 'cancel', 'cancel-job', 'accept', 'revise', 'fork-revision', 'position', 'restore-version', 'name-version', 'unname-version', 'change-answer', 'reaffirm', 'clear-finding']);
 const targets = new Set(['node', 'map']);
 
 export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = {}) {
@@ -45,7 +46,7 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions } });
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }

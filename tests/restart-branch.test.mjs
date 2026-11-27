@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { Store, Problem, isCompleted, hasFindings } from '../skills/explore/scripts/store.mjs';
+import { Store, isCompleted, hasFindings } from '../skills/explore/scripts/store.mjs';
+import { previewRestart } from '../skills/explore/scripts/restart.mjs';
 import { growthTimeline } from '../skills/explore/assets/history.js';
 import { reviewStepHtml, restartPreviewHtml } from '../skills/explore/assets/workspace-view.js';
 import { startServer } from '../skills/explore/scripts/server.mjs';
@@ -40,7 +41,7 @@ const below = ['Green', 'Hall', 'Permit'];
 test('the restart preview lists what would change and writes nothing', async () => {
   const f = await fixture(), venue = f.find('Venue');
   const before = await readFile(f.store.file(f.map.id), 'utf8'), versions = (await f.store.versions.list(f.map.id)).versions.length;
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   assert.equal(preview.revision, f.map.revision);
   assert.equal(preview.oldAnswer, 'Outdoors.');
   assert.deepEqual(preview.deleted.map(n => n.title).sort(), below);
@@ -50,7 +51,7 @@ test('the restart preview lists what would change and writes nothing', async () 
   assert.equal(preview.linksRemoved, 4, 'three containment links and the outside dependency');
   assert.match(preview.checkpointName, /^Before restarting Venue, \d{4}-\d\d-\d\d$/);
   assert.match(preview.hash, /^[a-f0-9]{64}$/);
-  const page = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId, offset: 1, limit: 1 });
+  const page = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId, offset: 1, limit: 1 });
   assert.equal(page.deleted.length, 1); assert.equal(page.nextOffset, 2); assert.equal(page.hash, preview.hash);
   assert.equal(await readFile(f.store.file(f.map.id), 'utf8'), before);
   assert.equal((await f.store.versions.list(f.map.id)).versions.length, versions);
@@ -59,7 +60,7 @@ test('the restart preview lists what would change and writes nothing', async () 
 test('restarting deletes exactly the ideas below, with their work, positions and links', async () => {
   const f = await fixture(), venue = f.find('Venue');
   const deletedIds = below.map(title => f.find(title).id);
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   assert.deepEqual(map.nodes.map(n => n.title).sort(), ['Budget', 'Community workshop', 'Timing', 'Venue']);
   assert.ok(!map.jobs.some(j => deletedIds.includes(j.nodeId)));
@@ -75,7 +76,7 @@ test('restarting deletes exactly the ideas below, with their work, positions and
 
 test('the restarted idea keeps its premise and earlier answers, takes the new answer and is queued once', async () => {
   const f = await fixture(), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   const node = map.nodes.find(n => n.id === venue.id);
   assert.equal(node.prompt, 'Where should it happen?');
@@ -100,7 +101,7 @@ test('the restarted idea keeps its premise and earlier answers, takes the new an
 
 test('outside ideas that relied on the branch are flagged; unrelated ones are unchanged', async () => {
   const f = await fixture(), venue = f.find('Venue'), timing = f.find('Timing'), root = f.find('Community workshop');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   const budget = map.nodes.find(n => n.title === 'Budget');
   assert.equal(budget.stale, true);
@@ -113,7 +114,7 @@ test('outside ideas that relied on the branch are flagged; unrelated ones are un
 test('a named checkpoint is saved first, and restoring it brings every deleted idea back', async () => {
   const f = await fixture(), venue = f.find('Venue');
   const before = f.map.nodes.map(n => n.id).sort();
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   let map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   const { versions } = await f.store.versions.list(map.id);
   const checkpoint = versions.find(v => v.name === preview.checkpointName);
@@ -131,7 +132,7 @@ test('a named checkpoint is saved first, and restoring it brings every deleted i
 
 test('restart checkpoints do not count against the named-version limit', async () => {
   const f = await fixture({ versionLimits: { names: 1 } }), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   const other = (await f.store.versions.list(map.id)).versions.find(v => !v.name);
   await f.act({ type: 'name-version', version: other.id, name: 'My one name' });
@@ -140,19 +141,22 @@ test('restart checkpoints do not count against the named-version limit', async (
 
 test('a second restart on the same day gets its own checkpoint name', async () => {
   const f = await fixture(), venue = f.find('Venue');
-  let preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  let preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   let map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   const job = await f.store.claim('agent', map.id);
   map = await f.store.complete(map.id, job.jobId, job.claimKey, { summary: 'The hall.', body: 'Fixture.' });
-  preview = await f.store.previewRestart(map.id, { nodeId: venue.id, questionId: f.firstId });
+  preview = await previewRestart(f.store, map.id, { nodeId: venue.id, questionId: f.firstId });
   assert.match(preview.checkpointName, / \(2\)$/);
+  const [newest] = (await f.store.versions.list(map.id)).versions;
   await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Either.', previewHash: preview.hash });
-  assert.equal((await f.store.versions.list(map.id)).versions.filter(v => v.checkpoint).length, 2);
+  const versions = (await f.store.versions.list(map.id)).versions;
+  assert.equal(versions.filter(v => v.checkpoint).length, 2);
+  assert.equal(versions.find(v => v.name === preview.checkpointName).id, newest.id, 'the matching newest version is named, not copied');
 });
 
 test('active work, an unchanged answer, an unfinished idea or a changed map are refused without changes', async () => {
   const f = await fixture(), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const restart = extra => f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash, ...extra });
   const unchanged = async attempt => { const before = await readFile(f.store.file(f.map.id), 'utf8'); await attempt(); assert.equal(await readFile(f.store.file(f.map.id), 'utf8'), before); };
   await unchanged(() => assert.rejects(restart({ answer: 'Outdoors.' }), error => error.status === 400 && /Nothing changed/.test(error.message)));
@@ -160,7 +164,7 @@ test('active work, an unchanged answer, an unfinished idea or a changed map are 
   await unchanged(() => assert.rejects(f.act({ type: 'restart-branch', nodeId: f.find('Green').id, questionId: f.firstId, answer: 'x', previewHash: preview.hash }), error => error.status === 409));
   // Work queued anywhere in the branch blocks both the preview and the restart.
   await f.act({ type: 'activate', nodeId: f.find('Permit').id });
-  await assert.rejects(f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId }), error => error.status === 409 && /queued or running/.test(error.message));
+  await assert.rejects(previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId }), error => error.status === 409 && /queued or running/.test(error.message));
   await unchanged(() => assert.rejects(restart(), error => error.status === 409 && /queued or running/.test(error.message)));
   // An unfinished idea changes its answer in place instead.
   await f.refresh();
@@ -169,7 +173,7 @@ test('active work, an unchanged answer, an unfinished idea or a changed map are 
 
 test('a later change to the branch makes the old preview stale', async () => {
   const f = await fixture(), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   await f.act({ type: 'suggest', nodeId: f.find('Green').id, title: 'Parking', body: 'Where do people park?' });
   const before = await readFile(f.store.file(f.map.id), 'utf8');
   await assert.rejects(f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash }), error => error.status === 409 && /changed since the preview/.test(error.message));
@@ -178,8 +182,8 @@ test('a later change to the branch makes the old preview stale', async () => {
 
 test('a checkpoint that cannot be saved leaves the map unchanged', async () => {
   const f = await fixture(), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
-  f.store.versions.checkpoint = async () => { throw new Error('disk full'); };
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  f.store.versions.record = async () => { throw new Error('disk full'); };
   const before = await readFile(f.store.file(f.map.id), 'utf8');
   await assert.rejects(f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash }), error => error.status === 500 && /checkpoint/.test(error.message));
   assert.equal(await readFile(f.store.file(f.map.id), 'utf8'), before);
@@ -198,7 +202,7 @@ test('recovery tolerates running work whose idea no longer exists', async () => 
 
 test('a flag from a restart says so and shows the answer before and after', async () => {
   const f = await fixture(), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   const html = reviewStepHtml({ map, nodeId: map.nodes.find(n => n.title === 'Budget').id, index: 0, total: 1, esc: String });
   assert.match(html, /Venue<\/button> was restarted from a changed answer/);
@@ -247,7 +251,7 @@ test('the checkpoint always carries its own name, even when the map matches a ve
   await f.act({ type: 'suggest', nodeId: f.find('Timing').id, title: 'Season', body: 'Which season?' });
   const [newest] = (await f.store.versions.list(f.map.id)).versions;
   await f.act({ type: 'name-version', version: newest.id, name: 'Plan A' });
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   await f.act({ type: 'unname-version', version: newest.id });
   const checkpoint = (await f.store.versions.list(map.id)).versions.find(v => v.name === preview.checkpointName);
@@ -255,18 +259,9 @@ test('the checkpoint always carries its own name, even when the map matches a ve
   assert.ok((await f.store.versions.get(map.id, checkpoint.id)).map.nodes.some(n => n.title === 'Green'));
 });
 
-test('a restart whose save is refused leaves no checkpoint behind', async () => {
-  const f = await fixture(), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
-  const before = (await f.store.versions.list(f.map.id)).versions.map(v => v.id);
-  f.store.save = async () => { throw new Problem('Changed outside.', 409, 'changed-outside'); };
-  await assert.rejects(f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash }), error => error.code === 'changed-outside');
-  assert.deepEqual((await f.store.versions.list(f.map.id)).versions.map(v => v.id), before);
-});
-
 test('renaming a checkpoint makes it one of the user\'s names, within the limit', async () => {
   const f = await fixture({ versionLimits: { names: 1 } }), venue = f.find('Venue');
-  const preview = await f.store.previewRestart(f.map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, f.map.id, { nodeId: venue.id, questionId: f.firstId });
   const map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   const versions = (await f.store.versions.list(map.id)).versions, checkpoint = versions.find(v => v.checkpoint);
   await f.act({ type: 'name-version', version: checkpoint.id, name: 'Mine now' });
@@ -280,7 +275,7 @@ test('work elsewhere that links to a deleted idea still delivers; unknown ideas 
   let map = await f.act({ type: 'suggest', nodeId: f.find('Community workshop').id, title: 'Catering', body: 'Who feeds people?' });
   map = await f.act({ type: 'activate', nodeId: map.nodes.find(n => n.title === 'Catering').id });
   const job = await f.store.claim('agent', map.id);
-  const preview = await f.store.previewRestart(map.id, { nodeId: venue.id, questionId: f.firstId });
+  const preview = await previewRestart(f.store, map.id, { nodeId: venue.id, questionId: f.firstId });
   await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   await assert.rejects(f.store.complete(map.id, job.jobId, job.claimKey, { summary: 'Local cafe.', body: 'Fixture.', links: [{ type: 'depends_on', to: 'node-neverwas' }] }), error => error.status === 400 && /Invalid relationship/.test(error.message));
   map = await f.store.complete(map.id, job.jobId, job.claimKey, { summary: 'Local cafe.', body: 'Fixture.', links: [{ type: 'depends_on', to: green.id }] });

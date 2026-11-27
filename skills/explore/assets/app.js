@@ -701,7 +701,7 @@ document.addEventListener('click', async event => {
     restartConfirm.disabled = true;
     if (await act(nodeId, 'restart-branch', { questionId, answer, previewHash: preview.hash })) {
       state.restartPreview = null; delete state.drafts[`change-${questionId}`]; renderDetail(true);
-      toast(`Branch restarted. “${preview.checkpointName}” is saved in Versions. ${agentListening() ? 'Your agent will explore it next.' : 'Connect your agent to explore it.'}`);
+      toast(`Branch restarted. Its checkpoint is saved in Versions. ${agentListening() ? 'Your agent will explore it next.' : 'Connect your agent to explore it.'}`);
     } else if (state.restartPreview) await loadRestartPreview(state.restartPreview); // Show what would happen now.
     return;
   }

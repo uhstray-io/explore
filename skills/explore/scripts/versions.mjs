@@ -77,25 +77,21 @@ export class Versions {
   }
   async findContent(mapId, map) { const target = contentHash(map); return (await this.scan(mapId)).find(version => version.contentHash === target) || null; }
   // Records the map as it is about to be saved. A snapshot identical to the newest version is not written again.
-  async record(map, { labels, author, at = new Date().toISOString(), kept = false } = {}) {
-    const content = contentHash(map), versions = await this.scan(map.id);
-    if (versions[0]?.contentHash === content) return versions[0].id;
+  // A checkpoint (`name` with `checkpoint: true`) is a version Explore names itself before a branch restart:
+  // kept like every named version, and not counted among the names people choose. When the newest
+  // version already holds this content and has no name, that version is named instead of copied.
+  async record(map, { labels, author, at = new Date().toISOString(), kept = false, name, checkpoint = false } = {}) {
+    const content = contentHash(map), versions = await this.scan(map.id), newest = versions[0];
+    if (newest?.contentHash === content && !(name && newest.name)) {
+      if (name) { const file = this.file(map.id, newest.id); await atomicJson(file, { ...JSON.parse(await readFile(file, 'utf8')), name, checkpoint }); }
+      return newest.id;
+    }
     const id = `${at.replace(/[-:.]/g, '')}-${randomBytes(3).toString('hex')}`;
     await atomicJson(this.file(map.id, id), { format: 'explore-version', version: 1, mapId: map.id, revision: map.revision, at,
-      ...(author ? { author } : {}), ...(kept ? { kept: true } : {}), labels, contentHash: content, map: snapshotOf(map) });
+      ...(author ? { author } : {}), ...(kept ? { kept: true } : {}), ...(name ? { name } : {}), ...(checkpoint ? { checkpoint: true } : {}), labels, contentHash: content, map: snapshotOf(map) });
     await this.prune(map.id);
     return id;
   }
-  // A checkpoint is a version Explore names itself before a change that deletes ideas (a branch restart).
-  // It is always its own file, kept like every named version, and it does not use up the names people choose.
-  async checkpoint(map, { name, labels }) {
-    const at = new Date().toISOString(), id = `${at.replace(/[-:.]/g, '')}-${randomBytes(3).toString('hex')}`;
-    await atomicJson(this.file(map.id, id), { format: 'explore-version', version: 1, mapId: map.id, revision: map.revision, at,
-      labels, name, checkpoint: true, contentHash: contentHash(map), map: snapshotOf(map) });
-    return id;
-  }
-  // Only for a checkpoint whose change was never saved.
-  discard(mapId, id) { return unlink(this.file(mapId, id)); }
   // Keeps every named or imported version, and the newest others within the count and byte limits.
   async prune(mapId) {
     let kept = 0, bytes = 0;

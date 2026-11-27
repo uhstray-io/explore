@@ -239,16 +239,16 @@ export function reviewStepHtml({ map, nodeId, index, total, esc }) {
 // Restart preview (Z2): what restarting a finished branch deletes, sets aside and flags, the checkpoint
 // saved first, and the confirm button. Shown inside the Change answer editor; nothing is saved until confirmed.
 export function restartPreviewHtml(preview, { esc, expanded = false }) {
-  const count = preview.deleteCount, plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-  const lead = count
-    ? `<p><strong>Restarting deletes ${plural(count, 'idea')} below this branch${preview.linksRemoved ? `, with ${plural(preview.linksRemoved, 'link')}` : ''}.</strong> This branch keeps its premise and answers and explores again from your new answer.</p>`
+  const ideas = preview.deleteCount;
+  const lead = ideas
+    ? `<p><strong>Restarting deletes ${count(ideas, 'idea')} below this branch${preview.linksRemoved ? `, with ${count(preview.linksRemoved, 'link')}` : ''}.</strong> This branch keeps its premise and answers and explores again from your new answer.</p>`
     : '<p><strong>Nothing below this branch is deleted.</strong> Its findings are cleared and it explores again from your new answer.</p>';
-  const list = count ? `<details class="restart-list"${expanded ? ' open' : ''}><summary>Ideas to delete (${count})</summary><ul>${preview.deleted.map(node => `<li>${esc(node.title)}</li>`).join('')}</ul>${preview.nextOffset !== null && preview.nextOffset !== undefined ? `<button type="button" class="text-button" data-restart-more="${preview.nextOffset}">Show more</button>` : ''}</details>` : '';
+  const list = ideas ? `<details class="restart-list"${expanded ? ' open' : ''}><summary>Ideas to delete (${ideas})</summary><ul>${preview.deleted.map(node => `<li>${esc(node.title)}</li>`).join('')}</ul>${preview.nextOffset != null ? `<button type="button" class="text-button" data-restart-more="${preview.nextOffset}">Show more</button>` : ''}</details>` : '';
   const setAside = preview.superseded.length ? `<p>${preview.superseded.length === 1 ? '1 later question on this branch is' : `${preview.superseded.length} later questions on this branch are`} set aside; their answers are kept.</p>` : '';
   const flagged = preview.flagged.length ? `<p>Flagged for review: ${preview.flagged.map(node => esc(node.title)).join(', ')}.</p>` : '';
   return `<div class="state-note warning restart-preview" role="group" aria-label="Restart preview" tabindex="-1">${lead}${list}${setAside}${flagged}`
     + `<p class="form-note">A checkpoint named “${esc(preview.checkpointName)}” is saved first. Restore it from Versions to bring everything back.</p>`
-    + `<div class="question-actions"><button type="button" class="primary" data-restart-confirm>${count ? `Delete ${plural(count, 'idea')} and restart` : 'Restart this branch'}</button><button type="button" class="text-button" data-restart-cancel>Cancel</button></div></div>`;
+    + `<div class="question-actions"><button type="button" class="primary" data-restart-confirm>${ideas ? `Delete ${count(ideas, 'idea')} and restart` : 'Restart this branch'}</button><button type="button" class="text-button" data-restart-cancel>Cancel</button></div></div>`;
 }
 
 export function briefFilename(title) {

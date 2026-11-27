@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord } from './versions.mjs';
-import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText } from '../assets/questions.js';
+import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { questionFeedback } from './question-actions.mjs';
@@ -21,14 +21,17 @@ const active = job => ['queued', 'running'].includes(job.status);
 const certaintyFields = q => { const certainty = effectiveAnswerState(q); return certainty ? { answerState: certainty.state, ...(certainty.recorded ? {} : { certaintyRecorded: false }) } : {}; };
 // Built-in actions that cover the whole map rather than one idea.
 const mapLevelActions = new Set(['cancel-job', 'restore-version', 'name-version', 'unname-version']);
-// Only branch investigations complete an idea or count as its findings; other job types never do.
-// Runs from before the branch was restarted are history and count for neither.
+// A finished investigation of this idea that still counts. Only branch investigations complete an idea or
+// count as its findings; other job types never do, and runs from before a restart are history.
+const currentRun = (node, job) => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && !job.restartedAt && !!job.result;
 export function isCompleted(map, node) {
-  return !!node.completedAt || node.status === 'explored' || map.jobs.some(job => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && !job.restartedAt && job.result && !job.result.questions?.length);
+  return !!node.completedAt || node.status === 'explored' || map.jobs.some(job => currentRun(node, job) && !job.result.questions?.length);
 }
 export function hasFindings(map, node) {
-  return node.status === 'explored' || (map.jobs || []).some(job => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && !job.restartedAt && job.result?.body === node.body && job.result?.summary === node.summary);
+  return node.status === 'explored' || (map.jobs || []).some(job => currentRun(node, job) && job.result.body === node.body && job.result.summary === node.summary);
 }
+// An idea a restart or restore deleted while work ran: a result's link to it is skipped, not refused.
+const onceExisted = (map, id) => !!map.growth?.batches.some(batch => batch.nodeIds?.includes(id));
 export class Problem extends Error {
   constructor(message, status = 400, code) { super(message); this.status = status; if (code) this.code = code; }
 }
@@ -270,6 +273,13 @@ export class Store {
     if (causes.length > 20) node.earlierCauses = true;
     node.reviewCauses = causes.slice(-20);
   }
+  // Findings or a completed run that other work may rely on, and so must be flagged when what it built on changes.
+  hasConclusions(map, node) { return hasFindings(map, node) || isCompleted(map, node); }
+  // An idea's findings start again from `premise`; its answers and history stay.
+  resetFindings(node, premise) {
+    Object.assign(node, { prompt: premise, body: premise, summary: premise.slice(0, 600), sources: [], reviewState: 'unreviewed', stale: false });
+    for (const key of ['completedAt', 'options', 'optionsLimit', 'recommendation', 'reviewCauses', 'earlierCauses', 'reaffirmedAt', 'clearedAt', 'replacedBy', 'resolvedBy', 'acceptedAt', 'acceptedBy']) delete node[key];
+  }
   invalidatePremises(map, nodeId, kind = 'premise-revised') {
     const affected = new Set([nodeId]);
     let changed = true;
@@ -282,7 +292,7 @@ export class Store {
     }
     const at = now();
     for (const node of map.nodes) if (affected.has(node.id)) {
-      if (hasFindings(map, node) || isCompleted(map, node)) this.flagForReview(node, { sourceId: nodeId, kind });
+      if (this.hasConclusions(map, node)) this.flagForReview(node, { sourceId: nodeId, kind });
       node.contentRevision++;
       for (const question of node.questions) if (!question.supersededAt) question.supersededAt = at;
       if (node.status === 'awaiting-answer') node.status = 'interrupted';
@@ -438,43 +448,23 @@ export class Store {
         case 'change-answer': {
           need(!isCompleted(map, n), 'This branch is finished, so its answers stay as they are. Explore the changed answer beside the original instead.', 409);
           const q = n.questions.find(q => q.id === input.questionId);
-          need(q && q.answer && !q.supersededAt && !q.dismissedAt, 'Only a saved, current answer can be changed.', 409);
+          need(q && hasCurrentAnswer(q), 'Only a saved, current answer can be changed.', 409);
           const answer = text(input.answer, 'Answer', 12000);
           if (input.answerState !== undefined) need(answerStates.includes(input.answerState), 'Choose Tentative, Decided or Assumption.');
           const answerState = input.answerState ?? q.answerState;
           need(answer !== q.answer || answerState !== q.answerState, 'Nothing changed in this answer.');
-          const at = now(), oldAt = q.answeredAt;
-          q.previousAnswers = [...(q.previousAnswers || []), { answer: q.answer, ...(q.answerState ? { answerState: q.answerState } : {}), ...(oldAt ? { answeredAt: oldAt } : {}), replacedAt: at, ...(input.rerun === false ? { wordingFix: true } : {}) }];
-          Object.assign(q, { answer, ...(answerState ? { answerState } : {}), changedAt: at }, actor?.name ? { answeredBy: { name: actor.name } } : {});
+          const at = now(), since = answeredSince(q), later = laterQuestions(map, n, q);
+          replaceAnswer(q, { answer, answerState, actor, at, mark: input.rerun === false ? { wordingFix: true } : {} });
           if (input.rerun === false) { this.event(map, 'answer-reworded', n.id, q.id); break; } // A wording fix flags, replaces and queues nothing.
           n.contentRevision++; // Work running on this branch, below it or depending on it now delivers a stale result.
           // Findings that relied on the old answer need another look; their questions stay.
-          if (hasFindings(map, n) && (!oldAt || map.jobs.some(j => j.nodeId === n.id && isInvestigation(j) && j.status === 'completed' && !j.stale && j.startedAt > oldAt))) this.flagForReview(n, { sourceId: n.id, kind: 'answer-changed' });
-          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && (hasFindings(map, other) || isCompleted(map, other))) this.flagForReview(other, { sourceId: n.id, kind: 'answer-changed' }); }
-          // Follow-ups asked after the old answer no longer fit it.
-          for (const other of n.questions) {
-            const askedAt = other.askedAt ?? map.jobs.find(j => j.result?.questions?.some(x => x.id === other.id))?.startedAt;
-            if (other !== q && isOpen(other) && oldAt && askedAt && askedAt > oldAt) other.supersededAt = at;
-          }
+          if (hasFindings(map, n) && (!since || map.jobs.some(j => currentRun(n, j) && j.startedAt > since))) this.flagForReview(n, { sourceId: n.id, kind: 'answer-changed' });
+          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && this.hasConclusions(map, other)) this.flagForReview(other, { sourceId: n.id, kind: 'answer-changed' }); }
+          // Open follow-ups asked after the old answer no longer fit it; answered ones keep their answers.
+          for (const other of later) if (isOpen(other)) other.supersededAt = at;
           this.event(map, 'answer-changed', n.id, q.id);
           if (!n.questions.some(isBlocking)) this.enqueue(map, n, `The user changed their answer to '${q.text.slice(0, 120)}'. Continue from the new answer and ask new follow-ups only where still needed.`);
           break;
-        }
-        // Restart (Z2): delete everything below a finished idea and explore it again from a changed answer.
-        // The user confirms a preview; anything changed since then is refused, and a checkpoint comes first.
-        case 'restart-branch': {
-          const plan = this.restartPlan(map, n.id, input.questionId);
-          const answer = text(input.answer, 'Answer', 12000);
-          need(answer !== plan.question.answer, 'Nothing changed in this answer.');
-          need(input.previewHash === plan.hash, 'This branch changed since the preview. Preview the restart again.', 409);
-          if (input.answerState !== undefined) need(answerStates.includes(input.answerState), 'Choose Tentative, Decided or Assumption.');
-          const name = await this.checkpointName(map, n);
-          let checkpoint;
-          try { checkpoint = await this.withMapLock(map.id, () => this.versions.checkpoint(map, { name, labels: ['before-restart'] })); }
-          catch (error) { throw new Problem(`The checkpoint could not be saved, so nothing was restarted: ${error.message}`, 500); }
-          this.restartBranch(map, n, plan, { answer, answerState: input.answerState, actor, checkpoint });
-          try { return await this.save(map, { actor }); }
-          catch (error) { if (!(error instanceof Problem) || error.code === 'changed-outside') await this.versions.discard(map.id, checkpoint).catch(() => {}); throw error; }
         }
         case 'reaffirm': case 'clear-finding': {
           need(n.stale, 'Only a finding flagged for review can be resolved.', 409);
@@ -524,8 +514,7 @@ export class Store {
           const revised = text(input.body, 'Revised idea', 16000);
           this.event(map, 'previous-premise', n.id, n.prompt || n.body);
           this.invalidatePremises(map, n.id);
-          n.prompt = revised; n.body = revised; n.summary = revised.slice(0, 600);
-          n.reviewState = 'unreviewed'; n.stale = false; n.sources = []; delete n.options; delete n.optionsLimit; delete n.recommendation;
+          this.resetFindings(n, revised);
           this.event(map, 'revised', n.id, 'Dependent conclusions need review.'); break;
         }
         case 'fork-revision': {
@@ -533,7 +522,7 @@ export class Store {
           let revised, title, revisesAnswer;
           if (input.questionId !== undefined) {
             const q = n.questions.find(q => q.id === input.questionId);
-            need(q && q.answer && !q.supersededAt, 'Choose a saved answer on this branch.', 409);
+            need(q && hasCurrentAnswer(q), 'Choose a saved answer on this branch.', 409);
             const answer = text(input.answer, 'Changed answer', 12000);
             need(answer !== q.answer, 'Nothing changed in this answer.');
             revisesAnswer = { questionId: q.id, previousAnswer: q.answer, answer };
@@ -562,79 +551,6 @@ export class Store {
       }
       return this.save(map, { actor });
     });
-  }
-  // What restarting `nodeId` from its answer to `questionId` would do. The preview and the action share it,
-  // and its hash covers every idea in the branch, so a change after the preview is refused.
-  restartPlan(map, nodeId, questionId) {
-    const n = map.nodes.find(node => node.id === nodeId);
-    need(n, 'Node not found.', 404);
-    need(isCompleted(map, n), 'Only a finished branch can be restarted. Change the answer in place instead.', 409);
-    const question = n.questions.find(q => q.id === questionId);
-    need(question && question.answer && !question.supersededAt && !question.dismissedAt, 'Choose a saved, current answer on this branch.', 409);
-    // Everything below the idea, by containment only: dependency links never widen the deletion.
-    const below = new Set([n.id]);
-    for (let grew = true; grew;) {
-      grew = false;
-      for (const edge of map.edges) if (edge.type === 'contains' && below.has(edge.from) && !below.has(edge.to)) { below.add(edge.to); grew = true; }
-      for (const node of map.nodes) if (node.parentId && below.has(node.parentId) && !below.has(node.id)) { below.add(node.id); grew = true; }
-    }
-    below.delete(n.id); below.delete(map.rootId);
-    need(!map.jobs.some(job => active(job) && (job.nodeId === n.id || below.has(job.nodeId))), 'Wait until queued or running work in this branch finishes, or stop it, before restarting.', 409);
-    // Questions asked after the answer being changed no longer fit; their answers are kept as history.
-    const position = n.questions.indexOf(question);
-    const askedAt = q => q.askedAt ?? map.jobs.find(job => job.result?.questions?.some(asked => asked.id === q.id))?.startedAt;
-    const superseded = n.questions.filter((q, index) => q !== question && !q.supersededAt && (question.answeredAt && askedAt(q) ? askedAt(q) > question.answeredAt : index > position));
-    const reached = this.affectedBy(map, [n.id, ...below]);
-    const flagged = map.nodes.filter(node => node.id !== n.id && !below.has(node.id) && reached.has(node.id) && (hasFindings(map, node) || isCompleted(map, node)));
-    const deleted = map.nodes.filter(node => below.has(node.id));
-    const links = map.edges.filter(edge => below.has(edge.from) || below.has(edge.to));
-    const hash = createHash('sha256').update(JSON.stringify([n.id, question.id, question.answer,
-      [n, ...deleted].map(node => [node.id, node.contentRevision, node.status].join(' ')).sort(), superseded.map(q => q.id), flagged.map(node => node.id).sort(),
-      links.map(edge => [edge.from, edge.to, edge.type].join(' ')).sort()])).digest('hex');
-    return { node: n, question, below, deleted, superseded, flagged, links, hash };
-  }
-  // Named automatically and kept: "Before restarting <title>, <date>", numbered when that name is taken.
-  async checkpointName(map, node) {
-    const title = node.title.length > 80 ? `${node.title.slice(0, 79)}…` : node.title;
-    const base = `Before restarting ${title}, ${now().slice(0, 10)}`;
-    const taken = new Set((await this.versions.scan(map.id)).map(version => version.name).filter(Boolean));
-    let name = base;
-    for (let count = 2; taken.has(name); count++) name = `${base} (${count})`;
-    return name;
-  }
-  // Writes nothing. The deletion list comes in pages; the hash is what the action must be sent back.
-  async previewRestart(mapId, { nodeId, questionId, offset = 0, limit = 50 } = {}) {
-    const map = await this.get(mapId), plan = this.restartPlan(map, nodeId, questionId);
-    const from = Math.max(0, Math.trunc(Number(offset)) || 0), size = Math.min(200, Math.max(1, Math.trunc(Number(limit)) || 50));
-    const page = plan.deleted.slice(from, from + size);
-    return { mapId, revision: map.revision, hash: plan.hash, node: { id: plan.node.id, title: plan.node.title },
-      question: { id: plan.question.id, text: plan.question.text }, oldAnswer: plan.question.answer,
-      deleteCount: plan.deleted.length, deleted: page.map(node => ({ id: node.id, title: node.title })), offset: from, nextOffset: from + size < plan.deleted.length ? from + size : null,
-      superseded: plan.superseded.map(q => ({ id: q.id, text: q.text })), flagged: plan.flagged.map(node => ({ id: node.id, title: node.title })),
-      linksRemoved: plan.links.length, checkpointName: await this.checkpointName(map, plan.node) };
-  }
-  restartBranch(map, n, plan, { answer, answerState, actor, checkpoint }) {
-    const at = now(), q = plan.question;
-    // Outside ideas are flagged while the links that reach them still exist.
-    for (const node of plan.flagged) this.flagForReview(node, { sourceId: n.id, kind: 'branch-restarted' });
-    map.nodes = map.nodes.filter(node => !plan.below.has(node.id));
-    map.edges = map.edges.filter(edge => !plan.below.has(edge.from) && !plan.below.has(edge.to));
-    map.jobs = map.jobs.filter(job => !plan.below.has(job.nodeId));
-    for (const id of plan.below) delete map.view?.positions?.[id];
-    q.previousAnswers = [...(q.previousAnswers || []), { answer: q.answer, ...(q.answerState ? { answerState: q.answerState } : {}), ...(q.answeredAt ? { answeredAt: q.answeredAt } : {}), replacedAt: at, restart: true }];
-    Object.assign(q, { answer, answeredAt: at, changedAt: at }, answerState ? { answerState } : {}, actor?.name ? { answeredBy: { name: actor.name } } : {});
-    for (const other of plan.superseded) other.supersededAt = at;
-    // The idea keeps its premise and answers; its findings start again.
-    const premise = n.prompt || n.body;
-    Object.assign(n, { body: premise, summary: premise.slice(0, 600), sources: [], reviewState: 'unreviewed', stale: false, status: 'interrupted' });
-    for (const key of ['completedAt', 'options', 'optionsLimit', 'recommendation', 'reviewCauses', 'earlierCauses', 'reaffirmedAt', 'clearedAt', 'replacedBy', 'resolvedBy', 'acceptedAt', 'acceptedBy']) delete n[key];
-    n.contentRevision++;
-    for (const job of map.jobs) if (job.nodeId === n.id && !job.restartedAt) job.restartedAt = at;
-    const count = plan.below.size;
-    this.event(map, 'branch-restarted', n.id, `Deleted ${count} idea${count === 1 ? '' : 's'} below it; checkpoint ${checkpoint}.`);
-    // Confirming the restart is the user's go-ahead (decision 6b).
-    if (n.questions.some(isBlocking)) n.status = 'awaiting-answer';
-    else this.enqueue(map, n, 'The user restarted this branch from a changed answer. Explore it again from the new answer.');
   }
   contextNodes(map, node) {
     const ids = new Set([node.id, map.rootId]);
@@ -753,9 +669,9 @@ export class Store {
       }),
       links: list(result.links, 'Links', 12).map(e => {
         object(e, 'Relationship');
-        const exists = map.nodes.some(n => n.id === e.to), deleted = !exists && map.growth?.batches.some(batch => batch.nodeIds?.includes(e.to));
-        need(relations.has(e.type) && (exists || deleted) && e.to !== node.id, 'Invalid relationship.');
-        return exists ? { from: node.id, to: e.to, type: e.type } : null; // A restart deleted it while this work ran.
+        const exists = map.nodes.some(n => n.id === e.to);
+        need(relations.has(e.type) && (exists || onceExisted(map, e.to)) && e.to !== node.id, 'Invalid relationship.');
+        return exists ? { from: node.id, to: e.to, type: e.type } : null;
       }).filter(Boolean) };
   }
   complete(mapId, jobId, claimKey, result) {
