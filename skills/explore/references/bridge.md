@@ -77,6 +77,15 @@ Give 1–4 options with unique `id`s (a letter, then letters, digits, `_` or `-`
 
 Limits: summary 800 characters; body 24,000; at most 5 questions, 8 suggestions, 20 sources, 12 links. A question is a string or `{text, importance, why}`: `importance` is `low`, `medium` or `high` and needs a `why` (at most 600 characters) saying what the answer would change; `why` may also stand alone. A missing `why` for a rated question, or any other importance value, rejects the whole result so you can resend it. Suggestion kinds: `research`, `question`, `decision`, `risk`, `idea`. Link types: `depends_on`, `supports`, `contradicts`, `related_to`. `contains` is created by the server for suggested children. All results remain unreviewed until the user accepts them.
 
+### Result checks
+
+Before an investigation result is saved, it is checked against these exploration rules. Comparisons ignore case, repeated spaces and trailing punctuation. Each finding is `{ code, field, message }`, where `field` names the item, such as `questions[1]`.
+
+- **Errors reject the result.** Nothing is saved and the claim stays valid, so fix the listed items and send it again with the same `result` command. The errors are `answered-question` (it re-asks a question the user already answered anywhere in the map), `dismissed-question` (one the user dismissed on this idea), `duplicate-question` and `duplicate-suggestion` (the same question or suggestion title twice in one result).
+- **Warnings never block delivery.** They are returned as `warnings` and their codes are kept on the job. They are `superseded-question` (answered under an earlier premise; re-asking can be right), `dismissed-elsewhere` (dismissed on another idea), `compound-question` (it may ask two things), `existing-branch` (a suggestion matching an existing idea; one already under this idea is skipped) and `weak-source-note` (a note that repeats the title or URL, or is under five words).
+
+A repeated delivery of a saved result changes nothing and returns only the saved `{ code, field }` of its warnings. Run `result --job ID --file result.json --check` to get `{ ok, errors, warnings }` without saving or touching the job (it exits non-zero when `ok` is false, and a malformed result fails as it would on delivery), and reconsider warnings before the final `result`: a completed branch cannot change afterwards.
+
 ## Other kinds of work
 
 Every packet from `next` carries `jobType`. `investigate` is the branch investigation above; a job saved without a `type` is one. Other types are registered in `scripts/job-types.mjs` by the features that need them. Each such packet carries `mapId`, `jobId`, `jobType`, `reason` and `instruction`, plus the type's own fields. Follow its `instruction`, then deliver the result it describes with the same `result --job ID --file result.json` command, or use `fail`. The result is kept on the job record. It never changes the idea's status, findings, questions or completion, and it never accepts anything for the user. If the idea or its context changed while the work ran, the result is kept but marked `stale`.

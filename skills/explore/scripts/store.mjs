@@ -10,6 +10,7 @@ import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
+import { checkAgainstMap, existingChild } from './result-checks.mjs';
 import { sourceList } from './fields.mjs';
 import { signature, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
@@ -31,7 +32,8 @@ export function hasFindings(map, node) {
 // An idea a restart or restore deleted while work ran: a result's link to it is skipped, not refused.
 const onceExisted = (map, id) => !!map.growth?.batches.some(batch => batch.nodeIds?.includes(id));
 export class Problem extends Error {
-  constructor(message, status = 400, code) { super(message); this.status = status; if (code) this.code = code; }
+  // `errors` lists each failed check when a result breaks the exploration rules (K3).
+  constructor(message, status = 400, code, errors) { super(message); this.status = status; if (code) this.code = code; if (errors) this.errors = errors; }
 }
 function need(condition, message, status, code) { if (!condition) throw new Problem(message, status, code); }
 const changedOutside = 'This map changed outside Explore, for example after a pull. Read the updated map, then try again; your text has been kept.';
@@ -666,32 +668,30 @@ export class Store {
         return exists ? { from: node.id, to: e.to, type: e.type } : null;
       }).filter(Boolean) };
   }
-  complete(mapId, jobId, claimKey, result) {
+  async complete(mapId, jobId, claimKey, result) { return (await this.deliver(mapId, jobId, claimKey, result)).map; }
+  // Saves a result and resolves { map, warnings }. An investigation result is first checked against the
+  // exploration rules (K3): errors reject it with the claim still valid; warnings are saved as codes on the job.
+  deliver(mapId, jobId, claimKey, result) {
     return this.serial(async () => {
       const map = await this.get(mapId);
       const job = map.jobs.find(j => j.id === jobId);
       need(job && holdsClaim(job, claimKey), 'The job claim is not valid.', 409);
-      if (job.status === 'completed') return map; // Delivery retry must not create duplicate branches.
-      need(job.status === 'running', 'This work is no longer running.', 409);
+      // A retried delivery must not create duplicate branches or re-run checks; it repeats the saved warning codes.
+      if (job.status === 'completed') return { map, warnings: job.resultWarnings ?? [] };
+      const { definition, node: n, normalized, errors, warnings } = await this.prepareDelivery(map, job, result);
+      if (errors.length) throw new Problem('This result breaks the exploration rules. Fix the listed items and send it again with the same claim.', 400, 'result-checks', errors);
       if (!isInvestigation(job)) {
-        const definition = this.jobType(job.type);
-        need(definition, 'This version of Explore does not know this kind of work.', 409);
-        const node = job.nodeId ? map.nodes.find(n => n.id === job.nodeId) || null : null;
         // The result stays on the job record: only investigations change an idea.
-        const normalized = await definition.validate(object(result, 'Result'), { map, job, node });
         // Like an investigation, work whose idea changed while it ran is kept but marked stale.
-        const stale = definition.isStale ? !!definition.isStale({ map, job, node }) : !!(job.inputSignature && node && job.inputSignature !== signature(map, node));
+        const stale = definition.isStale ? !!definition.isStale({ map, job, node: n }) : !!(job.inputSignature && n && job.inputSignature !== signature(map, n));
         Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
         // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
         if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });
         this.event(map, 'job-result', job.nodeId, `${definition.label}; ${job.id}`);
-        return this.save(map);
+        return { map: await this.save(map), warnings: [] };
       }
-      const n = map.nodes.find(n => n.id === job.nodeId);
-      need(!isCompleted(map, n), 'This branch was already completed. Its findings cannot be replaced.', 409);
-      const normalized = this.validateResult(result, map, n);
       const stale = job.inputSignature !== signature(map, n);
-      Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
+      Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale }, warnings.length ? { resultWarnings: warnings.map(({ code, field }) => ({ code, field })) } : {});
       if (stale) {
         this.flagForReview(n, { sourceId: n.id, kind: 'result-during-change' }); n.status = 'interrupted';
         this.event(map, 'stale-result', n.id, 'Result retained in job history. A premise changed during research.');
@@ -705,7 +705,7 @@ export class Store {
         if (n.status === 'explored') n.completedAt = now();
         const addedNodes = [], addedEdges = [];
         for (const s of normalized.suggestions) {
-          if (map.nodes.some(existing => existing.parentId === n.id && existing.title.toLowerCase() === s.title.toLowerCase())) continue;
+          if (existingChild(map, n, s.title)) continue; // Reported as existing-branch.
           const child = this.node(s.title, s.body, s.kind, n.id);
           const edge = { from: n.id, to: child.id, type: 'contains' };
           map.nodes.push(child); map.edges.push(edge);
@@ -718,8 +718,28 @@ export class Store {
         this.recordGrowth(map, addedNodes, addedEdges);
         this.event(map, 'result', n.id, job.id);
       }
-      return this.save(map);
+      return { map: await this.save(map), warnings };
     });
+  }
+  // What delivery and `result --check` share, changing nothing: the job must be running and of a known kind, the
+  // result must be well formed (a malformed one throws, as on delivery), and an investigation result is checked
+  // against the exploration rules. Resolves { definition, node, normalized, errors, warnings }.
+  async prepareDelivery(map, job, result) {
+    need(job.status === 'running', 'This work is no longer running.', 409);
+    const definition = this.jobType(jobTypeOf(job));
+    need(definition, 'This version of Explore does not know this kind of work.', 409);
+    const node = job.nodeId ? map.nodes.find(n => n.id === job.nodeId) || null : null;
+    if (!isInvestigation(job)) return { definition, node, normalized: await definition.validate(object(result, 'Result'), { map, job, node }), errors: [], warnings: [] };
+    need(!isCompleted(map, node), 'This branch was already completed. Its findings cannot be replaced.', 409);
+    const normalized = this.validateResult(result, map, node);
+    return { definition, node, normalized, ...checkAgainstMap(normalized, map, node) };
+  }
+  // `result --check`: every check a delivery would run, against the current map, without saving or touching the job.
+  async checkResult(mapId, jobId, claimKey, result) {
+    const map = await this.get(mapId), job = map.jobs.find(j => j.id === jobId);
+    need(job && holdsClaim(job, claimKey), 'The job claim is not valid.', 409);
+    const { errors, warnings } = await this.prepareDelivery(map, job, result);
+    return { ok: !errors.length, errors, warnings };
   }
   fail(mapId, jobId, claimKey, reason) {
     return this.serial(async () => {

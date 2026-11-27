@@ -6,6 +6,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { startServer } from '../skills/explore/scripts/server.mjs';
+import { packageFiles } from '../skills/explore/scripts/doctor.mjs';
 
 const exec = promisify(execFile);
 const cli = path.resolve('skills/explore/scripts/cli.mjs');
@@ -185,4 +186,9 @@ test('a map is never saved larger than the server will open', async () => {
   loaded.nodes[0].body = 'x'.repeat(65 * 1024 * 1024);
   await assert.rejects(store.save(loaded), error => error.status === 413 && /too large to save/.test(error.message));
   assert.equal(await readFile(store.file(map.id), 'utf8'), before);
+});
+
+test('the doctor checks every script the skill ships, including the result checks', async () => {
+  const scripts = (await readdir(path.resolve('skills/explore/scripts'))).filter(name => name.endsWith('.mjs')).map(name => `scripts/${name}`);
+  assert.deepEqual(scripts.filter(file => !packageFiles.includes(file)), []);
 });
