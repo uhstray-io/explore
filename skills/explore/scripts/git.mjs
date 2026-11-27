@@ -2,10 +2,13 @@ import { execFile } from 'node:child_process';
 
 // Read-only Git. Every Git command Explore runs goes through `git()`: literal arguments and no shell, no
 // optional locks (so the index is never rewritten), fsmonitor off, a timeout and an output cap, messages in
-// English, and no inherited GIT_* variables that could point Git at another repository, index or config.
+// English, and none of the inherited variables that point Git at another repository, index or object store
+// (what `git rev-parse --local-env-vars` lists, plus inline config). The user's own config still applies.
 // Explore never stages, commits, fetches or changes refs.
 const maxOutput = 64 * 1024;
-const environment = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name))), LC_ALL: 'C', LANGUAGE: 'C' });
+const repositoryVariables = new Set(['GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE',
+  'GIT_IMPLICIT_WORK_TREE', 'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX', 'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR']);
+const environment = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !repositoryVariables.has(name.toUpperCase()) && !/^GIT_CONFIG_(KEY|VALUE)_d+$/i.test(name))), LC_ALL: 'C', LANGUAGE: 'C' });
 
 // Resolves, and never rejects, with one of:
 //   { outcome: 'ok', stdout }            Git succeeded.

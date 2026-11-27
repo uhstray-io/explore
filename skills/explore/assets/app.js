@@ -152,8 +152,8 @@ function selectNode(nodeId) {
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
   $('#focus-selected').disabled = !state.selected; renderDetail();
 }
-// Git status of the open map (H9). Checked when a map opens, after this browser saves (at most every
-// 10 seconds), after a change from outside Explore, and when the user asks; never on every poll.
+// Git status of the open map (H9). Checked when a map opens, when the user asks, and at most every 10 seconds
+// after this browser saves or a fetch brings a changed map (a pull or an agent's result); never on every poll.
 function showGitStatus() {
   const historic = state.historyStep !== null, label = $('#saved-state');
   const status = state.gitStatus?.mapId === state.map?.id ? state.gitStatus.value : null;
@@ -171,7 +171,7 @@ async function checkGitStatus({ force = false } = {}) {
   state.gitStatus = { mapId, at: Date.now(), value: state.gitStatus?.mapId === mapId ? state.gitStatus.value : null };
   const value = await api(`/maps/${mapId}/git-status`).catch(() => null);
   if (request !== state.gitRequest || state.map?.id !== mapId) return;
-  if (value) state.gitStatus.value = value;
+  state.gitStatus.value = value ?? { state: 'unknown' }; // A failed check says so rather than showing an older result.
   showGitStatus();
 }
 $('#saved-state').addEventListener('click', () => { $('#saved-state').textContent = 'Checking Git…'; checkGitStatus({ force: true }); });
