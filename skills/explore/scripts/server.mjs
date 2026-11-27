@@ -73,6 +73,12 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const preview = await store.versions.preview(versionsRoute[1], versionsRoute[2]);
           return send(res, 200, { ...preview, map: publicMap(preview.map) });
         }
+        // Restart preview (Z2): what restarting a finished branch would delete and flag. It writes nothing.
+        const restartRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/restart-preview$/);
+        if (req.method === 'GET' && restartRoute) {
+          const q = url.searchParams;
+          return send(res, 200, await store.previewRestart(restartRoute[1], { nodeId: q.get('node'), questionId: q.get('question'), offset: q.get('offset') ?? 0, limit: q.get('limit') ?? 50 }));
+        }
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
         if (req.method === 'GET' && contextRoute) return send(res, 200, contextExcerpt(await store.get(contextRoute[1]), url.searchParams.get('node'), Object.fromEntries(url.searchParams)));
         const match = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)(?:\/(action|result|fail))?$/);

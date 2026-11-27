@@ -86,6 +86,10 @@ test('versions are described in plain words, never internal event names', async 
   assert.equal(versionLabel({ labels: ['result'] }), 'Agent result');
   assert.equal(versionLabel({ labels: ['version-restored'] }), 'Restored an earlier version');
   assert.equal(versionLabel({ labels: ['before-outside-change'] }), 'Before a pull or branch switch');
+  assert.equal(versionLabel({ labels: ['branch-restarted', 'activated'] }), 'Branch restarted');
+  assert.equal(versionLabel({ labels: ['answer-changed', 'activated'] }), 'Answer changed');
+  assert.equal(versionLabel({ labels: ['reaffirmed'] }), 'Finding still holds');
+  assert.equal(versionLabel({ labels: ['cleared'] }), 'Finding no longer relevant');
   assert.equal(versionLabel({ labels: ['something-new'] }), 'Saved change');
   assert.equal(versionLabel({ labels: ['suggested'], name: 'Before the workshop' }), 'Before the workshop');
 });
@@ -111,6 +115,7 @@ test('a restore summary says what changes and that research does not start', asy
 
 test('an undo summary speaks of undoing', async () => {
   const { restoreSummary } = await import('../skills/explore/assets/workspace-view.js');
+  assert.match(restoreSummary({ counts: { nodesAdded: 1, nodesRemoved: 0, nodesChanged: 0, linksAdded: 0, linksRemoved: 0 }, reopened: [], queuedCancelled: 1 }), / It cancels 1 queued exploration\./);
   const text = restoreSummary({ counts: { nodesAdded: 1, nodesRemoved: 0, nodesChanged: 0, linksAdded: 1, linksRemoved: 0 }, reopened: [] }, { undo: true });
   assert.match(text, /^Undoing brings back 1 idea and brings back 1 connection\./); assert.match(text, /you can undo this too/);
 });

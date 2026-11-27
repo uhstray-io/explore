@@ -75,6 +75,8 @@ const versionWords = {
   failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
   'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
+  'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
+  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart',
 };
 export function versionLabel(version) {
   if (version.name) return version.name;
@@ -110,7 +112,7 @@ export function undoTarget(versions, me) {
 }
 
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-export function restoreSummary({ counts, reopened }, { undo = false } = {}) {
+export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo = false } = {}) {
   const verb = undo ? 'Undoing' : 'Restoring';
   const parts = [
     counts.nodesRemoved && `removes ${count(counts.nodesRemoved, 'idea')}`,
@@ -121,7 +123,8 @@ export function restoreSummary({ counts, reopened }, { undo = false } = {}) {
   ].filter(Boolean);
   const changes = parts.length ? `${verb} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}.` : `${verb} changes no ideas or connections.`;
   const reopens = reopened.length ? ` It reopens ${count(reopened.length, 'finished branch', 'finished branches')}.` : '';
-  return `${changes}${reopens} Nothing is explored until you choose Retry, and you can undo ${undo ? 'this too' : 'the restore'}.`;
+  const cancels = queuedCancelled ? ` It cancels ${count(queuedCancelled, 'queued exploration')}.` : '';
+  return `${changes}${reopens}${cancels} Nothing is explored until you choose Retry, and you can undo ${undo ? 'this too' : 'the restore'}.`;
 }
 
 // Options the agent compared (C1), as compact cards. Only the recommended one is labelled, and the
@@ -221,6 +224,7 @@ export function reviewStepHtml({ map, nodeId, index, total, esc }) {
     if (c.kind === 'premise-revised') return `${source(c.sourceId)}: its premise was revised${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(map.history?.filter(e => e.type === 'previous-premise' && e.nodeId === c.sourceId).at(-1)?.detail, from?.prompt)}`;
     if (c.kind === 'premise-forked') return `${source(c.sourceId)} was explored with a changed premise${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(from?.prompt, map.nodes.filter(n => n.revises === c.sourceId).at(-1)?.prompt)}`;
     if (c.kind === 'answer-changed') { const q = from?.questions.filter(x => x.previousAnswers?.length).at(-1); return `An answer on ${source(c.sourceId)} changed${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(q?.previousAnswers.at(-1)?.answer, q?.answer)}`; }
+    if (c.kind === 'branch-restarted') { const q = from?.questions.filter(x => x.previousAnswers?.some(p => p.restart)).at(-1); return `${source(c.sourceId)} was restarted from a changed answer${c.at ? ` on ${esc(shortDate(c.at))}` : ''}; the ideas below it were removed and are kept in a checkpoint version.${more(q?.previousAnswers.filter(p => p.restart).at(-1)?.answer, q?.answer)}`; }
     if (c.kind === 'result-during-change') return `A result arrived while this idea's premise was changing${c.at ? ` (${esc(shortDate(c.at))})` : ''}. It is kept in history, not applied.`;
     return `${source(c.sourceId)} changed.`;
   };
@@ -230,6 +234,21 @@ export function reviewStepHtml({ map, nodeId, index, total, esc }) {
     + `<p class="form-note">Something this finding relied on changed. Check whether it still holds.</p>${causes}`
     + `<div class="review-resolve"><button type="button" class="primary" data-resolve="reaffirm" data-node-id="${id}">Still holds</button><button type="button" class="secondary" data-resolve="reexplore" data-node-id="${id}">Re-explore</button><button type="button" class="text-button" data-resolve="clear" data-node-id="${id}">No longer relevant</button></div>`
     + `<div class="review-reexplore" data-reexplore-for="${id}" hidden><label for="reexplore-${id}">The premise to explore (edit it if you like)</label><textarea id="reexplore-${id}" rows="3" maxlength="16000">${esc(node.prompt || node.body)}</textarea><button type="button" class="primary" data-reexplore-confirm="${id}">Re-explore</button></div></section>`;
+}
+
+// Restart preview (Z2): what restarting a finished branch deletes, sets aside and flags, the checkpoint
+// saved first, and the confirm button. Shown inside the Change answer editor; nothing is saved until confirmed.
+export function restartPreviewHtml(preview, { esc, expanded = false }) {
+  const count = preview.deleteCount, plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  const lead = count
+    ? `<p><strong>Restarting deletes ${plural(count, 'idea')} below this branch${preview.linksRemoved ? `, with ${plural(preview.linksRemoved, 'link')}` : ''}.</strong> This branch keeps its premise and answers and explores again from your new answer.</p>`
+    : '<p><strong>Nothing below this branch is deleted.</strong> Its findings are cleared and it explores again from your new answer.</p>';
+  const list = count ? `<details class="restart-list"${expanded ? ' open' : ''}><summary>Ideas to delete (${count})</summary><ul>${preview.deleted.map(node => `<li>${esc(node.title)}</li>`).join('')}</ul>${preview.nextOffset !== null && preview.nextOffset !== undefined ? `<button type="button" class="text-button" data-restart-more="${preview.nextOffset}">Show more</button>` : ''}</details>` : '';
+  const setAside = preview.superseded.length ? `<p>${preview.superseded.length === 1 ? '1 later question on this branch is' : `${preview.superseded.length} later questions on this branch are`} set aside; their answers are kept.</p>` : '';
+  const flagged = preview.flagged.length ? `<p>Flagged for review: ${preview.flagged.map(node => esc(node.title)).join(', ')}.</p>` : '';
+  return `<div class="state-note warning restart-preview" role="group" aria-label="Restart preview" tabindex="-1">${lead}${list}${setAside}${flagged}`
+    + `<p class="form-note">A checkpoint named “${esc(preview.checkpointName)}” is saved first. Restore it from Versions to bring everything back.</p>`
+    + `<div class="question-actions"><button type="button" class="primary" data-restart-confirm>${count ? `Delete ${plural(count, 'idea')} and restart` : 'Restart this branch'}</button><button type="button" class="text-button" data-restart-cancel>Cancel</button></div></div>`;
 }
 
 export function briefFilename(title) {

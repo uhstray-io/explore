@@ -36,7 +36,7 @@ Use the progress filters to find questions awaiting your answer, queued investig
 
 **Growth history** shows when ideas and connections were added. Scrub between recorded additions, then **Return to live** to edit. History uses current findings, status, and positions; it does not claim to reconstruct prior content. Older missing dates appear as unknown. Browsing history never starts research.
 
-Explored branches stay complete. Use **Add a direction** to grow a new branch. **Explore a changed premise** creates an inactive investigation and flags affected findings for review while preserving the original content. The new branch runs only after you choose to explore it. Questions and retries still continue unfinished work.
+Explored branches stay complete. Use **Add a direction** to grow a new branch. **Explore a changed premise** creates a new investigation beside the original, starts it, and flags affected findings for review while preserving the original content. On a finished branch, **Change answer** offers the same, or **Restart from this answer**: after a preview, it saves a named checkpoint version, deletes the ideas below the branch and explores it again from the new answer. Restoring the checkpoint brings everything back. Questions and retries still continue unfinished work.
 
 Agents can retrieve individual sections or old answers with `read --node ID --section questions --query "constraint"` (also pass `--map ID` and `--workspace PATH`). Reads are paged instead of loading full node histories. `usage --map ID` reports recorded CLI output sizes, not total conversation context or model tokens; see [the bridge reference](skills/explore/references/bridge.md).
 

@@ -31,7 +31,7 @@ export function restorableHash(map) {
 }
 export function shouldRecord(labels) { return labels.some(label => !bookkeeping.has(label)); }
 const describe = (id, record, bytes) => ({ id, mapId: record.mapId, revision: record.revision, at: record.at, labels: record.labels,
-  ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
+  ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.checkpoint ? { checkpoint: true } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
 
 export class Versions {
   constructor(directory, limits = {}) { this.directory = directory; this.limits = { ...versionLimits, ...limits }; this.headers = new Map(); }
@@ -86,6 +86,16 @@ export class Versions {
     await this.prune(map.id);
     return id;
   }
+  // A checkpoint is a version Explore names itself before a change that deletes ideas (a branch restart).
+  // It is always its own file, kept like every named version, and it does not use up the names people choose.
+  async checkpoint(map, { name, labels }) {
+    const at = new Date().toISOString(), id = `${at.replace(/[-:.]/g, '')}-${randomBytes(3).toString('hex')}`;
+    await atomicJson(this.file(map.id, id), { format: 'explore-version', version: 1, mapId: map.id, revision: map.revision, at,
+      labels, name, checkpoint: true, contentHash: contentHash(map), map: snapshotOf(map) });
+    return id;
+  }
+  // Only for a checkpoint whose change was never saved.
+  discard(mapId, id) { return unlink(this.file(mapId, id)); }
   // Keeps every named or imported version, and the newest others within the count and byte limits.
   async prune(mapId) {
     let kept = 0, bytes = 0;
@@ -103,9 +113,10 @@ export class Versions {
       need(typeof name === 'string' && name.trim().length >= 1 && name.trim().length <= 120, 'A version name must be 1–120 characters.');
       name = name.trim();
       need(!versions.some(version => version.id !== id && version.name === name), 'That name is already used for another version.', 409);
-      need(record.name || versions.filter(version => version.name).length < this.limits.names, `A map can have at most ${this.limits.names} named versions. Remove a name first.`, 409);
+      need((record.name && !record.checkpoint) || versions.filter(version => version.name && !version.checkpoint).length < this.limits.names, `A map can have at most ${this.limits.names} named versions. Remove a name first.`, 409);
       record.name = name;
     }
+    delete record.checkpoint; // Once the user names or unnames it, it is theirs.
     await atomicJson(file, record);
   }
 }

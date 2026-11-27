@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
@@ -78,7 +78,7 @@ async function openMap(id) {
   try {
     const map = await api(`/maps/${id}`); if (version !== openVersion) return;
     state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
-    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; navigation(false);
+    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); location.hash = id;
     renderMap(true); renderRail();
@@ -366,6 +366,22 @@ $('#tools-dialog').addEventListener('click', async event => {
   else if (button.dataset.reviewItem) { if (await act(null, 'review-proposal', { proposalId: button.dataset.proposal, itemId: button.dataset.reviewItem, decision: button.dataset.decision })) renderTools(); }
   else if (button.dataset.select) $('#tools-dialog').close(); // The page's own handler then focuses that idea.
 });
+// Loads the restart preview, or its next page of ideas to delete. If the branch changed meanwhile, the
+// preview starts again from the first page so it always matches what would be deleted.
+async function loadRestartPreview({ nodeId, questionId }, offset = 0) {
+  const mapId = state.map?.id; if (!mapId) return;
+  const earlier = state.restartPreview?.nodeId === nodeId && state.restartPreview.questionId === questionId ? state.restartPreview : null;
+  try {
+    const route = start => `/maps/${mapId}/restart-preview?node=${encodeURIComponent(nodeId)}&question=${encodeURIComponent(questionId)}&offset=${start}`;
+    let preview = await api(route(offset));
+    if (offset && earlier && preview.hash === earlier.preview.hash) preview = { ...preview, deleted: [...earlier.preview.deleted, ...preview.deleted] };
+    else if (offset) { preview = await api(route(0)); toast('This branch changed. The preview is updated.'); }
+    if (state.map?.id !== mapId) return;
+    state.restartPreview = { nodeId, questionId, preview, expanded: Boolean(offset) };
+  } catch (error) { toast(error.message); state.restartPreview = null; }
+  renderDetail(true);
+  document.querySelector('#detail .restart-preview')?.focus();
+}
 // After a flag is resolved, move to the next flagged finding, or finish when none are left.
 function advanceReview(nodeId, position, message) {
   toast(message);
@@ -499,8 +515,9 @@ function renderDetail(force = false) {
   const live = !completed && !historic, blockingCount = questions.filter(isBlocking).length;
   // Change answer: on an unfinished branch the branch continues from the new answer; on a finished one it
   // becomes a new branch beside the original, started straight away. Nothing is promised in the background.
-  const changeEditor = q => `<div class="change-answer" data-change-for="${q.id}" hidden><label class="visually-hidden" for="change-${q.id}">Your changed answer</label><textarea id="change-${q.id}" rows="3" maxlength="12000" data-draft="change-${q.id}">${esc(state.drafts[`change-${q.id}`] ?? q.answer)}</textarea>${completed
-    ? `<p class="form-note">This branch is finished, so its findings stay. The new answer becomes a branch beside it and starts exploring.</p><div class="question-actions"><button type="button" class="primary" data-save-change="fork" data-question-id="${q.id}" data-node-id="${n.id}">Explore beside the original</button></div>`
+  const restarting = q => completed && state.restartPreview?.nodeId === n.id && state.restartPreview.questionId === q.id;
+  const changeEditor = q => `<div class="change-answer" data-change-for="${q.id}"${restarting(q) ? '' : ' hidden'}><label class="visually-hidden" for="change-${q.id}">Your changed answer</label><textarea id="change-${q.id}" rows="3" maxlength="12000" data-draft="change-${q.id}">${esc(state.drafts[`change-${q.id}`] ?? q.answer)}</textarea>${completed
+    ? `<p class="form-note">This branch is finished. Exploring beside the original keeps its findings and starts a new branch from your answer. Restarting deletes the ideas below it, after saving a checkpoint.</p><div class="question-actions"><button type="button" class="primary" data-save-change="fork" data-question-id="${q.id}" data-node-id="${n.id}">Explore beside the original</button><button type="button" class="text-button" data-restart-preview data-question-id="${q.id}" data-node-id="${n.id}">Restart from this answer</button></div>${restarting(q) ? restartPreviewHtml(state.restartPreview.preview, { esc, expanded: state.restartPreview.expanded }) : ''}`
     : `<p class="form-note">Findings that relied on this answer will be flagged for review, and your agent will continue from the new answer.</p><div class="question-actions"><button type="button" class="primary" data-save-change="change" data-question-id="${q.id}" data-node-id="${n.id}">Save</button><button type="button" class="text-button" data-save-wording data-question-id="${q.id}" data-node-id="${n.id}">Save without re-running</button></div>`}</div>`;
   // A question being regenerated shows where its replacement will appear; it never promises background work.
   const pendingBox = q => `<div class="question-box pending-question"><div class="question-label">Getting a new question…</div><p>${esc(q.text)}</p><p class="form-note">${agentListening() ? 'Your agent is writing a better question.' : 'Queued for your agent.'}</p></div>`;
@@ -591,7 +608,7 @@ function showCreate() {
   $('#create-dialog').showModal(); $('#idea').focus();
 }
 function showWelcome() {
-  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.versionsOpen = false; state.reviewing = null; localStorage.removeItem('explore-map'); navigation(false);
+  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.versionsOpen = false; state.reviewing = null; state.restartPreview = null; localStorage.removeItem('explore-map'); navigation(false);
   $('#welcome').classList.remove('hidden'); $('#workspace').classList.add('hidden'); $('#map-title').textContent = 'A place to think'; renderRail();
 }
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
@@ -661,6 +678,32 @@ document.addEventListener('click', async event => {
       : await act(changeSave.dataset.nodeId, 'change-answer', { questionId, answer, ...('saveWording' in changeSave.dataset ? { rerun: false } : {}) });
     if (done) { delete state.drafts[`change-${questionId}`]; toast(fork ? (agentListening() ? 'A new branch is exploring your changed answer.' : 'A new branch is queued for your changed answer. Connect your agent to explore it.') : 'saveWording' in changeSave.dataset ? 'Wording saved.' : 'Answer changed. Findings that relied on it are flagged for review.'); }
     changeSave.disabled = false; return;
+  }
+  // Restart from this answer: preview first; nothing is deleted until the user confirms.
+  const restartOpen = event.target.closest('[data-restart-preview]');
+  if (restartOpen) {
+    const { questionId, nodeId } = restartOpen.dataset, field = document.querySelector(`#change-${questionId}`), answer = field?.value.trim();
+    const saved = state.map?.nodes.find(node => node.id === nodeId)?.questions.find(q => q.id === questionId)?.answer;
+    if (!answer || answer === saved) { toast('Change the answer first, then restart from it.'); field?.focus(); return; }
+    restartOpen.disabled = true; await loadRestartPreview({ nodeId, questionId }); restartOpen.disabled = false; return;
+  }
+  const restartMore = event.target.closest('[data-restart-more]');
+  if (restartMore && state.restartPreview) { await loadRestartPreview(state.restartPreview, Number(restartMore.dataset.restartMore)); return; }
+  if (event.target.closest('[data-restart-cancel]')) {
+    const questionId = state.restartPreview?.questionId; state.restartPreview = null; renderDetail(true);
+    const editor = document.querySelector(`[data-change-for="${questionId}"]`); if (editor) { editor.hidden = false; editor.querySelector('textarea').focus(); }
+    return;
+  }
+  const restartConfirm = event.target.closest('[data-restart-confirm]');
+  if (restartConfirm && state.restartPreview) {
+    const { nodeId, questionId, preview } = state.restartPreview, answer = document.querySelector(`#change-${questionId}`)?.value.trim();
+    if (!answer) { document.querySelector(`#change-${questionId}`)?.focus(); return; }
+    restartConfirm.disabled = true;
+    if (await act(nodeId, 'restart-branch', { questionId, answer, previewHash: preview.hash })) {
+      state.restartPreview = null; delete state.drafts[`change-${questionId}`]; renderDetail(true);
+      toast(`Branch restarted. “${preview.checkpointName}” is saved in Versions. ${agentListening() ? 'Your agent will explore it next.' : 'Connect your agent to explore it.'}`);
+    } else if (state.restartPreview) await loadRestartPreview(state.restartPreview); // Show what would happen now.
+    return;
   }
   // Review flagged findings.
   const reviewStart = event.target.closest('[data-review-start]');

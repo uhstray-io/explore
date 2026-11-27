@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -582,4 +582,23 @@ test('resolving a flag re-renders without ending the review, so the next flagged
   first.stale = false; h.render();
   assert.ok(h.state.reviewing, 'review mode survives the re-render of a resolved finding');
   assert.doesNotMatch(h.markup(), /review-step/);
+});
+
+test('a finished branch offers Restart from this answer, and its preview keeps the change editor open', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'explored'; node.completed = true;
+  node.questions = [{ id: 'q-a', text: 'Budget?', answer: 'Forty pounds.' }];
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /data-save-change="fork"[^>]*>Explore beside the original</);
+  assert.match(h.markup(), /data-restart-preview[^>]*data-question-id="q-a"[^>]*>Restart from this answer</);
+  assert.match(h.markup(), /data-change-for="q-a" hidden/);
+  h.state.restartPreview = { nodeId: 'node-a', questionId: 'q-a', answer: 'Ten pounds.', preview: { deleteCount: 1, deleted: [{ id: 'node-b', title: 'node-b' }], nextOffset: null,
+    superseded: [], flagged: [], linksRemoved: 1, checkpointName: 'Before restarting node-a, 2026-11-27' } };
+  h.render();
+  assert.doesNotMatch(h.markup(), /data-change-for="q-a" hidden/);
+  assert.match(h.markup(), /Delete 1 idea and restart/);
+  node.status = 'queued'; node.completed = false; h.render();
+  assert.doesNotMatch(h.markup(), /Delete 1 idea and restart/, 'a branch that is no longer finished shows no restart preview');
+  assert.match(h.markup(), /data-change-for="q-a" hidden/);
 });
