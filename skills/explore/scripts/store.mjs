@@ -176,6 +176,7 @@ export class Store {
   isNew(map) { this.basis.set(map, null); return map; }
   // `labels` names the change for version history when it is not an event, such as an import.
   async save(map, { actor = null, labels: named } = {}) {
+    for (const definition of Object.values(this.registry.jobTypes)) definition.beforeSave?.(map); // Each type's own invariants.
     // Converted on every write, not on read: a restore copies jobs from version files that never pass
     // parseMap, so only this keeps a raw key out of map.json.
     for (const job of map.jobs) if (job.claimKey) { job.claimHash = claimHashOf(job.claimKey); delete job.claimKey; }
@@ -343,7 +344,8 @@ export class Store {
   isComplete(map, node) { return isCompleted(map, node); }
   // Queues work of a registered type other than investigate. It never changes the idea's status.
   // At most one open job per type, idea (or the whole map) and optional subject such as a question.
-  enqueueJob(map, { type, nodeId = null, subjectId = null, reason, input }) {
+  // `transient` keeps the job's input and result out of versions and exports.
+  enqueueJob(map, { type, nodeId = null, subjectId = null, reason, input, transient = false }) {
     const definition = this.jobType(type);
     need(definition && type !== INVESTIGATE, 'Unknown kind of work.');
     need((definition.target === 'map') === (nodeId === null), definition.target === 'map' ? 'This work covers the whole map.' : 'Choose an idea for this work.');
@@ -351,7 +353,7 @@ export class Store {
     if (subjectId !== null) validId(subjectId);
     const existing = map.jobs.find(j => isOpenJob(j) && openJobKey(j) === openJobKey({ type, nodeId, subjectId }));
     if (existing) return existing;
-    const job = { id: id('job'), type, nodeId, ...(subjectId !== null ? { subjectId } : {}), status: 'queued', reason: text(reason || definition.label, 'Reason', 2000), ...(input !== undefined ? { input } : {}), createdAt: now() };
+    const job = { id: id('job'), type, nodeId, ...(subjectId !== null ? { subjectId } : {}), status: 'queued', reason: text(reason || definition.label, 'Reason', 2000), ...(input !== undefined ? { input } : {}), ...(transient ? { transient: true } : {}), createdAt: now() };
     map.jobs.push(job);
     this.event(map, 'job-queued', nodeId, `${definition.label}. ${job.reason}`);
     return job;
@@ -633,7 +635,7 @@ export class Store {
           try { packet = investigation ? this.packet(map, job, { claimKey }) : await this.typedPacket(map, job, definition, n, { claimKey }); }
           catch (error) {
             Object.assign(job, { status: 'failed', finishedAt: now(), error: error.message }); delete job.claimHash;
-            if (investigation) n.status = 'interrupted';
+            if (investigation) n.status = 'interrupted'; else definition.release?.({ map, job });
             this.event(map, 'failed', job.nodeId, job.error); await this.save(map); continue;
           }
           if (investigation) n.status = 'running';

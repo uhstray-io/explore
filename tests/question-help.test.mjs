@@ -95,7 +95,7 @@ test('the menu offers Explain this question after Help me answer, and help shows
   const esc = String;
   const menu = questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'open', esc });
   const labels = [...menu.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]);
-  assert.equal(labels[0], 'Help me answer'); assert.equal(labels[1], 'Explain this question'); assert.equal(labels[2], 'Answer later');
+  assert.equal(labels[0], 'Help me answer'); assert.equal(labels[1], 'Explain this question'); assert.equal(labels[2], 'Tidy my wording'); assert.equal(labels[3], 'Answer later');
   assert.doesNotMatch(questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'answered', esc }), /Explain this question/);
   const question = { id: 'q-1', text: 'Offline?' };
   const job = status => ({ id: `job-${status}`, type: 'question-help', subjectId: 'q-1', status, stale: false, result: status === 'completed' ? { help: 'It means <no signal>.' } : undefined });

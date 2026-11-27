@@ -1,4 +1,4 @@
-import { isOpen, isBlocking, normalizeQuestion, canResearch, EXPLAIN, RESEARCH } from '../assets/questions.js';
+import { isOpen, isBlocking, normalizeQuestion, canResearch, EXPLAIN, RESEARCH, TIDY } from '../assets/questions.js';
 import { normalizeComparison } from './options.mjs';
 import { textField, sourceList } from './fields.mjs';
 import { nearbyIdeas, nearbyBrief, answerBrief, ownFindings, signature } from './neighbourhood.mjs';
@@ -8,7 +8,7 @@ import { nearbyIdeas, nearbyBrief, answerBrief, ownFindings, signature } from '.
 // they travel with later work on the map so the agent asks fewer questions like the bad ones.
 export const REGENERATE = 'regenerate-question';
 // Explain this question (B4) explains what a question asks; Help me answer (B9) researches it. Neither answers.
-export { EXPLAIN, RESEARCH };
+export { EXPLAIN, RESEARCH, TIDY };
 
 class QuestionProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new QuestionProblem(message, status); };
@@ -93,6 +93,22 @@ export const questionActions = {
     need(canResearch(question, { completed }), 'Only a current question can be researched.', 409);
     store.enqueueJob(map, { type: RESEARCH, nodeId: node.id, subjectId: question.id, reason: 'The user asked for help answering this question.', input: { question: question.text } });
   } },
+  // Tidy my wording: the draft goes to the agent; the branch keeps waiting and nothing is answered.
+  'clean-answer': { target: 'node', apply: ({ map, node, input, store }) => {
+    const question = openQuestion(map, node, input.questionId, store, 'tidied');
+    const text = textField(input.text, 'Your answer', 12000, message => need(false, message));
+    need(JSON.stringify(text).length <= 11000, 'This answer is too long to tidy in one go. Tidy part of it, or save it as it is.'); // So the packet fits its budget.
+    store.enqueueJob(map, { type: TIDY, nodeId: node.id, subjectId: question.id, reason: 'The user asked to tidy the wording of their answer.', input: { text }, transient: true });
+  } },
+  // The user used the tidied wording or kept their own. Either way the draft and the proposal leave the map. No
+  // event is recorded, so neither text reaches the event log.
+  'resolve-clean': { target: 'map', apply: ({ map, input }) => {
+    need(['applied', 'rejected'].includes(input.outcome), 'Choose whether you used the tidied wording (applied) or kept yours (rejected).');
+    const job = map.jobs.find(j => j.id === input.jobId && j.type === TIDY);
+    need(job, 'This tidied wording was not found.', 404);
+    need(job.status === 'completed' && !job.outcome, 'This tidied wording was already used or set aside.', 409);
+    Object.assign(job, { outcome: input.outcome, resolvedAt: now() }); delete job.input; delete job.result;
+  } },
   // Replace an unhelpful question: the original is set aside and the branch waits for the new one.
   'regenerate-question': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const question = openQuestion(map, node, input.questionId, store, 'regenerated');
@@ -117,7 +133,37 @@ export function researchIsStale(map, job) {
   return !question || !canResearch(question) || job.inputSignature !== signature(map, node);
 }
 
+const tidyInstruction = 'Tidy the user\'s draft answer: fix punctuation, spelling and grammar, make it clearer and remove repetition. Keep the meaning, any uncertainty, names, numbers and the user\'s voice. Add nothing and answer nothing new, and do no research or tool use. Return {"text": "…", "changes": "…"} through the CLI: text at most 12,000 characters, changes an optional short note of what you changed (at most 300).';
+
 export const questionJobTypes = {
+  [TIDY]: {
+    label: 'Tidy an answer', target: 'node',
+    // The question and the draft only: no nearby ideas, findings or file paths.
+    packet: ({ job, node }) => ({ question: { id: job.subjectId, text: clip(subjectOf(job, node)?.text ?? '', 1600) }, draft: job.input?.text ?? '', instruction: tidyInstruction }),
+    validate: result => {
+      const fail = message => need(false, message);
+      need(Object.keys(result).every(key => key === 'text' || key === 'changes'), 'Return {"text": "…", "changes": "…"} and nothing else. Never answer for the user.');
+      const changes = textField(result.changes, 'Changes', 300, fail, { optional: true });
+      return { text: textField(result.text, 'Tidied wording', 12000, fail), ...(changes ? { changes } : {}) };
+    },
+    // A tidied wording only fits a question still waiting for this answer.
+    isStale: ({ job, node }) => { const question = subjectOf(job, node); return !question || !isOpen(question); },
+    recheck: true,
+    // Only the newest unresolved request of a question still open keeps the user's texts. Every other one gives
+    // them up (a stopped, failed or interrupted one included), and a queued one whose question was answered or set
+    // aside is stopped before an agent reads it. That stop records no event: it would only repeat the user's answer.
+    beforeSave: map => {
+      const newest = new Map();
+      for (const job of map.jobs) if (job.type === TIDY && !job.outcome && ['queued', 'running', 'completed'].includes(job.status)) newest.set(job.subjectId, job);
+      for (const job of map.jobs) {
+        if (job.type !== TIDY || (!job.input && !job.result)) continue;
+        const question = subjectOf(job, map.nodes.find(n => n.id === job.nodeId));
+        if (newest.get(job.subjectId) === job && question && isOpen(question)) continue;
+        if (job.status === 'queued') Object.assign(job, { status: 'cancelled', finishedAt: now() });
+        delete job.input; delete job.result;
+      }
+    },
+  },
   [RESEARCH]: {
     label: 'Research a question', target: 'node',
     // The question (with its current answer, if any), its idea with findings and the user's other answers there,
