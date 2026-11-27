@@ -10,9 +10,9 @@ Target environments: Codex, Claude Code, and GitHub Copilot. The first working t
 
 Planned features are [GitHub issues](https://github.com/uhstray-io/explore/issues), tracked in [#70](https://github.com/uhstray-io/explore/issues/70). [The roadmap](docs/roadmap.md) records branch state, open decisions and known defects.
 
-## Exploration workspace review
+## Exploration workspace
 
-The `codex/exploration-workspace` branch adds focused progress navigation, map and branch briefs, a read-only growth timeline, and better startup/resumption guidance. Start with [the review guide](docs/review-guide.md) for decisions, limits, and a walkthrough. Run `node scripts/review-demo.mjs --serve` to try an isolated illustrative map without modifying your saved ideas.
+Focused progress navigation, map and branch briefs, a read-only growth timeline, and startup/resumption guidance are on `main`. [The review guide](docs/review-guide.md) explains the decisions and limits and has a walkthrough. Run `node scripts/review-demo.mjs --serve` to try an isolated illustrative map without modifying your saved ideas.
 
 ## Try the MVP
 
@@ -60,7 +60,9 @@ node skills/explore/scripts/install.mjs --host copilot --project /path/to/projec
 
 Choose the host you use. These copy to `.agents/skills`, `.claude/skills`, or `.github/skills` respectively and refuse to overwrite an existing installation. Quote paths containing spaces. Reload the host's skill discovery if necessary. The host must support local shell commands and a persistent server process; a cloud agent's localhost is not your workstation.
 
-The local `.explore/` runtime directory contains connection information and claim files; keep it out of version control. Add `.explore/` to the target project's ignore file when installing. Workspaces used before the rename may still contain a `.grill-my-mind/` folder; it is no longer read, so stop any server started from it and delete the folder. Maps may contain private ideas and answers; choose deliberately whether to track/share `ideas/`.
+Maps in `ideas/` are meant to be committed. Anyone who clones or pulls the repo can open a finished or half-finished map and continue it. Maps may contain private ideas and answers, so decide what the repo should share before pushing it.
+
+The local `.explore/` runtime directory contains only connection information, the server lock and claim files; keep it out of version control. Add `.explore/` to the target project's ignore file when installing. Workspaces used before the rename may still contain a `.grill-my-mind/` folder; it is no longer read, so stop any server started from it and delete the folder.
 
 ## Check the build
 

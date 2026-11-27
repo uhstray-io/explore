@@ -11,6 +11,8 @@ This repository contains a portable agent skill plus its dependency-free local w
 - JSON snapshots are authoritative; Markdown is generated. Use the app/CLI/Store for mutations. Preserve old format-1 maps.
 - History shows graph growth, with current content and positions. It is not a historical snapshot of every edit or conclusion. Undated older data must stay explicitly unknown.
 - Briefs are bounded extracts. Keep accepted, provisional, stale, unanswered, and unexplored material distinct; expose omissions and retrieval paths.
+- Everything about an exploration lives in the repo: maps, version history, positions, settings, and pin and archive state. Anyone who clones or pulls must get the same experience and be able to continue any map. Only the server token and connection, the lock, and live claim keys stay in `.explore/`.
+- Keep the experience simple and frictionless: no approval steps, sensible defaults, and one ⋯ menu per item for secondary actions. Advanced options must not crowd the main path.
 
 ## Layout and checks
 
@@ -25,6 +27,6 @@ Do not use the owner's `ideas/` for tests. `.explore/` (or `.grill-my-mind/` in 
 
 ## Planned work
 
-Planned features are GitHub issues on `uhstray-io/explore`, tracked in #70. Read `docs/roadmap.md` before picking an issue, switching branches or merging: it records branch state, decisions still open with the owner, and known defects. Earlier design decisions are in `.scratch/explore/map.md`. Record new decisions with reasons and verification, not hidden reasoning. A copied skill package or simulated worker test does not prove live Claude Code/Copilot compatibility.
+Planned features are GitHub issues on `uhstray-io/explore`, tracked in #70. Read `docs/roadmap.md` before picking an issue, switching branches or merging: it records branch state, the owner's decisions (which win over older issue text), and known defects. Earlier design decisions are in `.scratch/explore/map.md`. Record new decisions with reasons and verification, not hidden reasoning. A copied skill package or simulated worker test does not prove live Claude Code/Copilot compatibility.
 
 The owner merges into `main`. Commit owner map edits under `ideas/` separately from implementation work.
