@@ -538,3 +538,20 @@ test('questions come one at a time with a counter, earlier answers collapse, and
   assert.match(h.markup(), /Question 3 of 3/, 'a saved answer shows the next question before the server replies');
   assert.match(h.markup(), /data-question="q3"/);
 });
+
+test('a saved answer can be changed in place, and on a finished branch it explores beside the original', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'awaiting-answer';
+  node.questions = [{ id: 'q-a', text: 'Budget?', answer: 'Forty pounds.', answerState: 'tentative', previousAnswers: [{ answer: 'Ten pounds.', replacedAt: '2026-11-20T10:00:00Z' }] }, { id: 'q-b', text: 'When?', answer: null }];
+  h.document.activeElement = null; h.render();
+  let markup = h.markup();
+  assert.match(markup, /data-q-change[^>]*data-question-id="q-a"/);
+  assert.match(markup, /data-change-for="q-a"[^>]*hidden/);
+  assert.match(markup, /data-save-change="change"[^>]*>Save</); assert.match(markup, /data-save-wording[^>]*>Save without re-running</);
+  assert.match(markup, /Earlier answer/);
+  node.status = 'explored'; node.completed = true; node.questions = [node.questions[0]]; h.render();
+  markup = h.markup();
+  assert.match(markup, /data-save-change="fork"[^>]*>Explore beside the original</);
+  assert.doesNotMatch(markup, /data-save-wording/);
+});

@@ -229,6 +229,7 @@ export class Store {
       const dismissedQuestions = n.questions.filter(q => q.dismissedAt);
       if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
         ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []),
+        ...(q.previousAnswers || []).map(p => `_Earlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}_`),
         ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : [])]));
       if (dismissedQuestions.length) lines.push('', '## Dismissed questions', '', '_Set aside by the user; do not ask them again._', '',
         ...dismissedQuestions.map(q => `- ${q.text}${q.ratingReason ? ` — ${q.ratingReason}` : ''}${q.replacedBy === 'pending' ? ' (a replacement is on its way)' : q.replacedBy ? ' (replaced)' : ''}`));
@@ -245,6 +246,18 @@ export class Store {
     await writeFile(path.join(dir, 'README.md'), overview.join('\n') + '\n');
   }
   event(map, type, nodeId, detail = '') { map.history.push({ at: now(), type, nodeId, detail }); }
+  affectedBy(map, nodeId) {
+    const affected = new Set([nodeId]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const edge of map.edges) {
+        const next = edge.type === 'contains' && affected.has(edge.from) ? edge.to : edge.type === 'depends_on' && affected.has(edge.to) ? edge.from : null;
+        if (next && !affected.has(next)) { affected.add(next); changed = true; }
+      }
+    }
+    return affected;
+  }
   invalidatePremises(map, nodeId) {
     const affected = new Set([nodeId]);
     let changed = true;
@@ -409,6 +422,31 @@ export class Store {
           break;
         }
         // How sure an answer is: an annotation, so it never re-runs research, flags findings or changes content.
+        case 'change-answer': {
+          need(!isCompleted(map, n), 'This branch is finished, so its answers stay as they are. Explore the changed answer beside the original instead.', 409);
+          const q = n.questions.find(q => q.id === input.questionId);
+          need(q && q.answer && !q.supersededAt && !q.dismissedAt, 'Only a saved, current answer can be changed.', 409);
+          const answer = text(input.answer, 'Answer', 12000);
+          if (input.answerState !== undefined) need(answerStates.includes(input.answerState), 'Choose Tentative, Decided or Assumption.');
+          const answerState = input.answerState ?? q.answerState;
+          need(answer !== q.answer || answerState !== q.answerState, 'Nothing changed in this answer.');
+          const at = now(), oldAt = q.answeredAt;
+          q.previousAnswers = [...(q.previousAnswers || []), { answer: q.answer, ...(q.answerState ? { answerState: q.answerState } : {}), ...(oldAt ? { answeredAt: oldAt } : {}), replacedAt: at, ...(input.rerun === false ? { wordingFix: true } : {}) }];
+          Object.assign(q, { answer, ...(answerState ? { answerState } : {}), changedAt: at }, actor?.name ? { answeredBy: { name: actor.name } } : {});
+          if (input.rerun === false) { this.event(map, 'answer-reworded', n.id, q.id); break; } // A wording fix flags, replaces and queues nothing.
+          n.contentRevision++; // Work running on this branch, below it or depending on it now delivers a stale result.
+          // Findings that relied on the old answer need another look; their questions stay.
+          if (hasFindings(map, n) && (!oldAt || map.jobs.some(j => j.nodeId === n.id && isInvestigation(j) && j.status === 'completed' && !j.stale && j.startedAt > oldAt))) n.stale = true;
+          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && (hasFindings(map, other) || isCompleted(map, other))) other.stale = true; }
+          // Follow-ups asked after the old answer no longer fit it.
+          for (const other of n.questions) {
+            const askedAt = other.askedAt ?? map.jobs.find(j => j.result?.questions?.some(x => x.id === other.id))?.startedAt;
+            if (other !== q && isOpen(other) && oldAt && askedAt && askedAt > oldAt) other.supersededAt = at;
+          }
+          this.event(map, 'answer-changed', n.id, q.id);
+          if (!n.questions.some(isBlocking)) this.enqueue(map, n, `The user changed their answer to '${q.text.slice(0, 120)}'. Continue from the new answer and ask new follow-ups only where still needed.`);
+          break;
+        }
         case 'set-answer-state': {
           const q = n.questions.find(q => q.id === input.questionId);
           need(q, 'Question not found.', 404);
@@ -455,14 +493,25 @@ export class Store {
         }
         case 'fork-revision': {
           need(isCompleted(map, n), 'Revise unfinished work directly; only completed branches need a new investigation.', 409);
-          const revised = text(input.body, 'Changed premise', 16000);
-          const child = this.node(input.title ? text(input.title, 'Title', 100) : `Changed premise: ${n.title}`.slice(0, 100), revised, 'research', n.id);
-          child.revises = n.id;
+          let revised, title, revisesAnswer;
+          if (input.questionId !== undefined) {
+            const q = n.questions.find(q => q.id === input.questionId);
+            need(q && q.answer && !q.supersededAt, 'Choose a saved answer on this branch.', 409);
+            const answer = text(input.answer, 'Changed answer', 12000);
+            need(answer !== q.answer, 'Nothing changed in this answer.');
+            revisesAnswer = { questionId: q.id, previousAnswer: q.answer, answer };
+            revised = [input.body ? text(input.body, 'Changed premise', 16000) : null, `Earlier answer to "${q.text}": ${q.answer}`, `Changed answer: ${answer}`].filter(Boolean).join('\n\n');
+            title = `Changed answer: ${q.text}`.slice(0, 100);
+          } else { revised = text(input.body, 'Changed premise', 16000); title = `Changed premise: ${n.title}`.slice(0, 100); }
+          const child = this.node(input.title ? text(input.title, 'Title', 100) : title, revised, 'research', n.id);
+          child.revises = n.id; if (revisesAnswer) child.revisesAnswer = revisesAnswer;
           this.invalidatePremises(map, n.id);
           const edge = { from: n.id, to: child.id, type: 'contains' };
           map.nodes.push(child); map.edges.push(edge);
           this.recordGrowth(map, [child], [edge]);
-          this.event(map, 'revision-suggested', child.id, `Changed premise for ${n.id}; original findings preserved. Activate the new direction explicitly.`);
+          this.event(map, 'revision-suggested', child.id, `Changed ${revisesAnswer ? 'answer' : 'premise'} for ${n.id}; original findings preserved.`);
+          // The user choosing to explore it is the go-ahead (decision 6b); agents never set start.
+          if (input.start === true) this.enqueue(map, child, `The user explored a changed ${revisesAnswer ? 'answer' : 'premise'}. Explore only this direction.`);
           break;
         }
         case 'position':
@@ -493,8 +542,9 @@ export class Store {
     const node = map.nodes.find(n => n.id === job.nodeId);
     const clip = (s, length) => s.length > length ? s.slice(0, length) + '\n[Shortened; read the linked node for detail.]' : s;
     const selected = { id: node.id, title: node.title, kind: node.kind, stale: !!node.stale, premise: clip(node.prompt || node.body, 2400), summary: node.summary === node.prompt || node.summary === node.body ? '' : clip(node.summary, 700), body: node.body === node.prompt ? '' : clip(node.body, 4000),
-      questions: node.questions.filter(q => q.answer || !q.supersededAt).slice(-8).map(q => ({ id: q.id, question: clip(q.text, 600), answer: q.answer ? clip(q.answer, 1000) : null, ...certaintyFields(q), ...(q.deferredAt ? { deferred: true } : {}), ...(q.rating ? { rating: q.rating } : {}), ...(q.dismissedAt ? { dismissed: true } : {}), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) })),
+      questions: node.questions.filter(q => q.answer || !q.supersededAt).slice(-8).map(q => ({ id: q.id, question: clip(q.text, 600), answer: q.answer ? clip(q.answer, 1000) : null, ...certaintyFields(q), ...(q.deferredAt ? { deferred: true } : {}), ...(q.rating ? { rating: q.rating } : {}), ...(q.dismissedAt ? { dismissed: true } : {}), ...(q.changedAt ? { changedAt: q.changedAt, previousAnswer: clip(q.previousAnswers?.at(-1)?.answer ?? '', 300) } : {}), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) })),
       sources: node.sources.slice(0, 6), file: path.join(path.dirname(this.file(map.id)), 'nodes', `${node.id}.md`) };
+    if (node.revisesAnswer) selected.revisesAnswer = { questionId: node.revisesAnswer.questionId, previousAnswer: clip(node.revisesAnswer.previousAnswer, 600), answer: clip(node.revisesAnswer.answer, 600) };
     const dismissed = node.questions.filter(q => q.dismissedAt && !q.supersededAt).map(q => clip(q.text, 300));
     if (dismissed.length) selected.dismissedQuestions = dismissed; // Never asked again.
     if (node.options?.length) Object.assign(selected, { options: node.options.map(({ id, title }) => ({ id, title: clip(title, 150) })), recommendation: node.recommendation?.optionId ?? null });

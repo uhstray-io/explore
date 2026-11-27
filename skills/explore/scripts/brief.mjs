@@ -32,7 +32,7 @@ export function mapBrief(map, nodeId = null) {
     ['accepted', 'Accepted and current findings', nodes.filter(n => n.reviewState === 'accepted' && !n.stale && n.status === 'explored').map(n => entry(n))],
     ['findings', 'Working findings — not accepted', nodes.filter(n => hasFindings(map, n) && n.reviewState !== 'accepted' && !n.stale).map(n => entry(n, n.summary, { sourceCount: n.sources.length }))],
     ['premises', 'Current premises — not findings', nodes.filter(n => !hasFindings(map, n) && n.status !== 'suggested').map(n => entry(n, n.prompt || n.summary))],
-    ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
+    ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: `${certaintyText(q)}${q.changedAt ? ', changed' : ''}` })))],
     ['unsettled', 'Unsettled answers — assumptions, not decisions', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt && effectiveAnswerState(q).state === 'assumption').map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
     ['superseded', 'Earlier questions and answers — previous premises', nodes.flatMap(n => n.questions.filter(q => q.supersededAt).map(q => entry(n, q.answer || 'No answer was recorded.', { questionId: q.id, question: clip(q.text, 240), supersededAt: q.supersededAt })))],
     ['recommendations', 'Agent recommendations — not decisions', nodes.filter(n => n.options?.length).map(n => {
