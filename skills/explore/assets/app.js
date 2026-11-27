@@ -1,6 +1,6 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
-import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText } from './questions.js';
+import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince } from './questions.js';
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -500,7 +500,7 @@ function renderDetail(force = false) {
   const related = state.visibleMap.edges.filter(e => e.type !== 'contains' && (e.from === n.id || e.to === n.id));
   const nearby = state.visibleMap.nodes.filter(node => node.id === n.parentId || node.parentId === n.id);
   // Answered questions show how sure the answer is; open ones can wait; waiting ones collapse together.
-  const answeredBy = q => q.answeredBy?.name ? `<small class="answered-by">Answered by ${esc(q.answeredBy.name)}${q.answeredAt ? ` · ${esc(new Date(q.answeredAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))}` : ''}</small>` : '';
+  const answeredBy = q => q.answeredBy?.name ? `<small class="answered-by">Answered by ${esc(q.answeredBy.name)}${answeredSince(q) ? ` · ${esc(new Date(answeredSince(q)).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))}` : ''}</small>` : '';
   const certainty = q => {
     if (!q.answer) return '';
     if (q.supersededAt || historic) return `<small class="certainty-label">${esc(certaintyText(q))}</small>`;

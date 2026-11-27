@@ -83,7 +83,7 @@ export class Versions {
   async record(map, { labels, author, at = new Date().toISOString(), kept = false, name, checkpoint = false } = {}) {
     const content = contentHash(map), versions = await this.scan(map.id), newest = versions[0];
     if (newest?.contentHash === content && !(name && newest.name)) {
-      if (name) { const file = this.file(map.id, newest.id); await atomicJson(file, { ...JSON.parse(await readFile(file, 'utf8')), name, checkpoint }); }
+      if (name) { const file = this.file(map.id, newest.id); await atomicJson(file, { ...JSON.parse(await readFile(file, 'utf8')), name, ...(checkpoint ? { checkpoint: true } : {}) }); }
       return newest.id;
     }
     const id = `${at.replace(/[-:.]/g, '')}-${randomBytes(3).toString('hex')}`;

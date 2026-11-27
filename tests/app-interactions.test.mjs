@@ -550,6 +550,8 @@ test('a saved answer can be changed in place, and on a finished branch it explor
   assert.match(markup, /data-change-for="q-a"[^>]*hidden/);
   assert.match(markup, /data-save-change="change"[^>]*>Save</); assert.match(markup, /data-save-wording[^>]*>Save without re-running</);
   assert.match(markup, /Earlier answer/);
+  node.questions[0].answeredBy = { name: 'Ana' }; node.questions[0].answeredAt = '2026-11-01T10:00:00Z'; node.questions[0].changedAt = '2026-11-20T10:00:00Z'; h.render();
+  assert.match(h.markup(), /Answered by Ana · (20 Nov|Nov 20)/, 'the date is when the current answer was given');
   node.status = 'explored'; node.completed = true; node.questions = [node.questions[0]]; h.render();
   markup = h.markup();
   assert.match(markup, /data-save-change="fork"[^>]*>Explore beside the original</);
