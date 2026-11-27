@@ -11,7 +11,7 @@ import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
-import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, decodeMap, readProblem, generatedFrom, validateMap } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -46,9 +46,9 @@ const literal = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt
 // Reading follows the validator's rules (H1): only the problems it marks unreadable stop a map from opening,
 // so listing, recovery and the views can rely on what they get. Explanations never quote the file.
 function parseMap(mapId, bytes) {
-  const decoded = decodeMap(bytes), problem = decoded.problem ?? readProblem(decoded.map, mapId);
+  const { map, problem } = readMapFile(bytes, mapId);
   need(!problem, unreadableMessages[problem], 409, problem);
-  return decoded.map;
+  return map;
 }
 function object(value, field) {
   need(value && typeof value === 'object' && !Array.isArray(value), `${field} must be an object.`);
@@ -185,6 +185,7 @@ export class Store {
     map.updatedAt = now();
     const labels = named ?? [...new Set(map.history.slice(this.eventsAtLoad.get(map) ?? 0).map(event => event.type))];
     const bytes = Buffer.from(JSON.stringify(map, null, 2) + '\n'), fingerprint = fingerprintOf(bytes);
+    if (bytes.length > maxMapBytes) { map.revision -= 1; throw new Problem('This map is too large to save (over 64 MiB). Shorten long text or move part of it into another map.', 413, 'too-large'); }
     let versionError = null;
     await this.withMapLock(map.id, async () => {
       const basis = this.basis.get(map);
