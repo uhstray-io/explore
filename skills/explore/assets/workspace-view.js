@@ -182,6 +182,7 @@ export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false,
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
   const items = [
     ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
+    ...(kind === 'answered' ? [item('Change answer', 'data-q-change')] : []),
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
   ];
   const rated = question.rating ? `<p class="question-rated">You rated this ${question.rating === 'good' ? 'a good question' : 'a bad question'}${question.ratingReason ? `: ${esc(question.ratingReason)}` : ''} · <button type="button" class="text-button" data-q-rate="" data-question-id="${id}" data-node-id="${node}">Undo</button></p>` : '';

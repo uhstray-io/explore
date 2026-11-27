@@ -487,11 +487,16 @@ function renderDetail(force = false) {
   // An answer being saved already counts as answered here, so the next question shows at once.
   const questions = state.pendingAnswers ? n.questions.map(q => !q.answer && state.pendingAnswers[q.id] !== undefined ? { ...q, answer: state.pendingAnswers[q.id], answerState: 'tentative' } : q) : n.questions;
   const live = !completed && !historic, blockingCount = questions.filter(isBlocking).length;
+  // Change answer: on an unfinished branch the branch continues from the new answer; on a finished one it
+  // becomes a new branch beside the original, started straight away. Nothing is promised in the background.
+  const changeEditor = q => `<div class="change-answer" data-change-for="${q.id}" hidden><label class="visually-hidden" for="change-${q.id}">Your changed answer</label><textarea id="change-${q.id}" rows="3" maxlength="12000" data-draft="change-${q.id}">${esc(state.drafts[`change-${q.id}`] ?? q.answer)}</textarea>${completed
+    ? `<p class="form-note">This branch is finished, so its findings stay. The new answer becomes a branch beside it and starts exploring.</p><div class="question-actions"><button type="button" class="primary" data-save-change="fork" data-question-id="${q.id}" data-node-id="${n.id}">Explore beside the original</button></div>`
+    : `<p class="form-note">Findings that relied on this answer will be flagged for review, and your agent will continue from the new answer.</p><div class="question-actions"><button type="button" class="primary" data-save-change="change" data-question-id="${q.id}" data-node-id="${n.id}">Save</button><button type="button" class="text-button" data-save-wording data-question-id="${q.id}" data-node-id="${n.id}">Save without re-running</button></div>`}</div>`;
   // A question being regenerated shows where its replacement will appear; it never promises background work.
   const pendingBox = q => `<div class="question-box pending-question"><div class="question-label">Getting a new question…</div><p>${esc(q.text)}</p><p class="form-note">${agentListening() ? 'Your agent is writing a better question.' : 'Queued for your agent.'}</p></div>`;
   const dismissed = questions.filter(q => q.dismissedAt && q.replacedBy !== 'pending');
   const canRestore = q => live && n.status === 'awaiting-answer' && !q.replacedBy;
-  const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}${!historic && !q.supersededAt ? questionMenuHtml(q, { nodeId: n.id, kind: 'answered', esc }) : ''}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
+  const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}${(q.previousAnswers || []).map(p => `<small class="certainty-label">Earlier answer: ${esc(p.answer)}</small>`).join('')}${!historic && !q.supersededAt ? questionMenuHtml(q, { nodeId: n.id, kind: 'answered', esc }) + changeEditor(q) : ''}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
   const waiting = live ? questions.filter(q => isOpen(q) && q.deferredAt) : [];
   const listHtml = questions.filter(q => !waiting.includes(q) && !dismissed.includes(q)).map(q => live && q.replacedBy === 'pending' && !q.supersededAt ? pendingBox(q) : live && isBlocking(q) ? questionForm(q, false) : record(q)).join('');
   // One question at a time: a counter, the current question, earlier answers collapsed, and Show all.
@@ -525,7 +530,7 @@ function renderDetail(force = false) {
     ${n.sources.length ? `<h3 class="section-label">Sources & evidence</h3>${n.sources.map(s => `<a class="evidence-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} <span aria-hidden="true">↗</span><small>${esc(s.note)}</small></a>`).join('')}` : ''}
     ${related.length ? `<h3 class="section-label">Connected thinking</h3>${related.map(e => { const target = state.visibleMap.nodes.find(node => node.id === (e.from === n.id ? e.to : e.from)); return target ? `<button class="relationship" data-select="${target.id}">${esc(e.type.replaceAll('_', ' '))}<strong>${esc(target.title)}</strong></button>` : ''; }).join('')}` : ''}
     ${!historic ? `<details data-editor="suggest"><summary>Add a direction</summary><form id="suggest-form" data-node-id="${n.id}"><label for="branch-title">What's worth exploring?</label><input id="branch-title" name="title" maxlength="100" data-draft="${n.id}-title" value="${esc(state.drafts[`${n.id}-title`] ?? '')}" required><label for="branch-body">A little context</label><textarea id="branch-body" name="body" rows="3" maxlength="4000" data-draft="${n.id}-branch">${esc(state.drafts[`${n.id}-branch`] ?? '')}</textarea><button type="submit" class="secondary">Add suggested branch</button></form></details>
-    <details data-editor="revise"><summary>${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new inactive branch and flags affected findings for review. The original premise and evidence are preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
+    <details data-editor="revise"><summary>${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new branch and starts exploring it. Affected findings are flagged for review; the original is preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
     ${job?.contextCharacters ? `<p class="run-note">Last investigation used ${job.contextCharacters.toLocaleString()} characters of map context. Only relevant context is sent.</p>` : ''}`;
   for (const editor of detail.querySelectorAll('details[data-editor]')) editor.open = Boolean(state.editors[`${n.id}:${editor.dataset.editor}`]);
   if (focus && previousNode === n.id) {
@@ -627,6 +632,19 @@ document.addEventListener('click', async event => {
   }
   if (event.target.closest('[data-show-all-questions]')) { state.showAllQuestions = true; renderDetail(true); return; }
   if (event.target.closest('[data-show-one-question]')) { state.showAllQuestions = false; renderDetail(true); document.querySelector('#detail form.question-box textarea')?.focus(); return; }
+  const changeOpen = event.target.closest('[data-q-change]');
+  if (changeOpen) { closeQuestionMenus(); const editor = document.querySelector(`[data-change-for="${changeOpen.dataset.questionId}"]`); if (editor) { editor.hidden = false; editor.querySelector('textarea').focus(); } return; }
+  const changeSave = event.target.closest('[data-save-change], [data-save-wording]');
+  if (changeSave) {
+    const questionId = changeSave.dataset.questionId, field = document.querySelector(`#change-${questionId}`), answer = field?.value.trim();
+    if (!answer) { field?.focus(); return; }
+    changeSave.disabled = true;
+    const fork = changeSave.dataset.saveChange === 'fork';
+    const done = fork ? await act(changeSave.dataset.nodeId, 'fork-revision', { questionId, answer, start: true })
+      : await act(changeSave.dataset.nodeId, 'change-answer', { questionId, answer, ...('saveWording' in changeSave.dataset ? { rerun: false } : {}) });
+    if (done) { delete state.drafts[`change-${questionId}`]; toast(fork ? (agentListening() ? 'A new branch is exploring your changed answer.' : 'A new branch is queued for your changed answer. Connect your agent to explore it.') : 'saveWording' in changeSave.dataset ? 'Wording saved.' : 'Answer changed. Findings that relied on it are flagged for review.'); }
+    changeSave.disabled = false; return;
+  }
   // The question ⋯ menu.
   const menuToggle = event.target.closest('[data-question-menu]');
   if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeQuestionMenus(); if (opening) openQuestionMenu(menuToggle); return; }
@@ -680,7 +698,7 @@ $('#detail').addEventListener('submit', async event => {
       if (!success) renderDetail(true);
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', { title: data.title, body: data.body.trim() || data.title });
-    if (form.id === 'revise-form') success = await act(node, form.dataset.completed === 'true' ? 'fork-revision' : 'revise', data);
+    if (form.id === 'revise-form') success = await act(node, form.dataset.completed === 'true' ? 'fork-revision' : 'revise', form.dataset.completed === 'true' ? { ...data, start: true } : data);
     if (success) {
       let newerDrafts = false;
       for (const [key, value] of submittedDrafts) {

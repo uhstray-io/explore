@@ -6,7 +6,7 @@ This repository contains a portable agent skill plus its dependency-free local w
 
 - Suggestions stay inactive until the user chooses a branch. Creating an exploration authorizes its initial investigation.
 - Questions use actual user answers. An agent completing research does not accept its own conclusion.
-- Completed branches stay complete, except when the user explicitly restores an earlier version; the restore preview lists every branch it reopens. Changed premises create new inactive investigations and retain earlier findings.
+- Completed branches stay complete, except when the user explicitly restores an earlier version; the restore preview lists every branch it reopens. A changed premise or answer on a finished branch creates a new investigation that starts when the user chooses to explore it, and earlier findings are retained.
 - The localhost UI stores and queues work. It does not run or wake an LLM. Do not promise background research unless the actual host integration supports it.
 - JSON snapshots are authoritative; Markdown is generated. Use the app/CLI/Store for mutations. Preserve old format-1 maps.
 - Growth history shows additions with current content and positions. Version history keeps saved versions in the repo for preview and explicit restore; restoring creates a new revision, never rewrites earlier versions and never starts research. Undated older data must stay explicitly unknown.
