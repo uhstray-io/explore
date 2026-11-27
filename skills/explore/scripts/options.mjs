@@ -1,6 +1,8 @@
 // Options and a conditional recommendation (C1). When a branch is really a choice, a result can
 // compare 1–4 options and give one conditional recommendation, or say what is still missing.
 // This is the agent's judgement, never a decision: only the user answers or accepts.
+import { textField } from './fields.mjs';
+
 const idPattern = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const normal = value => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
@@ -8,12 +10,7 @@ const normal = value => value.trim().replace(/\s+/g, ' ').toLowerCase();
 // `fail(message)` throws the caller's validation error.
 export function normalizeComparison(result, fail) {
   const need = (condition, message) => { if (!condition) fail(message); };
-  const text = (value, field, max, optional = false) => {
-    if (optional && (value === undefined || value === null || value === '')) return undefined;
-    need(typeof value === 'string' && value.trim(), `${field} is required.`);
-    need(value.length <= max, `${field} must be at most ${max} characters.`);
-    return value.trim();
-  };
+  const text = (value, field, max, optional = false) => textField(value, field, max, fail, { optional });
   const { options, optionsLimit, recommendation } = result;
   if (options === undefined) {
     need(recommendation === undefined, 'A recommendation needs options to recommend from.');
@@ -56,22 +53,23 @@ export function normalizeComparison(result, fail) {
 }
 
 // Plain-text lines for Markdown and section reads; the recommendation is always labelled as judgement.
-export function comparisonLines(node) {
-  if (!node.options?.length) return [];
-  const lines = ['## Options', ''];
-  if (node.optionsLimit) lines.push(`_Only one real option: ${node.optionsLimit}_`, '');
-  for (const option of node.options) {
-    lines.push(`### ${option.title} (${option.id})`, '', option.description, '', `Fits when: ${option.fit}`);
+// `comparison` is an idea's own or a question's research; `level` nests the headings under their section.
+export function comparisonLines(comparison, { level = 2 } = {}) {
+  if (!comparison.options?.length) return [];
+  const heading = '#'.repeat(level), lines = [`${heading} Options`, ''];
+  if (comparison.optionsLimit) lines.push(`_Only one real option: ${comparison.optionsLimit}_`, '');
+  for (const option of comparison.options) {
+    lines.push(`${heading}# ${option.title} (${option.id})`, '', option.description, '', `Fits when: ${option.fit}`);
     if (option.pros.length) lines.push(`Pros: ${option.pros.join('; ')}`);
     if (option.cons.length) lines.push(`Cons: ${option.cons.join('; ')}`);
     if (option.suggestedAnswer) lines.push(`Suggested answer (a draft, not the user's answer): ${option.suggestedAnswer}`);
     lines.push('');
   }
-  lines.push('## Recommendation', '', '_The agent\'s judgement, not a decision._', '');
-  const r = node.recommendation;
+  lines.push(`${heading} Recommendation`, '', '_The agent\'s judgement, not a decision._', '');
+  const r = comparison.recommendation;
   if (!r || r.optionId === null) lines.push(`No recommendation yet. Missing: ${r?.missing ?? 'not recorded'}`);
   else {
-    const title = node.options.find(option => option.id === r.optionId)?.title ?? r.optionId;
+    const title = comparison.options.find(option => option.id === r.optionId)?.title ?? r.optionId;
     lines.push(`Recommended: ${title} (${r.optionId})`, `Why: ${r.rationale}`, `Main trade-off: ${r.mainTradeoff}`);
     if (r.reconsiderIf) lines.push(`Reconsider if: ${r.reconsiderIf}`);
   }

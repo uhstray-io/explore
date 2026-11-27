@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, questionHelpHtml } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, questionHelpHtml, questionResearchHtml, researchSuggestion } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, questionHelpHtml, nodeMenuHtml, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, questionHelpHtml, questionResearchHtml, researchSuggestion, nodeMenuHtml, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -637,4 +637,24 @@ test('help from the agent shows under the question and never touches the answer 
   assert.match(h.markup(), /Help from your agent, not an answer<\/summary><p class="question-help-text">It means no signal at all\.<\/p>/);
   assert.match(h.markup(), /data-draft="q-a" required>My half-typed answer<\/textarea>/);
   assert.equal(h.state.drafts['q-a'], 'My half-typed answer');
+});
+
+test('research shows under an open or answered question with copy buttons, and never fills the answer', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'awaiting-answer';
+  node.questions = [{ id: 'q-a', text: 'Which sync model?', answer: null }, { id: 'q-b', text: 'Who edits?', answer: 'Only me.', answerState: 'tentative' }];
+  h.state.drafts['q-a'] = 'My half-typed answer';
+  const research = (id, subjectId) => ({ id, type: 'question-research', nodeId: 'node-a', subjectId, status: 'completed', stale: false,
+    result: { options: [{ id: 'crdt', title: 'Merge automatically', description: 'd', fit: 'f', pros: [], cons: [], suggestedAnswer: 'Merge it.' }], optionsLimit: 'Only one fits.', recommendation: { optionId: 'crdt', rationale: 'r', mainTradeoff: 't' }, sources: [] } });
+  h.state.visibleMap.jobs = [research('job-r1', 'q-a'), research('job-r2', 'q-b')];
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /Research from your agent, not your answer/);
+  assert.match(h.markup(), /data-copy-answer="crdt" data-research-job="job-r1" data-question-id="q-a">Copy to my answer/);
+  assert.match(h.markup(), /data-copy-answer="crdt" data-research-job="job-r2" data-question-id="q-b">Copy to my answer/, 'answered questions of an unfinished branch show their research');
+  assert.match(h.markup(), /data-q-research data-question-id="q-b"/);
+  assert.match(h.markup(), /data-draft="q-a" required>My half-typed answer<\/textarea>/);
+  assert.equal(node.questions[0].answer, null);
+  node.status = 'explored'; node.completed = true; h.render();
+  assert.doesNotMatch(h.markup(), /data-q-research data-question-id="q-b"/, 'a finished branch offers no research');
 });

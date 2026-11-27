@@ -67,3 +67,15 @@ export function replaceAnswer(question, { answer, answerState, actor, at, mark =
   question.previousAnswers = [...(question.previousAnswers || []), { answer: question.answer, ...(question.answerState ? { answerState: question.answerState } : {}), ...(since ? { answeredAt: since } : {}), replacedAt: at, ...mark }];
   Object.assign(question, { answer, changedAt: at }, answerState ? { answerState } : {}, actor?.name ? { answeredBy: { name: actor.name } } : {});
 }
+
+// Work about one question. Its results live on the jobs, never on the question: Explain this question (B4)
+// and Help me answer (B9) never answer.
+export const EXPLAIN = 'question-help';
+export const RESEARCH = 'question-research';
+// The question's open job of `type`, and its latest finished one with a result (current or stale).
+export function questionJobs(jobs, type, questionId) {
+  const mine = (jobs || []).filter(job => job.type === type && job.subjectId === questionId);
+  return { pending: mine.find(job => job.status === 'queued' || job.status === 'running') ?? null, latest: mine.filter(job => job.status === 'completed' && job.result).at(-1) ?? null };
+}
+// Help me answer is offered on a question still asked on an unfinished branch, answered or not.
+export function canResearch(question, { completed = false } = {}) { return !completed && !question.supersededAt && !question.dismissedAt && !question.replacedBy; }

@@ -91,17 +91,18 @@ test('help that arrives after the question was answered is kept as stale', async
   assert.equal(helpJobs(saved)[0].stale, true);
 });
 
-test('the menu offers Explain this question first, and help shows under the question, never as an answer', () => {
+test('the menu offers Explain this question after Help me answer, and help shows under the question, never as an answer', () => {
   const esc = String;
   const menu = questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'open', esc });
   const labels = [...menu.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]);
-  assert.equal(labels[0], 'Explain this question'); assert.equal(labels[1], 'Answer later');
+  assert.equal(labels[0], 'Help me answer'); assert.equal(labels[1], 'Explain this question'); assert.equal(labels[2], 'Answer later');
   assert.doesNotMatch(questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'answered', esc }), /Explain this question/);
   const question = { id: 'q-1', text: 'Offline?' };
   const job = status => ({ id: `job-${status}`, type: 'question-help', subjectId: 'q-1', status, stale: false, result: status === 'completed' ? { help: 'It means <no signal>.' } : undefined });
   const html = (jobs, options = {}) => questionHelpHtml({ question, jobs, listening: false, seen: new Set(), esc: value => String(value).replace(/</g, '&lt;'), ...options });
   assert.match(html([job('queued')]), /Queued for your agent/);
-  assert.match(html([job('queued')], { listening: true }), /Your agent is working on it/);
+  assert.match(html([job('queued')], { listening: true }), /Your agent will pick this up next/);
+  assert.match(html([job('running')], { listening: true }), /Your agent is explaining this question/);
   assert.match(html([job('completed')]), /<details class="question-help" data-help="job-completed" data-editor="help-job-completed" open><summary>Help from your agent, not an answer<\/summary><p class="question-help-text">It means &lt;no signal>\.<\/p><\/details>/);
   assert.doesNotMatch(html([job('completed')], { seen: new Set(['job-completed']) }), / open>/, 'collapsed after it was seen');
   assert.equal(html([{ ...job('completed'), stale: true }]), '', 'stale help is not shown as current');

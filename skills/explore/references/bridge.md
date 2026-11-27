@@ -96,6 +96,22 @@ Some work covers the whole map rather than one idea. Its job has `nodeId: null`,
 
 A `question-help` packet carries the open `question` (`id`, `text`), its idea (`node`: `id`, `title`, `premise`, `summary`) and the `ancestors` up to the root (nearest first; the farthest are dropped first if the packet would be too long, counted in `omittedAncestors`). Explain what the question asks and why it matters, define unfamiliar terms, and give one illustrative example. Never answer it or recommend an answer. Return `{"help": "…"}` (at most 3,000 characters) and nothing else. The help stays on the job and is shown under the question as "Help from your agent, not an answer"; it never fills in the answer. Help that arrives after the question was answered, set aside or reworded is kept as stale and not shown. The user asks for it with `request-help` (`questionId`); never request it on their behalf.
 
+## Researching a question
+
+A `question-research` packet carries the `question` (`id`, `text`, its `why` when given, and `currentAnswer` when the user already answered it), its idea (`node`: `id`, `title`, `premise`, `summary`, `findings`, `status`, `reviewState`, `stale`, and the user's other `answers` there with how sure each is), the same nearby ideas an investigation reads (`context`: the original idea first, then nearest first, each with its review state and latest answers; the farthest are left out first when the packet would be too long, counted in `omittedContext`) and a `retrieval` hint. Research the question so the user can answer it, then return options and a recommendation in the options format above, plus an optional `summary` (800 characters) and `sources` (as in results, at most 20):
+
+```json
+{
+  "options": [{"id": "merge", "title": "Merge edits automatically", "description": "…", "fit": "…", "pros": ["…"], "cons": ["…"], "suggestedAnswer": "A first-person draft the user may copy."}],
+  "optionsLimit": "Only with exactly one option.",
+  "recommendation": {"optionId": "merge", "rationale": "…", "mainTradeoff": "…"},
+  "summary": "Optional overview.",
+  "sources": [{"title": "…", "url": "https://…", "note": "What it showed."}]
+}
+```
+
+Options and a recommendation are required; when the evidence does not settle it, use `"optionId": null` with `missing`. Any other field, including `questions`, `suggestions`, `links`, `body` or an `answer`, rejects the result. The research stays on the job: it never answers the question, never changes the idea's findings, options or status, and never completes the branch. It is shown under the question as "Research from your agent, not your answer", where the user may copy a suggested answer into their own draft. Research is earlier research, with nothing to copy, once the question is set aside or the premise or an answer nearby changes, whether that happens while you work or later. The user asks for it with `request-research` (`questionId`); never request it on their behalf.
+
 ## Regenerating a question
 
 A `regenerate-question` packet carries the `question` to replace, the user's `userReason`, the idea (`node`), its `answeredQuestions` and `openQuestions`, and the map's `questionFeedback`. Return `{"question": {"text": "…", "importance": "…", "why": "…"}}` (text at most 1,600 characters; importance and why are optional, as in results): one question that serves the same purpose better, never the original or a dismissed one, and never its answer. It is added beside the original, linked by `replaces` and `replacedBy`. A replacement for a question that is no longer waiting is kept as stale and not added.
@@ -168,7 +184,7 @@ Successful CLI commands append content-free counts to `.explore/context-usage.js
 
 `brief --map ID` returns a bounded extraction of the saved map's findings, answers, open questions, review state, stale material, directions, work states, and relationships. This includes partial findings while a branch waits for an answer. A revised premise without a current result appears separately from findings; superseded questions and actual answers appear as records of previous premises. `--node ID` narrows it to that branch. Each section identifies its source nodes and omitted items; use targeted reads when a detail matters. The default JSON omits the duplicate Markdown representation; `--format markdown` prints the readable version instead. Neither form runs research, accepts conclusions, nor changes a map. These are saved statements, not a newly verified synthesis. Brief output, including Markdown, is counted exactly by `usage`.
 
-`doctor` and `usage` also work while the server is stopped. Neither creates the runtime directory nor adds its own output to the usage log. Work packets target fewer than 16,000 characters and node section responses are bounded as above; these limits do not measure total host context or vendor token costs.
+`doctor` and `usage` also work while the server is stopped. Neither creates the runtime directory nor adds its own output to the usage log. In every packet, `context` lists the original idea first and then nearby ideas nearest first, so the farthest are the ones left out when a packet would be too long. Work packets target fewer than 16,000 characters and node section responses are bounded as above; these limits do not measure total host context or vendor token costs.
 
 No additional provider connection is required to open a saved map. Existing format-1 snapshots remain readable. On restart, historical repeat jobs on already completed branches are cancelled while stored content and job history are retained; unfinished investigations remain retryable.
 
