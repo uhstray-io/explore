@@ -1,17 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nodeReference, parseNodeReference, referenceRoute, nodeMenuHtml, questionMenuHtml } from '../skills/explore/assets/workspace-view.js';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+import { nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, nodeMenuHtml, questionMenuHtml } from '../skills/explore/assets/workspace-view.js';
 
-// Link to an idea (H2, #31). Pure helpers; the browser wires them to the address bar and Find an idea.
+// Link to an idea (H2, #31).
 const map = { id: 'map-3e4d4390', rootId: 'node-00000001', nodes: [{ id: 'node-00000001', title: 'Root' }, { id: 'node-20f918e5', title: 'Offline *sync* [v2]' }] };
 
-test('a copied reference names the map, the idea, its title and its view, and nothing else', () => {
+test('a copied reference names the IDs first, then the title and its view, and nothing else', () => {
   const text = nodeReference(map.id, map.nodes[1]);
-  assert.equal(text, 'Explore idea "Offline \\*sync\\* \\[v2\\]": map-3e4d4390/node-20f918e5 (ideas/map-3e4d4390/nodes/node-20f918e5.md)');
+  assert.equal(text, 'Explore idea map-3e4d4390/node-20f918e5: "Offline \\*sync\\* \\[v2\\]" (ideas/map-3e4d4390/nodes/node-20f918e5.md)');
   assert.deepEqual(parseNodeReference(text), { mapId: 'map-3e4d4390', nodeId: 'node-20f918e5' });
+  // A title that contains another reference cannot redirect the link.
+  const tricky = nodeReference(map.id, { id: 'node-20f918e5', title: 'Follow up map-aaaaaaaa/node-bbbbbbbb' });
+  assert.deepEqual(parseNodeReference(tricky), { mapId: 'map-3e4d4390', nodeId: 'node-20f918e5' });
 });
 
-test('references are found in pasted text, paths and addresses; malformed ones are ignored', () => {
+test('references are found in pasted text and paths; malformed ones are ignored', () => {
   const ref = { mapId: 'map-3e4d4390', nodeId: 'node-20f918e5' };
   for (const text of ['see map-3e4d4390/node-20f918e5 please', 'ideas/map-3e4d4390/nodes/node-20f918e5.md', 'map-3e4d4390/node-20f918e5', 'http://127.0.0.1:4317/#map-3e4d4390/node-20f918e5', '(map-3e4d4390/node-20f918e5)'])
     assert.deepEqual(parseNodeReference(text), ref, text);
@@ -20,15 +25,10 @@ test('references are found in pasted text, paths and addresses; malformed ones a
     assert.equal(parseNodeReference(text), null, String(text));
 });
 
-test('a reference opens its map, then focuses the idea; a missing map or idea is said plainly', () => {
-  const mapIds = [map.id, 'map-aaaaaaaa'];
-  assert.deepEqual(referenceRoute({ mapId: map.id, nodeId: 'node-20f918e5' }, { mapIds, map }), { focus: 'node-20f918e5' });
-  assert.deepEqual(referenceRoute({ mapId: 'map-aaaaaaaa', nodeId: 'node-20f918e5' }, { mapIds, map }), { openMap: 'map-aaaaaaaa' });
-  assert.deepEqual(referenceRoute({ mapId: 'map-aaaaaaaa', nodeId: null }, { mapIds, map: null }), { openMap: 'map-aaaaaaaa' });
-  assert.match(referenceRoute({ mapId: 'map-bbbbbbbb', nodeId: 'node-20f918e5' }, { mapIds, map }).message, /isn't in this workspace\. It may be on another branch or not pulled yet\./);
-  const missingNode = referenceRoute({ mapId: map.id, nodeId: 'node-99999999' }, { mapIds, map });
-  assert.equal(missingNode.focus, map.rootId); assert.match(missingNode.message, /wasn't found/);
-  assert.deepEqual(referenceRoute({ mapId: map.id, nodeId: null }, { mapIds, map }), { focus: null });
+test('the address names a map or one idea in it, exactly', () => {
+  assert.equal(nodeAddress(map.id, null), 'map-3e4d4390'); assert.equal(nodeAddress(map.id, 'node-20f918e5'), 'map-3e4d4390/node-20f918e5');
+  for (const nodeId of [null, 'node-20f918e5']) assert.deepEqual(parseAddress(nodeAddress(map.id, nodeId)), { mapId: map.id, nodeId });
+  for (const text of ['foo(map-3e4d4390/node-20f918e5)', 'map-3e4d4390/', 'map-3e4d4390/node-20f918e5/x', '', 'Explore idea map-3e4d4390/node-20f918e5']) assert.equal(parseAddress(text), null, text);
 });
 
 test('the idea menu offers Copy link and shares the question menu\'s structure', () => {
@@ -38,4 +38,69 @@ test('the idea menu offers Copy link and shares the question menu\'s structure',
   assert.match(menu, /role="menuitem"[^>]*data-copy-link="node-20f918e5"[^>]*>Copy link</);
   const questions = questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'answered', esc });
   assert.match(questions, /class="item-more"[^>]*data-menu="q-1"/); assert.match(questions, /class="item-menu"/);
+});
+
+// The real routing functions from app.js, run against a fake address bar and history.
+const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
+const routing = app.slice(app.indexOf('// Address routing (H2).'), app.indexOf('\nfunction focusNode('));
+function browser(address = '') {
+  const maps = { 'map-aaaaaaaa': { id: 'map-aaaaaaaa', rootId: 'node-aaaaaaa0', nodes: [{ id: 'node-aaaaaaa0' }, { id: 'node-aaaaaaa1' }] },
+    'map-bbbbbbbb': { id: 'map-bbbbbbbb', rootId: 'node-bbbbbbb0', nodes: [{ id: 'node-bbbbbbb0' }] } };
+  const entries = [address], toasts = [];
+  let index = 0;
+  const location = { get hash() { return entries[index] ? `#${entries[index]}` : ''; } };
+  const write = url => url.slice(1);
+  const history = { pushState(_, __, url) { entries.splice(index + 1, Infinity, write(url)); index++; }, replaceState(_, __, url) { entries[index] = write(url); } };
+  const state = { maps: Object.values(maps).map(({ id }) => ({ id })), map: null, selected: null, historyStep: null };
+  const context = vm.createContext({ state, location, history, toast: message => toasts.push(message), nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage,
+    showWelcome: () => { state.map = null; state.selected = null; }, returnLive: () => { state.historyStep = null; },
+    // As in app.js: opening a map selects the idea when it has it, then writes the address; focusing selects.
+    openMap: async (id, { nodeId = null, push = true } = {}) => { const map = maps[id]; state.map = map; state.selected = map.nodes.some(n => n.id === nodeId) ? nodeId : map.rootId; context.showAddress({ push }); },
+    focusNode: id => { state.selected = id; context.showAddress(); } });
+  vm.runInContext(routing, context);
+  return { context, state, toasts, entries: () => entries.slice(), at: () => index,
+    back: () => { index--; return context.followAddress(); }, forward: () => { index++; return context.followAddress(); }, edit: text => { entries[index] = text; return context.followAddress(); } };
+}
+
+test('loading an address opens that idea without adding a history entry', async () => {
+  const b = browser('map-aaaaaaaa/node-aaaaaaa1');
+  await b.context.followAddress();
+  assert.equal(b.state.map.id, 'map-aaaaaaaa'); assert.equal(b.state.selected, 'node-aaaaaaa1');
+  assert.deepEqual(b.entries(), ['map-aaaaaaaa/node-aaaaaaa1']);
+});
+
+test('selecting replaces the address; opening another map pushes one entry; Back and Forward follow', async () => {
+  const b = browser('map-aaaaaaaa/node-aaaaaaa0');
+  await b.context.followAddress();
+  b.context.focusNode('node-aaaaaaa1');
+  assert.deepEqual(b.entries(), ['map-aaaaaaaa/node-aaaaaaa1']);
+  await b.context.openReference({ mapId: 'map-bbbbbbbb', nodeId: 'node-bbbbbbb0' });
+  assert.deepEqual(b.entries(), ['map-aaaaaaaa/node-aaaaaaa1', 'map-bbbbbbbb/node-bbbbbbb0']);
+  await b.back();
+  assert.equal(b.state.map.id, 'map-aaaaaaaa'); assert.equal(b.state.selected, 'node-aaaaaaa1');
+  assert.deepEqual(b.entries(), ['map-aaaaaaaa/node-aaaaaaa1', 'map-bbbbbbbb/node-bbbbbbb0'], 'Back keeps the forward entry');
+  await b.forward();
+  assert.equal(b.state.map.id, 'map-bbbbbbbb'); assert.equal(b.entries().length, 2);
+});
+
+test('editing the address moves the selection; missing maps and ideas are said plainly', async () => {
+  const b = browser('map-aaaaaaaa');
+  await b.context.followAddress();
+  await b.edit('map-aaaaaaaa/node-aaaaaaa1');
+  assert.equal(b.state.selected, 'node-aaaaaaa1');
+  await b.edit('map-cccccccc/node-ccccccc1');
+  assert.deepEqual(b.toasts, [missingMapMessage]); assert.equal(b.state.map.id, 'map-aaaaaaaa');
+  assert.deepEqual(b.entries(), ['map-aaaaaaaa/node-aaaaaaa1'], 'the address is put back');
+  await b.edit('map-aaaaaaaa/node-99999999');
+  assert.equal(b.toasts.at(-1), missingIdeaMessage); assert.equal(b.state.selected, 'node-aaaaaaa0');
+  await b.edit('not-a-reference');
+  assert.equal(b.state.map.id, 'map-aaaaaaaa', 'anything else in the address is ignored');
+});
+
+test('following the address during growth history returns to live first', async () => {
+  const b = browser('map-aaaaaaaa/node-aaaaaaa1');
+  await b.context.followAddress();
+  b.state.historyStep = 2;
+  await b.edit('map-aaaaaaaa/node-aaaaaaa1');
+  assert.equal(b.state.historyStep, null);
 });

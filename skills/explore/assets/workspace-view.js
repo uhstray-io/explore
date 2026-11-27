@@ -186,13 +186,13 @@ export function checkAnswersHtml({ map, preview, listening, esc }) {
   return `<p>Your agent reads your saved answers and points out possible tensions, unresolved choices and untested assumptions. It never changes an answer, and every point waits for you to keep or dismiss it.</p>${reads}${progress}${results}`;
 }
 
-// The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
-// Help me answer, Explain this question, Tidy my wording (later issues), Answer later, Regenerate,
-// Dismiss, Good question / Bad question. Answered questions offer only the rating.
 // The one ⋯ menu shape shared by questions and ideas; app.js opens, closes and steers every `.item-menu`.
 function menuHtml(id, label, items) {
   return `<div class="item-more-wrap"><button type="button" class="item-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-${id}" data-menu="${id}" aria-label="${label}">⋯</button><div class="item-menu" role="menu" id="menu-${id}" aria-label="${label}" hidden>${items.join('')}</div></div>`;
 }
+// The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
+// Help me answer, Explain this question, Tidy my wording (later issues), Answer later, Regenerate,
+// Dismiss, Good question / Bad question. Answered questions offer only the rating.
 export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false, esc }) {
   const id = esc(question.id), node = esc(nodeId);
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
@@ -213,23 +213,27 @@ export function nodeMenuHtml(node, { esc }) {
 
 // Text that reads as itself in Markdown, on one line.
 export const markdownText = value => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}\[\]<>#|]/g, '\\$&');
-// A portable reference to one idea (H2): its map and node IDs, plus a title and the repo path of its view for
-// people reading it elsewhere. It never carries answers, findings, absolute paths, ports or tokens.
-export const nodeReference = (mapId, node) => `Explore idea "${markdownText(node.title)}": ${mapId}/${node.id} (ideas/${mapId}/nodes/${node.id}.md)`;
+// A portable reference to one idea (H2): its map and node IDs first, so a title can never redirect it, then
+// the title and the repo path of its view for people reading it elsewhere. It never carries answers,
+// findings, absolute paths, ports or tokens.
+export const nodeReference = (mapId, node) => `Explore idea ${mapId}/${node.id}: "${markdownText(node.title)}" (ideas/${mapId}/nodes/${node.id}.md)`;
+const mapIdPattern = 'map-[a-f0-9]{8}', nodeIdPattern = 'node-[a-f0-9]{8}';
 // The first `map-…/node-…` pair or `ideas/map-…/nodes/node-….md` path in some text. Each must stand on its
 // own: not inside a longer path (`../`, `/extra`) and with IDs of exactly the generated length.
-const referencePattern = /(?:^|[^\w./-])(?:(map-[a-f0-9]{8})\/(node-[a-f0-9]{8})|ideas\/(map-[a-f0-9]{8})\/nodes\/(node-[a-f0-9]{8})\.md)(?![\w/-])/;
+const referencePattern = new RegExp(String.raw`(?:^|[^\w./-])(?:(${mapIdPattern})\/(${nodeIdPattern})|ideas\/(${mapIdPattern})\/nodes\/(${nodeIdPattern})\.md)(?![\w/-])`);
 export function parseNodeReference(text) {
   const match = String(text ?? '').match(referencePattern);
   return match ? { mapId: match[1] ?? match[3], nodeId: match[2] ?? match[4] } : null;
 }
-// Where a reference leads from the open map: open its map first, then focus the idea, or say what is missing.
-export function referenceRoute({ mapId, nodeId }, { mapIds, map }) {
-  if (!mapIds.includes(mapId)) return { message: "This map isn't in this workspace. It may be on another branch or not pulled yet." };
-  if (map?.id !== mapId) return { openMap: mapId };
-  if (nodeId && !map.nodes.some(node => node.id === nodeId)) return { focus: map.rootId, message: "That idea wasn't found in this map, so its starting idea is shown." };
-  return { focus: nodeId ?? null };
+// The app's own address names a map, or one idea in it, exactly: map-… or map-…/node-….
+const addressPattern = new RegExp(String.raw`^(${mapIdPattern})(?:\/(${nodeIdPattern}))?$`);
+export const nodeAddress = (mapId, nodeId) => nodeId ? `${mapId}/${nodeId}` : mapId;
+export function parseAddress(text) {
+  const match = String(text ?? '').match(addressPattern);
+  return match ? { mapId: match[1], nodeId: match[2] ?? null } : null;
 }
+export const missingMapMessage = "This map isn't in this workspace. It may be on another branch or not pulled yet.";
+export const missingIdeaMessage = "That idea wasn't found in this map, so its starting idea is shown.";
 
 // Arrow keys move through a menu and wrap around; Home and End jump to its ends.
 export function menuFocusIndex(index, key, count) {

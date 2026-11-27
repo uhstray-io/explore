@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, referenceRoute } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
@@ -73,14 +73,16 @@ async function refresh() {
   } catch { connectionView(true); }
   finally { state.refreshing = false; }
 }
-async function openMap(id) {
+// Opens a map at `nodeId` when it has that idea, otherwise at its root. `push` adds a history entry; opening
+// what the address already names (startup, Back and Forward) replaces it instead.
+async function openMap(id, { nodeId = null, push = true } = {}) {
   const version = ++openVersion;
   try {
     const map = await api(`/maps/${id}`); if (version !== openVersion) return;
     state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
-    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
+    state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
-    localStorage.setItem('explore-map', id); location.hash = id;
+    localStorage.setItem('explore-map', id); showAddress({ push });
     renderMap(true); renderRail();
   } catch (error) { toast(error.message); }
 }
@@ -154,26 +156,32 @@ function zoom(factor, cx = $('#canvas').clientWidth / 2, cy = $('#canvas').clien
 }
 function selectNode(nodeId) {
   state.selected = visibleSelection(state.visibleMap, nodeId);
-  if (state.linkFallback?.nodeId !== state.selected) state.linkFallback = null;
   showAddress();
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
   $('#focus-selected').disabled = !state.selected; renderDetail();
 }
-// The address bar always names the open map and the selected idea, so it can be copied as a link.
-function showAddress() { if (state.map) history.replaceState(null, '', `#${state.map.id}${state.selected ? `/${state.selected}` : ''}`); }
-// The map, or one idea in it, that the address names (#map-…/node-…).
-function addressTarget() {
-  const address = location.hash.slice(1);
-  return parseNodeReference(address) ?? (/^map-[a-f0-9]{8}$/.test(address) ? { mapId: address, nodeId: null } : null);
+// Address routing (H2). The address bar always names the open map and the selected idea, so it can be copied as
+// a link. This is its only writer: a new map pushes a history entry, a new selection replaces it.
+function showAddress({ push = false } = {}) {
+  if (!state.map) return;
+  const address = `#${nodeAddress(state.map.id, state.selected)}`;
+  if (location.hash !== address) history[push ? 'pushState' : 'replaceState'](null, '', address);
 }
-async function openReference(target) {
-  const mapIds = () => state.maps.map(item => item.id);
-  let route = referenceRoute(target, { mapIds: mapIds(), map: state.map });
-  if (route.openMap) { await openMap(route.openMap); if (state.map?.id !== route.openMap) return; route = referenceRoute(target, { mapIds: mapIds(), map: state.map }); }
-  if (route.message) { toast(route.message); showAddress(); }
-  if (!route.focus) return;
+// Opens a referenced map and idea. A missing map keeps the current one; a missing idea shows the map's root.
+async function openReference({ mapId, nodeId }, { push = true } = {}) {
+  if (!state.maps.some(item => item.id === mapId)) { toast(missingMapMessage); showAddress(); return; }
+  if (state.map?.id !== mapId) { await openMap(mapId, { nodeId, push }); if (state.map?.id !== mapId) return; }
   if (state.historyStep !== null) returnLive();
-  focusNode(route.focus);
+  const found = !nodeId || state.map.nodes.some(node => node.id === nodeId);
+  if (!found) toast(missingIdeaMessage);
+  focusNode(found ? nodeId ?? state.selected : state.map.rootId);
+}
+// Loading, editing, Back and Forward: follow whatever the address names, unless that is already shown.
+function followAddress() {
+  const target = parseAddress(location.hash.slice(1));
+  if (!target) { if (!location.hash.slice(1)) showWelcome(); return; } // Anything else in the address is not a reference.
+  if (target.mapId === state.map?.id && (target.nodeId ?? state.selected) === state.selected && state.historyStep === null) return;
+  return openReference(target, { push: false });
 }
 function focusNode(nodeId) {
   if (!state.positions[nodeId] || !state.visibleMap.nodes.some(node => node.id === nodeId)) return;
@@ -572,7 +580,7 @@ function renderDetail(force = false) {
     // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
     if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
   }
-  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc })}</div>${state.linkFallback?.nodeId === n.id ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(state.linkFallback.text)}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
     ${completed && !historic ? '<p class="state-note">This branch is complete. Add a new direction to keep exploring; these findings stay here.</p>' : ''}
@@ -767,10 +775,10 @@ document.addEventListener('click', async event => {
   // The ⋯ menus.
   const copyLink = event.target.closest('[data-copy-link]');
   if (copyLink) {
-    closeMenus(); const node = state.map?.nodes.find(item => item.id === copyLink.dataset.copyLink); if (!node) return;
+    const node = state.map?.nodes.find(item => item.id === copyLink.dataset.copyLink); if (!node) return;
     const text = nodeReference(state.map.id, node);
-    try { await navigator.clipboard.writeText(text); state.linkFallback = null; toast('Link copied. Paste it into an issue, a pull request or a chat, or into Find an idea.'); }
-    catch { state.linkFallback = { nodeId: node.id, text }; renderDetail(true); $('#link-fallback')?.select(); }
+    try { await navigator.clipboard.writeText(text); state.linkFallbackFor = null; closeMenus(true); toast('Link copied. Paste it into an issue, a pull request or a chat, or into Find an idea.'); }
+    catch { state.linkFallbackFor = node.id; renderDetail(true); $('#link-fallback')?.select(); }
     return;
   }
   const menuToggle = event.target.closest('[data-menu]');
@@ -889,12 +897,9 @@ $('#nodes').addEventListener('keydown', async event => {
   selectNode(id); await act(id, 'position', { x, y }); $(`[data-node="${id}"]`)?.focus();
 });
 window.addEventListener('resize', () => { if (state.map && state.historyStep === null) { if (state.overview) fitMap(); else centerSelected(); } });
-window.addEventListener('hashchange', () => {
-  const target = addressTarget();
-  if (!target) { if (!location.hash.slice(1)) showWelcome(); return; } // Anything else in the address is not a reference.
-  if (target.mapId === state.map?.id && (!target.nodeId || target.nodeId === state.selected)) { showAddress(); return; }
-  openReference(target);
-});
+// Editing the address fires hashchange; Back and Forward between Explore's own entries fire popstate.
+window.addEventListener('hashchange', followAddress);
+window.addEventListener('popstate', followAddress);
 try {
   const session = await (await fetch('/api/session')).json(); state.token = session.token; state.session = session;
   $('#workspace-name').textContent = session.workspace;
@@ -902,7 +907,7 @@ try {
   api('/contributor').then(person => { state.contributor = person.name; $('#contributor').textContent = person.name ? `You: ${person.name} (from Git)` : 'Answers aren’t attributed: Git has no user name.'; }).catch(() => {});
   await refresh();
   const saved = localStorage.getItem('explore-map');
-  if (addressTarget()) await openReference(addressTarget());
-  else if (saved && state.maps.some(m => m.id === saved)) await openMap(saved);
+  if (parseAddress(location.hash.slice(1))) await followAddress();
+  else if (saved && state.maps.some(m => m.id === saved)) await openMap(saved, { push: false });
   setInterval(refresh, 2500);
 } catch (error) { toast(`Cannot connect to the workspace: ${error.message}`); connectionView(true); }

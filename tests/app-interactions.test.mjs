@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, nodeMenuHtml, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, nodeMenuHtml, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -622,6 +622,6 @@ test('every idea has a ⋯ menu with Copy link, and a clipboard failure shows th
   h.document.activeElement = null; h.render();
   assert.match(h.markup(), /data-menu="node-a"[^>]*aria-label="More for this idea"/);
   assert.match(h.markup(), /data-copy-link="node-a">Copy link</);
-  h.state.linkFallback = { nodeId: 'node-a', text: 'Explore idea "node-a": map-a/node-a' }; h.render();
-  assert.match(h.markup(), /<input id="link-fallback" readonly value="Explore idea "node-a": map-a\/node-a">/);
+  h.state.linkFallbackFor = 'node-a'; h.render();
+  assert.match(h.markup(), /<input id="link-fallback" readonly value="Explore idea map-a\/node-a: "node-a" \(ideas\/map-a\/nodes\/node-a\.md\)">/, 'built from today\'s title');
 });
