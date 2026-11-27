@@ -1,7 +1,8 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
+import { questionClick } from './question-clicks.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, researchSuggestion } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, helpSeen: readSeenHelp() };
@@ -458,7 +459,7 @@ function advanceReview(nodeId, position, message) {
 function openMenu(toggle) {
   const menu = document.getElementById(toggle.getAttribute('aria-controls')); if (!menu) return;
   menu.hidden = false; toggle.setAttribute('aria-expanded', 'true');
-  menu.querySelector('[role="menuitem"]')?.focus();
+  menu.querySelector('[role="menuitem"]:not([hidden])')?.focus();
 }
 function closeMenus(returnFocus = false) {
   for (const menu of document.querySelectorAll('.item-menu:not([hidden])')) {
@@ -471,7 +472,7 @@ function closeMenus(returnFocus = false) {
 document.addEventListener('keydown', event => {
   const menu = event.target.closest?.('.item-menu');
   if (menu) {
-    const items = [...menu.querySelectorAll('[role="menuitem"]')], index = items.indexOf(event.target);
+    const items = [...menu.querySelectorAll('[role="menuitem"]:not([hidden])')], index = items.indexOf(event.target);
     if (event.key === 'Escape') { event.preventDefault(); closeMenus(true); }
     else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) { event.preventDefault(); items[menuFocusIndex(Math.max(0, index), event.key, items.length)]?.focus(); }
     else if (event.key === 'Tab') closeMenus();
@@ -598,7 +599,7 @@ function renderDetail(force = false) {
   const agentWork = q => ({ question: q, jobs: state.visibleMap?.jobs || [], listening: agentListening(), seen: state.helpSeen, esc });
   // Options with a suggested answer can start the user's draft; nothing is saved until they press Save.
   const suggestions = q => { const drafts = (n.options || []).filter(option => option.suggestedAnswer); return drafts.length ? `<div class="suggested-answers"><span>Start from a suggested answer:</span>${drafts.map(option => `<button type="button" class="text-button" data-suggest-answer="${esc(option.id)}" data-question-id="${q.id}">${esc(option.title)}</button>`).join('')}</div>` : ''; };
-  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${questionMenuHtml(q, { nodeId: n.id, kind: waiting ? 'waiting' : 'open', lastBlocking: !waiting && blockingCount === 1, esc })}${questionHelpHtml(agentWork(q))}${questionResearchHtml(agentWork(q))}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
+  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${questionMenuHtml(q, { nodeId: n.id, kind: waiting ? 'waiting' : 'open', lastBlocking: !waiting && blockingCount === 1, drafting: !!state.drafts[q.id]?.trim(), esc })}${questionHelpHtml(agentWork(q))}${questionResearchHtml(agentWork(q))}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${questionTidyHtml({ ...agentWork(q), draft: state.drafts[q.id], restorable: state.tidyRestore?.[q.id] !== undefined })}${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
   // An answer being saved already counts as answered here, so the next question shows at once.
   const questions = state.pendingAnswers ? n.questions.map(q => !q.answer && state.pendingAnswers[q.id] !== undefined ? { ...q, answer: state.pendingAnswers[q.id], answerState: 'tentative' } : q) : n.questions;
   const live = !completed && !historic, blockingCount = questions.filter(isBlocking).length;
@@ -752,65 +753,6 @@ document.addEventListener('click', async event => {
   const example = event.target.closest('[data-example]');
   if (example) { const starter = starterIdeas[example.dataset.example]; if (starter) { $('#idea').value = starter.idea; $('#title').value = starter.title; $('#idea').focus(); } return; }
   const brief = event.target.closest('[data-branch-brief]'); if (brief) return showBrief(brief.dataset.branchBrief);
-  const suggested = event.target.closest('[data-suggest-answer]');
-  if (suggested) {
-    const option = state.map?.nodes.find(node => node.id === state.selected)?.options?.find(item => item.id === suggested.dataset.suggestAnswer);
-    const field = document.querySelector(`[data-draft="${suggested.dataset.questionId}"]`);
-    if (option?.suggestedAnswer && field) { field.value = appendSuggestion(field.value, option.suggestedAnswer); state.drafts[suggested.dataset.questionId] = field.value; field.focus(); }
-    return;
-  }
-  const copied = event.target.closest('[data-copy-answer]');
-  if (copied) {
-    const { questionId, researchJob, copyAnswer } = copied.dataset, suggestion = researchSuggestion(state.visibleMap?.jobs, researchJob, copyAnswer);
-    const editor = document.querySelector(`[data-change-for="${questionId}"]`), field = document.querySelector(`[data-draft="${questionId}"]`) || editor?.querySelector('textarea');
-    if (!suggestion || !field) return;
-    if (editor) editor.hidden = false;
-    field.value = appendSuggestion(field.value, suggestion); state.drafts[field.dataset.draft] = field.value; field.focus();
-    return;
-  }
-  const stopJob = event.target.closest('[data-stop-job]');
-  if (stopJob) { if (await act(null, 'cancel-job', { jobId: stopJob.dataset.stopJob })) toast('Stopped.'); return; }
-  if (event.target.closest('[data-show-all-questions]')) { state.showAllQuestions = true; renderDetail(true); return; }
-  if (event.target.closest('[data-show-one-question]')) { state.showAllQuestions = false; renderDetail(true); document.querySelector('#detail form.question-box textarea')?.focus(); return; }
-  const changeOpen = event.target.closest('[data-q-change]');
-  if (changeOpen) { closeMenus(); const editor = document.querySelector(`[data-change-for="${changeOpen.dataset.questionId}"]`); if (editor) { editor.hidden = false; editor.querySelector('textarea').focus(); } return; }
-  const changeSave = event.target.closest('[data-save-change], [data-save-wording]');
-  if (changeSave) {
-    const questionId = changeSave.dataset.questionId, field = document.querySelector(`#change-${questionId}`), answer = field?.value.trim();
-    if (!answer) { field?.focus(); return; }
-    changeSave.disabled = true;
-    const fork = changeSave.dataset.saveChange === 'fork';
-    const done = fork ? await act(changeSave.dataset.nodeId, 'fork-revision', { questionId, answer, start: true })
-      : await act(changeSave.dataset.nodeId, 'change-answer', { questionId, answer, ...('saveWording' in changeSave.dataset ? { rerun: false } : {}) });
-    if (done) { delete state.drafts[`change-${questionId}`]; toast(fork ? (agentListening() ? 'A new branch is exploring your changed answer.' : 'A new branch is queued for your changed answer. Connect your agent to explore it.') : 'saveWording' in changeSave.dataset ? 'Wording saved.' : 'Answer changed. Findings that relied on it are flagged for review.'); }
-    changeSave.disabled = false; return;
-  }
-  // Restart from this answer: preview first; nothing is deleted until the user confirms.
-  const restartOpen = event.target.closest('[data-restart-preview]');
-  if (restartOpen) {
-    const { questionId, nodeId } = restartOpen.dataset, field = document.querySelector(`#change-${questionId}`), answer = field?.value.trim();
-    const saved = state.map?.nodes.find(node => node.id === nodeId)?.questions.find(q => q.id === questionId)?.answer;
-    if (!answer || answer === saved) { toast('Change the answer first, then restart from it.'); field?.focus(); return; }
-    restartOpen.disabled = true; await loadRestartPreview({ nodeId, questionId }); restartOpen.disabled = false; return;
-  }
-  const restartMore = event.target.closest('[data-restart-more]');
-  if (restartMore && state.restartPreview) { await loadRestartPreview(state.restartPreview, Number(restartMore.dataset.restartMore)); return; }
-  if (event.target.closest('[data-restart-cancel]')) {
-    const questionId = state.restartPreview?.questionId; state.restartPreview = null; renderDetail(true);
-    const editor = document.querySelector(`[data-change-for="${questionId}"]`); if (editor) { editor.hidden = false; editor.querySelector('textarea').focus(); }
-    return;
-  }
-  const restartConfirm = event.target.closest('[data-restart-confirm]');
-  if (restartConfirm && state.restartPreview) {
-    const { nodeId, questionId, preview } = state.restartPreview, answer = document.querySelector(`#change-${questionId}`)?.value.trim();
-    if (!answer) { document.querySelector(`#change-${questionId}`)?.focus(); return; }
-    restartConfirm.disabled = true;
-    if (await act(nodeId, 'restart-branch', { questionId, answer, previewHash: preview.hash })) {
-      state.restartPreview = null; delete state.drafts[`change-${questionId}`]; renderDetail(true);
-      toast(`Branch restarted. Its checkpoint is saved in Versions. ${agentListening() ? 'Your agent will explore it next.' : 'Connect your agent to explore it.'}`);
-    } else if (state.restartPreview) await loadRestartPreview(state.restartPreview); // Show what would happen now.
-    return;
-  }
   // Review flagged findings.
   const reviewStart = event.target.closest('[data-review-start]');
   if (reviewStart) {
@@ -856,37 +798,18 @@ document.addEventListener('click', async event => {
   const menuToggle = event.target.closest('[data-menu]');
   if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeMenus(); if (opening) openMenu(menuToggle); return; }
   if (!event.target.closest('.item-menu')) closeMenus();
-  const rate = event.target.closest('[data-q-rate]');
-  if (rate) { closeMenus(); if (await act(rate.dataset.nodeId, 'rate-question', { questionId: rate.dataset.questionId, rating: rate.dataset.qRate || null })) toast(rate.dataset.qRate ? 'Thanks. Your agent will ask more like this.' : 'Rating removed.'); return; }
-  const reason = event.target.closest('[data-q-reason]');
-  if (reason) { closeMenus(); const row = document.querySelector(`[data-reason-for="${reason.dataset.questionId}"]`); if (row) { row.hidden = false; row.dataset.action = reason.dataset.qReason; row.querySelector('button').textContent = reason.dataset.qReason === 'regenerate' ? 'Get a new question' : 'Send'; row.querySelector('input').focus(); } return; }
-  const send = event.target.closest('[data-send-reason]');
-  if (send) {
-    const row = send.closest('[data-reason-for]'), text = row.querySelector('input').value.trim(), questionId = send.dataset.sendReason;
-    send.disabled = true;
-    const done = row.dataset.action === 'regenerate'
-      ? await act(send.dataset.nodeId, 'regenerate-question', { questionId, ...(text ? { reason: text } : {}) })
-      : await act(send.dataset.nodeId, 'rate-question', { questionId, rating: 'bad', ...(text ? { reason: text } : {}) });
-    if (done) toast(row.dataset.action === 'regenerate' ? (agentListening() ? 'Your agent will write a better question.' : 'Queued. Connect your agent for a new question.') : 'Thanks. Your agent will ask fewer questions like this.');
-    send.disabled = false; return;
-  }
-  const help = event.target.closest('[data-q-help]');
-  if (help) { closeMenus(); if (await act(help.dataset.nodeId, 'request-help', { questionId: help.dataset.questionId })) toast(agentListening() ? 'Your agent will explain this question next.' : 'Queued. Connect your agent to get the explanation.'); return; }
-  const research = event.target.closest('[data-q-research]');
-  if (research) { closeMenus(); if (await act(research.dataset.nodeId, 'request-research', { questionId: research.dataset.questionId })) toast(agentListening() ? 'Your agent will research this question next.' : 'Queued. Connect your agent to get the research.'); return; }
-  const dismiss = event.target.closest('[data-q-dismiss]');
-  if (dismiss) { closeMenus(); if (await act(dismiss.dataset.nodeId, 'dismiss-question', { questionId: dismiss.dataset.questionId })) toast(state.map?.nodes.find(node => node.id === dismiss.dataset.nodeId)?.questions.some(isBlocking) ? 'Dismissed.' : 'Dismissed. The branch continues without it.'); return; }
-  const restore = event.target.closest('[data-q-restore]');
-  if (restore) { if (await act(restore.dataset.nodeId, 'restore-question', { questionId: restore.dataset.questionId })) toast('The question is back.'); return; }
-  const later = event.target.closest('[data-answer-later]');
-  if (later) { closeMenus(); later.disabled = true; if (await act(later.dataset.nodeId, 'answer-later', { questionId: later.dataset.answerLater })) toast(state.map?.nodes.find(node => node.id === later.dataset.nodeId)?.questions.some(isBlocking) ? 'Saved for later.' : 'Saved for later. The branch continues without it.'); later.disabled = false; return; }
+  if (await questionClick(event, { state, act, toast, renderDetail, closeMenus, agentListening, loadRestartPreview })) return;
   for (const [attribute, action, message] of [['explore', 'activate', 'Exploration queued.'], ['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
     const button = event.target.closest(`[data-${attribute}]`);
     if (button) { button.disabled = true; if (await act(button.dataset[attribute], action)) toast(message); button.disabled = false; return; }
   }
   const card = event.target.closest('.node'); if (card) focusNode(card.dataset.node);
 });
-$('#detail').addEventListener('input', event => { if (event.target.dataset.draft) state.drafts[event.target.dataset.draft] = event.target.value; });
+$('#detail').addEventListener('input', event => {
+  const key = event.target.dataset.draft; if (!key) return;
+  state.drafts[key] = event.target.value;
+  document.querySelector(`[data-q-tidy][data-question-id="${key}"]`)?.toggleAttribute('hidden', !event.target.value.trim());
+});
 $('#detail').addEventListener('submit', async event => {
   event.preventDefault(); if (state.historyStep !== null) return;
   const submittedMapId = state.map?.id;

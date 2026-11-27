@@ -179,3 +179,18 @@ test('HTTP saves preserve UTF-8 characters split across request chunks', async (
     assert.equal((await app.store.get(response.body.id)).nodes[0].prompt, idea);
   } finally { await app.close(); }
 });
+
+test('the server serves every module the browser app imports', async () => {
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const app = await startServer({ workspace: await mkdtemp(path.join(root, 'assets-')), port: 0 });
+  try {
+    const assets = path.resolve('skills/explore/assets'), seen = new Set(), queue = ['app.js'];
+    while (queue.length) {
+      const file = queue.shift(); if (seen.has(file)) continue; seen.add(file);
+      const response = await fetch(`${app.address}/${file}`);
+      assert.equal(response.status, 200, `${file} is served`);
+      for (const [, imported] of (await readFile(path.join(assets, file), 'utf8')).matchAll(/from '\.\/([\w-]+\.js)'/g)) queue.push(imported);
+    }
+    assert.ok(seen.has('question-clicks.js'));
+  } finally { await app.close(); }
+});
