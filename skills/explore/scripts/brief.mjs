@@ -1,6 +1,7 @@
 import { Problem, hasFindings } from './store.mjs';
 import { isOpen, isBlocking, certaintyText, effectiveAnswerState, importanceRank, importanceLabel } from '../assets/questions.js';
 import { proposalOutdated } from './map-jobs.mjs';
+import { markdownText } from '../assets/workspace-view.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
@@ -8,7 +9,7 @@ const clip = (value, limit) => {
   const text = String(value ?? '');
   return text.length > limit ? text.slice(0, limit - 1) + '…' : text;
 };
-const line = value => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}\[\]<>#|]/g, '\\$&');
+const line = markdownText;
 
 // An extractive index: acceptance and freshness come from the map, never from a model.
 export function mapBrief(map, nodeId = null) {

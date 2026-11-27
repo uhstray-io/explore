@@ -189,6 +189,10 @@ export function checkAnswersHtml({ map, preview, listening, esc }) {
 // The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
 // Help me answer, Explain this question, Tidy my wording (later issues), Answer later, Regenerate,
 // Dismiss, Good question / Bad question. Answered questions offer only the rating.
+// The one ⋯ menu shape shared by questions and ideas; app.js opens, closes and steers every `.item-menu`.
+function menuHtml(id, label, items) {
+  return `<div class="item-more-wrap"><button type="button" class="item-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-${id}" data-menu="${id}" aria-label="${label}">⋯</button><div class="item-menu" role="menu" id="menu-${id}" aria-label="${label}" hidden>${items.join('')}</div></div>`;
+}
 export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false, esc }) {
   const id = esc(question.id), node = esc(nodeId);
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
@@ -198,9 +202,35 @@ export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false,
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
   ];
   const rated = question.rating ? `<p class="question-rated">You rated this ${question.rating === 'good' ? 'a good question' : 'a bad question'}${question.ratingReason ? `: ${esc(question.ratingReason)}` : ''} · <button type="button" class="text-button" data-q-rate="" data-question-id="${id}" data-node-id="${node}">Undo</button></p>` : '';
-  return `<div class="question-more-wrap"><button type="button" class="question-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-${id}" data-question-menu="${id}" aria-label="More for this question">⋯</button><div class="question-menu" role="menu" id="menu-${id}" aria-label="More for this question" hidden>${items.join('')}</div></div>`
+  return menuHtml(id, 'More for this question', items)
     + `<div class="question-reason" data-reason-for="${id}" hidden><label class="visually-hidden" for="reason-${id}">What was wrong? (optional)</label><input id="reason-${id}" maxlength="600" placeholder="What was wrong? (optional)"><button type="button" class="secondary" data-send-reason="${id}" data-node-id="${node}">Send</button></div>${rated}`;
 }
+// The idea ⋯ menu (H2): Copy link.
+export function nodeMenuHtml(node, { esc }) {
+  const id = esc(node.id);
+  return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`]);
+}
+
+// Text that reads as itself in Markdown, on one line.
+export const markdownText = value => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}\[\]<>#|]/g, '\\$&');
+// A portable reference to one idea (H2): its map and node IDs, plus a title and the repo path of its view for
+// people reading it elsewhere. It never carries answers, findings, absolute paths, ports or tokens.
+export const nodeReference = (mapId, node) => `Explore idea "${markdownText(node.title)}": ${mapId}/${node.id} (ideas/${mapId}/nodes/${node.id}.md)`;
+// The first `map-…/node-…` pair or `ideas/map-…/nodes/node-….md` path in some text. Each must stand on its
+// own: not inside a longer path (`../`, `/extra`) and with IDs of exactly the generated length.
+const referencePattern = /(?:^|[^\w./-])(?:(map-[a-f0-9]{8})\/(node-[a-f0-9]{8})|ideas\/(map-[a-f0-9]{8})\/nodes\/(node-[a-f0-9]{8})\.md)(?![\w/-])/;
+export function parseNodeReference(text) {
+  const match = String(text ?? '').match(referencePattern);
+  return match ? { mapId: match[1] ?? match[3], nodeId: match[2] ?? match[4] } : null;
+}
+// Where a reference leads from the open map: open its map first, then focus the idea, or say what is missing.
+export function referenceRoute({ mapId, nodeId }, { mapIds, map }) {
+  if (!mapIds.includes(mapId)) return { message: "This map isn't in this workspace. It may be on another branch or not pulled yet." };
+  if (map?.id !== mapId) return { openMap: mapId };
+  if (nodeId && !map.nodes.some(node => node.id === nodeId)) return { focus: map.rootId, message: "That idea wasn't found in this map, so its starting idea is shown." };
+  return { focus: nodeId ?? null };
+}
+
 // Arrow keys move through a menu and wrap around; Home and End jump to its ends.
 export function menuFocusIndex(index, key, count) {
   if (key === 'ArrowDown') return (index + 1) % count;
