@@ -83,6 +83,10 @@ Every packet from `next` carries `jobType`. `investigate` is the branch investig
 
 Some work covers the whole map rather than one idea. Its job has `nodeId: null`, and its packet names the map only. Work about one question of an idea records that question as `subjectId`. A repeat request for the same type, idea (or map) and subject reuses the open job. A job type this version of Explore does not know stays queued for a newer version. A job whose idea no longer exists fails with that reason.
 
+## Explaining a question
+
+A `question-help` packet carries the open `question` (`id`, `text`), its idea (`node`: `id`, `title`, `premise`, `summary`) and the `ancestors` up to the root (nearest first; the farthest are dropped first if the packet would be too long, counted in `omittedAncestors`). Explain what the question asks and why it matters, define unfamiliar terms, and give one illustrative example. Never answer it or recommend an answer. Return `{"help": "…"}` (at most 3,000 characters) and nothing else. The help stays on the job and is shown under the question as "Help from your agent, not an answer"; it never fills in the answer. Help that arrives after the question was answered, set aside or reworded is kept as stale and not shown. The user asks for it with `request-help` (`questionId`); never request it on their behalf.
+
 ## Regenerating a question
 
 A `regenerate-question` packet carries the `question` to replace, the user's `userReason`, the idea (`node`), its `answeredQuestions` and `openQuestions`, and the map's `questionFeedback`. Return `{"question": {"text": "…", "importance": "…", "why": "…"}}` (text at most 1,600 characters; importance and why are optional, as in results): one question that serves the same purpose better, never the original or a dismissed one, and never its answer. It is added beside the original, linked by `replaces` and `replacedBy`. A replacement for a question that is no longer waiting is kept as stale and not added.
