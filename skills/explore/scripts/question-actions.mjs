@@ -1,4 +1,4 @@
-import { isOpen, isBlocking } from '../assets/questions.js';
+import { isOpen, isBlocking, importanceLevels } from '../assets/questions.js';
 
 // The question ⋯ menu (B7): rate a question, dismiss it, bring it back, or ask for a better one.
 // Ratings and dismissals are the user's feedback, never content: they don't re-run research, and
@@ -78,7 +78,23 @@ export const questionActions = {
   } },
 };
 
-const regenerateInstruction = 'Ask one replacement question that serves the same purpose better. Take the user\'s reason into account. Do not repeat the original or any dismissed question, and do not answer it. Return {"question": {"text": "…"}} through the CLI.';
+// A question may say how much its answer matters and why (B2). A rank always comes with its reason.
+export function questionImportance(question, fail) {
+  const fields = {};
+  if (question.why !== undefined) {
+    if (typeof question.why !== 'string' || !question.why.trim()) fail('A question\'s why must be text.');
+    if (question.why.trim().length > 600) fail('A question\'s why must be at most 600 characters.');
+    fields.why = question.why.trim();
+  }
+  if (question.importance !== undefined) {
+    if (!importanceLevels.includes(question.importance)) fail('Importance must be low, medium or high.');
+    if (!fields.why) fail('Importance needs a reason: add why, saying what the answer would change.');
+    fields.importance = question.importance;
+  }
+  return fields;
+}
+
+const regenerateInstruction = 'Ask one replacement question that serves the same purpose better. Take the user\'s reason into account. Do not repeat the original or any dismissed question, and do not answer it. Return {"question": {"text": "…", "importance": "low|medium|high", "why": "…"}} through the CLI; importance and why are optional, and importance needs why.';
 
 export const questionJobTypes = {
   [REGENERATE]: {
@@ -96,14 +112,14 @@ export const questionJobTypes = {
     validate: result => {
       need(result.question && typeof result.question === 'object' && typeof result.question.text === 'string' && result.question.text.trim(), 'Return {"question": {"text": "…"}}.');
       need(result.question.text.length <= 1600, 'The question must be at most 1,600 characters.');
-      return { question: { text: result.question.text.trim() } };
+      return { question: { text: result.question.text.trim(), ...questionImportance(result.question, message => need(false, message)) } };
     },
     // A replacement only makes sense while the original is still waiting to be replaced.
     isStale: ({ job, node }) => { const original = node?.questions.find(q => q.id === job.subjectId); return !original || original.replacedBy !== 'pending' || !!original.supersededAt; },
     store: ({ job, result, stale, makeId, at, map }) => {
       const node = map.nodes.find(n => n.id === job.nodeId), original = node?.questions.find(q => q.id === job.subjectId);
       if (stale) { if (original?.replacedBy === 'pending') delete original.replacedBy; return; }
-      const fresh = { id: makeId('q'), text: result.question.text, answer: null, askedAt: at, jobId: job.id, replaces: original.id };
+      const fresh = { id: makeId('q'), ...result.question, answer: null, askedAt: at, jobId: job.id, replaces: original.id };
       node.questions.push(fresh); original.replacedBy = fresh.id; node.contentRevision++;
     },
     release: ({ map, job }) => restoreOriginal(map.nodes.find(n => n.id === job.nodeId), job.subjectId),
