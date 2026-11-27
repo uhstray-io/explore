@@ -53,3 +53,29 @@ test('brief preview treats saved HTML and links as text while preserving stale a
   assert.match(html, /2 more records/);
   assert.match(html, /node-123/);
 });
+
+test('the open map is reported removed, unreadable or changed, comparing content rather than revision alone', async () => {
+  const { openMapChange } = await import('../skills/explore/assets/workspace-view.js');
+  const shown = { id: 'map-a', revision: 4, fingerprint: 'f1' };
+  assert.equal(openMapChange({ id: 'map-a', revision: 4, fingerprint: 'f1' }, shown), null);
+  assert.equal(openMapChange(undefined, shown), 'removed');
+  assert.equal(openMapChange({ id: 'map-a', unreadable: true, problem: 'conflict-markers' }, shown), 'unreadable');
+  assert.equal(openMapChange({ id: 'map-a', revision: 4, fingerprint: 'f2' }, shown), 'changed', 'same revision, different content');
+  assert.equal(openMapChange({ id: 'map-a', revision: 2, fingerprint: 'f0' }, shown), 'changed', 'a revision that goes backwards still counts');
+  assert.equal(openMapChange({ id: 'map-a' }, null), null);
+});
+
+test('unreadable maps are explained in plain words without quoting the file', async () => {
+  const { unreadableLabel } = await import('../skills/explore/assets/workspace-view.js');
+  assert.equal(unreadableLabel('conflict-markers'), "Can't open: unresolved Git conflict");
+  for (const problem of ['invalid-json', 'unsupported-version', 'invalid-map', 'something-new']) assert.match(unreadableLabel(problem), /^Can't open/);
+});
+
+test('an outside change is announced once, quietly', async () => {
+  const { outsideChangeNote } = await import('../skills/explore/assets/workspace-view.js');
+  const change = { at: '2026-11-27T10:00:00Z', preserved: 'preserved/a.json', inGit: false };
+  assert.match(outsideChangeNote(change, null), /outside Explore, for example a pull.*earlier version was kept/);
+  assert.equal(outsideChangeNote(change, change.at), null);
+  assert.doesNotMatch(outsideChangeNote({ ...change, preserved: null, inGit: true }, null), /kept/);
+  assert.equal(outsideChangeNote(null, null), null);
+});

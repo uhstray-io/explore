@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -95,6 +95,55 @@ test('shared settings are authenticated, validated, revision-checked and saved b
     assert.equal((await call({ expectedRevision: 0, 'test-minutes': 2 })).status, 409);
     assert.equal(JSON.parse(await readFile(path.join(workspace, 'ideas', 'settings.json'), 'utf8'))['test-minutes'], 10);
     assert.deepEqual((await readdir(path.join(workspace, '.explore'))).filter(name => /settings|preferences/.test(name)), []);
+  } finally { await app.close(); }
+});
+
+test('a conflicted map no longer stops the server; it is listed as unreadable and the rest open', async () => {
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const workspace = await mkdtemp(path.join(root, 'conflict-http-'));
+  let app = await startServer({ workspace, port: 0 });
+  const good = await app.store.create({ title: 'Still fine', idea: 'Opens normally.' });
+  const bad = await app.store.create({ title: 'Private idea title', idea: 'Secret details.' });
+  await app.close();
+  const file = path.join(workspace, 'ideas', bad.id, 'map.json');
+  const raw = await readFile(file, 'utf8');
+  await writeFile(file, `<<<<<<< HEAD\n${raw}=======\n${raw}>>>>>>> teammate\n`);
+  app = await startServer({ workspace, port: 0 });
+  try {
+    const { token } = await (await fetch(app.address + '/api/session')).json();
+    const get = route => fetch(app.address + '/api' + route, { headers: { Authorization: `Bearer ${token}` } });
+    const { maps } = await (await get('/maps')).json();
+    assert.deepEqual(maps.find(m => m.id === bad.id), { id: bad.id, unreadable: true, problem: 'conflict-markers' });
+    assert.equal(maps.find(m => m.id === good.id).title, 'Still fine');
+    const response = await get(`/maps/${bad.id}`);
+    assert.equal(response.status, 409);
+    const body = await response.json();
+    assert.equal(body.code, 'conflict-markers'); assert.doesNotMatch(JSON.stringify(body), /Private idea|Secret/);
+    assert.equal((await get(`/maps/${good.id}`)).status, 200);
+  } finally { await app.close(); }
+});
+
+test('map responses name their version and report a pull; edits from the old view are refused', async () => {
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const workspace = await mkdtemp(path.join(root, 'outside-http-'));
+  const app = await startServer({ workspace, port: 0 });
+  try {
+    const { token } = await (await fetch(app.address + '/api/session')).json();
+    const call = (route, body) => fetch(app.address + '/api' + route, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const created = await (await call('/maps', { title: 'Shared notes', idea: 'Works offline.' })).json();
+    assert.match(created.fingerprint, /^[a-f0-9]{64}$/); assert.equal(created.outsideChange, null);
+    const listed = (await (await call('/maps')).json()).maps.find(m => m.id === created.id);
+    assert.equal(listed.fingerprint, created.fingerprint);
+    const file = path.join(workspace, 'ideas', created.id, 'map.json');
+    const pulled = JSON.parse(await readFile(file, 'utf8')); pulled.title = 'Renamed by a teammate';
+    await writeFile(file, JSON.stringify(pulled, null, 2) + '\n');
+    const refused = await call(`/maps/${created.id}/action`, { expectedRevision: created.revision, expectedFingerprint: created.fingerprint, nodeId: created.rootId, type: 'suggest', title: 'Mine', body: 'From the old view.' });
+    assert.equal(refused.status, 409); assert.equal((await refused.json()).code, 'changed-outside');
+    const adopted = await (await call(`/maps/${created.id}`)).json();
+    assert.equal(adopted.title, 'Renamed by a teammate'); assert.ok(adopted.outsideChange.at);
+    assert.notEqual(adopted.fingerprint, created.fingerprint);
+    const saved = await call(`/maps/${created.id}/action`, { expectedRevision: adopted.revision, expectedFingerprint: adopted.fingerprint, nodeId: created.rootId, type: 'suggest', title: 'Mine', body: 'From the new view.' });
+    assert.equal(saved.status, 200);
   } finally { await app.close(); }
 });
 

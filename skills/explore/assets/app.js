@@ -1,9 +1,9 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
 const glyphs = { idea: '✳', research: '◇', question: '?', decision: '✓', risk: '△' };
 let toastTimer, gesture, suppressClick = false, openVersion = 0, actionTail = Promise.resolve();
 const accents = ['var(--teal)', 'var(--blue)', 'var(--orange)'];
@@ -43,7 +43,7 @@ function connectionView(offline = false) {
   hint.textContent = 'Queued safely. Use the agent button above to continue.';
 }
 function renderRail() {
-  const html = state.maps.length ? state.maps.map(m => `<button class="map-link ${state.map?.id === m.id ? 'current' : ''}" data-map="${m.id}" ${state.map?.id === m.id ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.title)}</strong><small>${m.demo ? 'Example map' : `${m.count} ${m.count === 1 ? 'idea' : 'ideas'}`}${m.pending ? ` · ${m.pending} queued` : ''}</small></span></button>`).join('') : '<p class="empty-list">Your ideas will find a home here.</p>';
+  const html = state.maps.length ? state.maps.map(m => m.unreadable ? `<button class="map-link unreadable" data-map="${m.id}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.id)}</strong><small>${esc(unreadableLabel(m.problem))}</small></span></button>` : `<button class="map-link ${state.map?.id === m.id ? 'current' : ''}" data-map="${m.id}" ${state.map?.id === m.id ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.title)}</strong><small>${m.demo ? 'Example map' : `${m.count} ${m.count === 1 ? 'idea' : 'ideas'}`}${m.pending ? ` · ${m.pending} queued` : ''}</small></span></button>`).join('') : '<p class="empty-list">Your ideas will find a home here.</p>';
   if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
 }
 async function refresh() {
@@ -53,9 +53,20 @@ async function refresh() {
   const previouslyListening = agentListening();
   try {
     const data = await api('/maps'); state.maps = data.maps; state.bridge = data.bridge; renderRail(); connectionView();
-    if (state.map && data.maps.find(m => m.id === state.map.id)?.revision !== state.map.revision) {
-      const mapId = state.map.id, map = await api(`/maps/${mapId}`);
-      if (version === openVersion && state.map?.id === mapId && !state.mutating && !gesture && map.revision >= state.map.revision) { state.map = map; renderMap(); }
+    // A list requested before another map opened says nothing about the map open now.
+    const current = version === openVersion ? state.map : null;
+    const listed = current && data.maps.find(m => m.id === current.id), change = openMapChange(listed, current);
+    if (change === 'removed' || change === 'unreadable') {
+      toast(change === 'removed' ? 'This map is no longer in the workspace, for example after a branch switch.' : `${unreadableLabel(listed.problem)}. It opens again once its file is fixed.`);
+      showWelcome();
+    } else if (change === 'changed') {
+      // A pull can bring an older revision, so only a save made meanwhile in this tab outranks the fetched map.
+      const mapId = state.map.id, mutations = state.mutations, map = await api(`/maps/${mapId}`);
+      if (version === openVersion && state.map?.id === mapId && !state.mutating && !gesture && mutations === state.mutations) {
+        state.map = map; renderMap();
+        const note = outsideChangeNote(map.outsideChange, state.outsideSeen[mapId]);
+        state.outsideSeen[mapId] = map.outsideChange?.at; if (note) toast(note);
+      }
     }
     if ((state.detailDeferred || previouslyListening !== agentListening()) && version === openVersion && state.map) renderDetail();
   } catch { connectionView(true); }
@@ -65,6 +76,7 @@ async function openMap(id) {
   const version = ++openVersion;
   try {
     const map = await api(`/maps/${id}`); if (version !== openVersion) return;
+    state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
     state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); location.hash = id;
@@ -353,13 +365,19 @@ function act(nodeId, type, extra = {}) {
     if (state.map?.id !== mapId || state.historyStep !== null) return false;
     state.mutating = true;
     try {
-      const result = await api(`/maps/${mapId}/action`, { nodeId, type, expectedRevision: state.map.revision, ...extra });
+      const result = await api(`/maps/${mapId}/action`, { nodeId, type, expectedRevision: state.map.revision, expectedFingerprint: state.map.fingerprint ?? undefined, ...extra });
+      state.mutations++;
       if (state.map?.id === mapId) { state.map = result; renderMap(); }
       return true;
     } catch (error) {
       toast(error.message);
       // Reload acknowledged coordinates after a conflict instead of displaying an unsaved move.
-      try { const current = await api(`/maps/${mapId}`); if (state.map?.id === mapId) { state.map = current; renderMap(); } } catch { connectionView(true); }
+      try {
+        const current = await api(`/maps/${mapId}`);
+        // The refusal already explained any pull, so it is not announced again later.
+        state.outsideSeen[mapId] = current.outsideChange?.at;
+        if (state.map?.id === mapId) { state.map = current; renderMap(); }
+      } catch { connectionView(true); }
       return false;
     } finally { state.mutating = false; }
   };

@@ -1,8 +1,11 @@
-import { mkdir, readFile, readdir, open, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, open, rename, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 
+const run = promisify(execFile);
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
 const kinds = new Set(['idea', 'question', 'research', 'decision', 'risk']);
@@ -16,9 +19,36 @@ export function hasFindings(map, node) {
   return node.status === 'explored' || (map.jobs || []).some(job => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && job.result?.body === node.body && job.result?.summary === node.summary);
 }
 export class Problem extends Error {
-  constructor(message, status = 400) { super(message); this.status = status; }
+  constructor(message, status = 400, code) { super(message); this.status = status; if (code) this.code = code; }
 }
-function need(condition, message, status) { if (!condition) throw new Problem(message, status); }
+function need(condition, message, status, code) { if (!condition) throw new Problem(message, status, code); }
+// Explanations never quote the file: it can hold private ideas, and parser text is not actionable.
+const unreadable = {
+  'conflict-markers': 'This map has unresolved Git conflict markers. Resolve them in its map.json, then open it again.',
+  'invalid-json': 'This map file is not valid JSON. Restore it from Git or a preserved copy.',
+  'unsupported-version': 'This map uses an unsupported format version.',
+  'invalid-map': 'This map file is missing required parts or belongs to another folder. Restore it from Git or a preserved copy.',
+};
+const changedOutside = 'This map changed outside Explore, for example after a pull. Read the updated map, then try again; your text has been kept.';
+const fingerprintOf = bytes => createHash('sha256').update(bytes).digest('hex');
+const isRecord = value => value && typeof value === 'object' && !Array.isArray(value);
+// Enough structure that listing, recovery and the views can rely on it; anything less is unreadable, never a crash.
+function wellFormed(map, mapId) {
+  return map.id === mapId && typeof map.title === 'string' && typeof map.updatedAt === 'string' && Number.isSafeInteger(map.revision)
+    && Array.isArray(map.nodes) && map.nodes.length > 0 && map.nodes.every(n => isRecord(n) && typeof n.id === 'string' && Array.isArray(n.questions) && Array.isArray(n.sources))
+    && Array.isArray(map.edges) && map.edges.every(isRecord) && Array.isArray(map.jobs) && map.jobs.every(isRecord) && Array.isArray(map.history);
+}
+function parseMap(mapId, bytes) {
+  const raw = bytes.toString('utf8');
+  // JSON strings cannot contain raw line breaks, so a line starting with a marker is never map content.
+  need(!/^(<{7}|={7}|>{7})(\s|$)/m.test(raw), unreadable['conflict-markers'], 409, 'conflict-markers');
+  let map;
+  try { map = JSON.parse(raw); } catch { throw new Problem(unreadable['invalid-json'], 409, 'invalid-json'); }
+  need(map && typeof map === 'object' && !Array.isArray(map), unreadable['invalid-map'], 409, 'invalid-map');
+  need(map.schemaVersion === 1, unreadable['unsupported-version'], 409, 'unsupported-version');
+  need(wellFormed(map, mapId), unreadable['invalid-map'], 409, 'invalid-map');
+  return map;
+}
 function object(value, field) {
   need(value && typeof value === 'object' && !Array.isArray(value), `${field} must be an object.`);
   return value;
@@ -36,45 +66,115 @@ function safeUrl(value) {
   catch { throw new Problem('Source URL must be a valid HTTP or HTTPS URL.'); }
   return url;
 }
-export async function atomicJson(file, value) {
+// `beforeRename` runs once the new contents are synced; if it throws, the old file stays untouched.
+async function atomicWrite(file, contents, beforeRename) {
   await mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomUUID()}.tmp`;
   const handle = await open(temp, 'wx');
-  try { await handle.writeFile(JSON.stringify(value, null, 2) + '\n'); await handle.sync(); }
+  try { await handle.writeFile(contents); await handle.sync(); }
   finally { await handle.close(); }
-  await rename(temp, file);
+  try { if (beforeRename) await beforeRename(); await rename(temp, file); }
+  catch (error) { await unlink(temp).catch(() => {}); throw error; }
 }
+export async function atomicJson(file, value) { await atomicWrite(file, JSON.stringify(value, null, 2) + '\n'); }
 
 export class Store {
-  constructor(directory, { registry = defaultRegistry } = {}) { this.directory = path.resolve(directory); this.registry = registry; this.tail = Promise.resolve(); }
+  constructor(directory, { registry = defaultRegistry } = {}) {
+    this.directory = path.resolve(directory); this.registry = registry; this.tail = Promise.resolve();
+    // Per map: the exact bytes Explore last wrote or adopted, the latest outside change, and a lock
+    // that keeps reads and adoption from interleaving with that map's saves.
+    this.adopted = new Map(); this.outside = new Map(); this.locks = new Map(); this.basis = new WeakMap();
+  }
   serial(work) {
     const result = this.tail.then(work);
     this.tail = result.catch(() => {});
     return result;
   }
-  file(mapId) { return path.join(this.directory, validId(mapId), 'map.json'); }
-  async get(mapId) {
-    let map;
-    try { map = JSON.parse(await readFile(this.file(mapId), 'utf8')); }
-    catch (error) { if (error.code === 'ENOENT') throw new Problem('Map not found.', 404); throw error; }
-    need(map.schemaVersion === 1, 'This map uses an unsupported format version.', 409);
-    return map;
+  withMapLock(mapId, work) {
+    const result = (this.locks.get(mapId) || Promise.resolve()).then(work);
+    const tail = result.catch(() => {}); this.locks.set(mapId, tail);
+    tail.then(() => { if (this.locks.get(mapId) === tail) this.locks.delete(mapId); });
+    return result;
   }
+  file(mapId) { return path.join(this.directory, validId(mapId), 'map.json'); }
+  async read(mapId) {
+    let bytes;
+    try { bytes = await readFile(this.file(mapId)); }
+    catch (error) { if (error.code === 'ENOENT') throw new Problem('Map not found.', 404, 'not-found'); throw error; }
+    const map = parseMap(mapId, bytes), fingerprint = fingerprintOf(bytes);
+    this.basis.set(map, fingerprint);
+    return { map, bytes, fingerprint };
+  }
+  // Reading adopts what is on disk: after a pull or branch switch, that version is the map.
+  get(mapId) {
+    return this.withMapLock(mapId, async () => { const current = await this.read(mapId); await this.adopt(mapId, current); return current.map; });
+  }
+  async adopt(mapId, { bytes, fingerprint }) {
+    const known = this.adopted.get(mapId);
+    this.adopted.set(mapId, { fingerprint, bytes });
+    if (!known || known.fingerprint === fingerprint) return; // The first read after start adopts silently.
+    const change = { at: now(), preserved: null, inGit: false };
+    this.outside.set(mapId, change);
+    // Keep the version that was replaced unless Git already has it, so ordinary pulls add no files.
+    try { change.inGit = await this.inGit(mapId, known.bytes); if (!change.inGit) change.preserved = await this.preserve(mapId, known.bytes, known.fingerprint); }
+    catch {} // Keeping a copy is a courtesy; the read itself must still succeed.
+  }
+  // Asks Git for the object name these bytes would have as this map's file, applying the repository's
+  // line-ending and attribute rules, then whether Git has that object. A Windows checkout's CRLF copy
+  // of committed work therefore counts as already in Git.
+  async inGit(mapId, bytes) {
+    const folder = path.dirname(this.file(mapId)), options = { timeout: 5000, windowsHide: true };
+    try {
+      const hashing = run('git', ['-C', folder, 'hash-object', '--path=map.json', '--stdin'], options);
+      hashing.child.stdin.end(bytes);
+      const name = (await hashing).stdout.trim();
+      await run('git', ['-C', folder, 'cat-file', '-e', name], options);
+      return true;
+    } catch { return false; }
+  }
+  async preserve(mapId, bytes, fingerprint) {
+    const dir = path.join(this.directory, mapId, 'preserved'), tag = fingerprint.slice(0, 16);
+    await mkdir(dir, { recursive: true });
+    const existing = (await readdir(dir)).find(name => name.endsWith(`-${tag}.json`));
+    if (existing) return `preserved/${existing}`;
+    const name = `${now().replace(/[:.]/g, '-')}-${tag}.json`;
+    await atomicWrite(path.join(dir, name), bytes);
+    return `preserved/${name}`;
+  }
+  tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
   async list() {
     await mkdir(this.directory, { recursive: true });
     const entries = await readdir(this.directory, { withFileTypes: true });
-    const maps = [];
+    const maps = [], readable = [];
     for (const entry of entries.filter(e => e.isDirectory() && /^map-[a-f0-9]{8}$/.test(e.name))) {
-      const m = await this.get(entry.name);
-      maps.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt,
+      let m;
+      try { m = await this.get(entry.name); }
+      catch (error) {
+        if (error instanceof Problem && error.code === 'not-found') continue; // A folder left behind by a branch switch is not a map.
+        if (error instanceof Problem && Object.hasOwn(unreadable, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; }
+        throw error;
+      }
+      readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
         count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length });
     }
-    return maps.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return [...readable.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), ...maps];
   }
+  // A save writes only over the version its change was based on; otherwise someone changed the file meanwhile.
   async save(map) {
     map.revision += 1;
     map.updatedAt = now();
-    await atomicJson(this.file(map.id), map);
+    const bytes = Buffer.from(JSON.stringify(map, null, 2) + '\n'), fingerprint = fingerprintOf(bytes);
+    await this.withMapLock(map.id, async () => {
+      const basis = this.basis.get(map);
+      // Checked after the new file is written and synced, just before it replaces the old one.
+      await atomicWrite(this.file(map.id), bytes, async () => {
+        if (!basis) return;
+        let onDisk = null;
+        try { onDisk = fingerprintOf(await readFile(this.file(map.id))); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+        if (onDisk !== basis) { map.revision -= 1; throw new Problem(changedOutside, 409, 'changed-outside'); }
+      });
+      this.adopted.set(map.id, { fingerprint, bytes }); this.basis.set(map, fingerprint);
+    });
     // Views carry their revision: a crash here cannot make them authoritative.
     try { await this.project(map); }
     catch (error) {
@@ -206,8 +306,14 @@ export class Store {
   action(mapId, input) {
     return this.serial(async () => {
       object(input, 'Input');
-      const map = await this.get(mapId);
+      // An edit made from an outdated view never overwrites a map changed outside Explore, even
+      // when the revision numbers happen to match. The browser names the version it shows.
+      // Whatever is on disk is adopted first, so a version replaced by a reset or pull is kept.
+      const known = this.adopted.get(mapId)?.fingerprint;
+      const { map, fingerprint } = await this.withMapLock(mapId, async () => { const current = await this.read(mapId); await this.adopt(mapId, current); return current; });
+      // A view behind Explore's own save is simply stale; only a different file is an outside change.
       need(input.expectedRevision === map.revision, 'This map changed. Refresh and try again; your text has been kept.', 409);
+      need((input.expectedFingerprint ?? known ?? fingerprint) === fingerprint, changedOutside, 409, 'changed-outside');
       const declared = Object.hasOwn(this.registry.actions, input.type) ? this.registry.actions[input.type] : null;
       const mapLevel = input.type === 'cancel-job' || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);
@@ -333,9 +439,11 @@ export class Store {
   claim(worker, mapId) {
     return this.serial(async () => {
       text(worker, 'Worker', 100);
-      const maps = mapId ? [{ id: validId(mapId) }] : (await this.list()).reverse();
+      const maps = mapId ? [{ id: validId(mapId) }] : (await this.list()).filter(item => !item.unreadable).reverse();
       for (const item of maps) {
-        const map = await this.get(item.id);
+        let map;
+        try { map = await this.get(item.id); }
+        catch (error) { if (error instanceof Problem && Object.hasOwn(unreadable, error.code)) continue; throw error; }
         for (const job of map.jobs.filter(j => j.status === 'queued')) {
           if (job.status !== 'queued') continue; // A completed repeat below can cancel later jobs.
           const investigation = isInvestigation(job);
@@ -450,7 +558,8 @@ export class Store {
   }
   recover() {
     return this.serial(async () => {
-      for (const item of await this.list()) {
+      // An unreadable map is listed as such and left untouched; it never stops the others or startup.
+      for (const item of (await this.list()).filter(item => !item.unreadable)) {
         const map = await this.get(item.id); let changed = false;
         for (const n of map.nodes) if (isCompleted(map, n) && n.status !== 'explored') {
           this.stopCompletedRepeat(map, n); changed = true;
@@ -507,7 +616,7 @@ export class Store {
   view(map) {
     const clone = publicMap(map);
     for (const job of clone.jobs) if (!this.jobType(jobTypeOf(job))) job.unsupported = true;
-    return clone;
+    return Object.assign(clone, this.tracking(map.id));
   }
   stopCompletedRepeat(map, node) {
     for (const job of map.jobs.filter(j => j.nodeId === node.id && isInvestigation(j) && active(j))) {
