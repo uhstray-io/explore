@@ -13,6 +13,7 @@ Status as of 2026-11-27. Start here in a new session. The GitHub issues are the 
 ## Branch state
 
 - `main` contains everything: the workspace improvements from `codex/exploration-workspace` (described in [the review guide](review-guide.md)) and the rename from `rename-to-explore`, fast-forwarded on 2026-11-27. Start new work from `main` on a feature branch.
+- The foundation issues (#1, #3, #9, #20, #24, #32, #34), plus #7, #8, #18 and #71, were merged into `main` on 2026-11-27 through PRs #72–#83. Each finished issue now goes straight into `main` after a separate agent's review (see `AGENTS.md`).
 - Both feature branches stay on GitHub for reference and can be deleted.
 
 ## How the plan was made
@@ -58,7 +59,6 @@ The owner settled every open decision on 2026-11-27. Where an issue body still d
 ## Known defects
 
 - One damaged or conflict-marked `map.json` stops the server from starting. Startup recovery reads every map with no per-map error handling (`skills/explore/scripts/server.mjs:40` → `store.mjs:383-385` → `store.mjs:64-66`). Confirmed by reading the code, not by running it. Covered by H3 ([#32](https://github.com/uhstray-io/explore/issues/32)) and J2 ([#44](https://github.com/uhstray-io/explore/issues/44)).
-- Job claim keys and worker names are saved in shared map files, and committed maps contain them. They only work with the local server's token. Covered by H8 ([#37](https://github.com/uhstray-io/explore/issues/37)); I2 ([#40](https://github.com/uhstray-io/explore/issues/40)) strips them from exports.
 - Reported while drafting H3 but not independently re-checked: an edit can overwrite a map changed outside Explore when the revision numbers happen to match. Covered by H3.
 
 ## Rename notes

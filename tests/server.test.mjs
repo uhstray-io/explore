@@ -27,7 +27,7 @@ test('HTTP workspace runs the complete queue/question/result/restart loop', asyn
     assert.equal(first.selected.id, map.rootId); assert.equal(first.jobType, 'investigate');
     map = await request(`/maps/${map.id}`);
     map = await request(`/maps/${map.id}/action`, { expectedRevision: map.revision, nodeId: map.rootId, type: 'position', x: -48.5, y: 212 });
-    const publicState = await request(`/maps/${map.id}`); assert.equal(publicState.jobs[0].claimKey, undefined);
+    const publicState = await request(`/maps/${map.id}`); assert.equal(publicState.jobs[0].claimKey, undefined); assert.equal(publicState.jobs[0].claimHash, undefined);
     map = await request(`/maps/${map.id}/result`, { jobId: first.jobId, claimKey: first.claimKey, result: { summary: 'We need to understand the audience.', body: 'The target users shape recipe organization.', questions: ['Who is this for?'], suggestions: [{ title: 'Import recipes', body: 'Explore where existing recipes live.' }] } });
     assert.equal(map.nodes[1].status, 'suggested');
     assert.equal(map.jobs[0].stale, false, 'moving a node must not invalidate the running investigation');
