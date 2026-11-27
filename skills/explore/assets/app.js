@@ -1,6 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { agentDialog } from './agent-dialog.js';
+import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
 import { questionClick } from './question-clicks.js';
 import { sinceVisitPanel } from './since-visit.js';
@@ -8,7 +9,7 @@ import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerSta
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -28,7 +29,10 @@ function theme() { document.documentElement.dataset.theme = dark ? 'dark' : 'lig
 $('#theme-toggle').onclick = () => { dark = !dark; theme(); }; theme();
 // Legacy prototype links now open the real workspace; theme is a preference, not a route.
 const currentUrl = new URL(location.href); currentUrl.searchParams.delete('variant'); currentUrl.searchParams.delete('theme'); history.replaceState(null, '', currentUrl);
-function toast(message) { $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 6500); }
+function toast(message) {
+  // While the tab is hidden, a message waits to be shown when the user comes back.
+  if (document.hidden) { state.heldToasts = [...(state.heldToasts || []), message]; return; }
+  $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 6500); }
 async function api(route, body) {
   const response = await fetch(`/api${route}`, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${state.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The request could not be saved.'); return data;
@@ -55,9 +59,21 @@ function renderRail() {
   const html = state.maps.length ? state.maps.map(m => m.unreadable ? `<button class="map-link unreadable" data-map="${m.id}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.id)}</strong><small>${esc(unreadableLabel(m.problem))}</small></span></button>` : `<button class="map-link ${state.map?.id === m.id ? 'current' : ''}" data-map="${m.id}" ${state.map?.id === m.id ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.title)}</strong><small>${m.demo ? 'Example map' : `${m.count} ${m.count === 1 ? 'idea' : 'ideas'}`}${m.pending ? ` · ${m.pending} queued` : ''}</small></span></button>`).join('') : '<p class="empty-list">Your ideas will find a home here.</p>';
   if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
 }
-async function refresh({ force = false } = {}) {
-  if (state.refreshing || state.mutating || gesture || (document.hidden && !force)) return;
-  state.refreshing = true;
+// One refresh at a time: a caller waits for the one already running instead of skipping it, so a tab shown again
+// sees what that refresh brings.
+function refresh() {
+  if (state.refreshing) return state.refreshing;
+  if (state.mutating || gesture) return Promise.resolve();
+  state.refreshing = refreshOnce().finally(() => { state.refreshing = null; });
+  return state.refreshing;
+}
+// Checks again after 2.5 s, or 15 s while the tab is hidden; showing the tab reschedules at the visible rate.
+let pollTimer = null;
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => { try { await refresh(); } finally { schedulePoll(); } }, pollDelay(document.hidden));
+}
+async function refreshOnce() {
   const version = openVersion;
   const previouslyListening = agentListening();
   try {
@@ -73,6 +89,7 @@ async function refresh({ force = false } = {}) {
       const mapId = state.map.id, mutations = state.mutations, map = await api(`/maps/${mapId}`);
       if (version === openVersion && state.map?.id === mapId && !state.mutating && !gesture && mutations === state.mutations) {
         if (tidyArrived(state.map.jobs, map.jobs, state.selected)) toast('Your tidied wording is ready under your answer.');
+        alerts.notice(state.map, map);
         state.map = map; renderMap();
         const note = outsideChangeNote(map.outsideChange, state.outsideSeen[mapId]);
         state.outsideSeen[mapId] = map.outsideChange?.at; if (note) toast(note);
@@ -81,7 +98,6 @@ async function refresh({ force = false } = {}) {
     }
     if ((state.detailDeferred || previouslyListening !== agentListening()) && version === openVersion && state.map) renderDetail();
   } catch { connectionView(true); }
-  finally { state.refreshing = false; }
 }
 function layout() {
   const source = state.historySource || state.map;
@@ -289,7 +305,11 @@ function openFilter(filter) { state.filter = filter; $('#node-results').hidden =
 const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $('#overview-filters button')?.focus() });
 // Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else. The
 // render runs even when nothing changed, only to finish that summary.
-document.addEventListener('visibilitychange', async () => { if (document.hidden) return; await refresh({ force: true }); if (state.map) renderMap(); });
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden) return;
+  await refresh(); if (state.map) renderMap(); schedulePoll();
+  const held = state.heldToasts; state.heldToasts = null; if (held?.length) toast([...new Set(held)].join(' '));
+});
 $('#overview-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]'); if (!button) return;
   openFilter(state.filter === button.dataset.filter ? null : button.dataset.filter);
@@ -555,7 +575,7 @@ async function importMapFile(data, asCopy = false) {
   try {
     const result = await api('/import', { data, asCopy });
     if (result.conflict) { state.importPending = { data, mapId: result.conflict.mapId }; $('#import-body').innerHTML = importConflictHtml(result.conflict, { esc }); $('#import-dialog').showModal(); return; }
-    await refresh({ force: true }); await openMap(result.imported ?? result.existing);
+    await refresh(); await openMap(result.imported ?? result.existing);
     toast(result.existing ? 'This map is already here, so it is open now.' : 'Map imported. Nothing in it runs until you choose to explore.');
   } catch (error) { toast(error.message); }
 }
@@ -720,7 +740,9 @@ function showWelcome() {
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
 $('#new-map').addEventListener('click', showCreate); $('#start-exploration').addEventListener('click', showCreate);
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
-const showHelp = agentDialog({ api, toast, session: () => state.session || {}, map: () => state.map });
+// Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
+const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
+const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
 $('#storage-open').addEventListener('click', storageDialog({ api, esc, titleOf: id => state.maps.find(map => map.id === id)?.title ?? id }));
 $('#create-form').addEventListener('submit', async event => {
@@ -907,8 +929,8 @@ try {
   $('#workspace-name').textContent = session.version ? `${session.workspace} · Explore ${session.version}` : session.workspace;
   // Contributions are attributed by Git name; say plainly when there is none.
   api('/contributor').then(person => { state.contributor = person.name; $('#contributor').textContent = person.name ? `You: ${person.name} (from Git)` : 'Answers aren’t attributed: Git has no user name.'; }).catch(() => {});
-  await refresh({ force: true });
+  await refresh();
   const saved = localStorage.getItem('explore-map');
   if (!(await followAddress()) && saved && state.maps.some(m => m.id === saved)) await openMap(saved, { push: false });
-  setInterval(refresh, 2500);
+  schedulePoll();
 } catch (error) { toast(`Cannot connect to the workspace: ${error.message}`); connectionView(true); }

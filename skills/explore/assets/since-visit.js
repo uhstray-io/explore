@@ -10,6 +10,11 @@ const unique = nodes => [...new Map(nodes.filter(Boolean).map(node => [node.id, 
 const brief = node => ({ id: node.id, title: node.title, summary: node.summary });
 const countWaiting = map => map.nodes.reduce((sum, node) => sum + node.questions.filter(isWaiting).length, 0);
 
+// The branch results among `events`: a "result" event is an applied investigation result (a stale one is recorded
+// as stale-result), and its detail is the job. Shared with the alerts when a result arrives.
+export const appliedResults = (map, events) => events.filter(event => event.type === 'result')
+  .map(event => ({ node: map.nodes.find(node => node.id === event.nodeId), jobId: event.detail })).filter(result => result.node);
+
 // Where this browser left a map: when, and how far through its event log.
 export const visitCursor = (map, at = new Date().toISOString()) => ({ at, events: map.history?.length ?? 0, lastEventAt: map.history?.at(-1)?.at ?? null });
 
@@ -29,8 +34,7 @@ export function sinceLastVisit(map, cursor, until = null) {
   const first = aligned ? Date.parse(events[0]?.at) : NaN, firstNew = Number.isFinite(first) ? new Date(first - 1).toISOString() : cursor.at;
   const since = firstNew < cursor.at ? firstNew : cursor.at;
   const nodeOf = id => map.nodes.find(node => node.id === id);
-  // A "result" event is an applied result (a stale one is recorded as stale-result); its detail is the job.
-  const results = events.filter(event => event.type === 'result').map(event => ({ node: nodeOf(event.nodeId), jobId: event.detail })).filter(result => result.node);
+  const results = appliedResults(map, events);
   const newFindings = unique(results.map(result => result.node)).map(brief);
   const newQuestions = results.reduce((sum, { node, jobId }) => sum + node.questions.filter(q => q.jobId === jobId && isWaiting(q)).length, 0);
   const staleNow = map.nodes.filter(node => node.stale);

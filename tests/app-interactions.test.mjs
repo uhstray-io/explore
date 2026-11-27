@@ -262,10 +262,10 @@ test('agent coverage changes refresh queued guidance even without a map revision
     const bridge = covered => ({ listening: true, scopes: [{ mapId: covered ? 'map-a' : 'map-b', listening: true }] });
     const state = { map: { id: 'map-a', revision: 2 }, bridge: bridge(before) };
     let renders = 0;
-    const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
+    const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers, alerts: { notice() {} },
       api: async () => ({ maps: [{ id: 'map-a', revision: 2 }], bridge: bridge(after) }),
       renderRail() {}, connectionView() {}, renderDetail() { renders++; } });
-    vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
+    vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('function refresh(', '\nfunction layout('), context);
     await context.refresh();
     assert.equal(renders, expectedRenders);
   }
@@ -273,8 +273,8 @@ test('agent coverage changes refresh queued guidance even without a map revision
 
 function refreshHarness({ listed, fetched, mutateDuringFetch = false }) {
   const state = { map: { id: 'map-a', revision: 5, fingerprint: 'f1', title: 'Shown' }, bridge: {}, mutations: 0, outsideSeen: {} };
-  const events = { renders: 0, toasts: [], welcome: 0 };
-  const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
+  const events = { renders: 0, toasts: [], welcome: 0, noticed: [] };
+  const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers, alerts: { notice: (before, after) => events.noticed.push([before.title, after.title]) },
     api: async route => {
       if (route === '/maps') return { maps: listed ? [listed] : [], bridge: {} };
       if (mutateDuringFetch) state.mutations++;
@@ -282,7 +282,7 @@ function refreshHarness({ listed, fetched, mutateDuringFetch = false }) {
     },
     renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() { events.renders++; },
     toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; state.map = null; } });
-  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('function refresh(', '\nfunction layout('), context);
   return { state, events, refresh: context.refresh };
 }
 
@@ -403,7 +403,7 @@ test('creation errors attach only to the unchanged submitted dialog', async () =
 test('a map list that was requested before another map opened never closes the new map', async () => {
   const state = { map: { id: 'map-a', revision: 5, fingerprint: 'f1' }, bridge: {}, mutations: 0, outsideSeen: {} };
   const events = { welcome: 0, toasts: [] };
-  const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
+  const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers, alerts: { notice() {} },
     api: async () => {
       // While this list is in flight the user creates and opens a new map.
       context.openVersion++; state.map = { id: 'map-new', revision: 1, fingerprint: 'f9' };
@@ -411,7 +411,7 @@ test('a map list that was requested before another map opened never closes the n
     },
     renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() {},
     toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; } });
-  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('function refresh(', '\nfunction layout('), context);
   await context.refresh();
   assert.equal(events.welcome, 0); assert.deepEqual(events.toasts, []);
 });
@@ -419,7 +419,7 @@ test('a map list that was requested before another map opened never closes the n
 test('after an edit is refused because of a pull, the pull is not announced again later', async () => {
   const state = { map: { id: 'map-a', revision: 5, fingerprint: 'f1' }, historyStep: null, mutations: 0, outsideSeen: {} };
   const toasts = [];
-  const context = vm.createContext({ state, actionTail: Promise.resolve(), ...viewHelpers,
+  const context = vm.createContext({ state, actionTail: Promise.resolve(), ...viewHelpers, alerts: { notice() {} },
     api: async route => {
       if (route.endsWith('/action')) throw new Error('This map changed outside Explore, for example after a pull.');
       return { id: 'map-a', revision: 5, fingerprint: 'f2', outsideChange: { at: 't1', preserved: null } };
@@ -438,7 +438,7 @@ test('the versions panel offers undo in plain words, then a clear summary before
   const state = { map: { id: 'map-a' }, versionsOpen: true, contributor: 'Ana', versionChoice: null, versionPreview: null,
     versions: { versions: [{ id: 'v3', at: '2026-11-27T10:03:00Z', labels: ['result'] }, { id: 'v2', at: '2026-11-27T10:02:00Z', labels: ['answered'], author: 'Ana <b>' }, { id: 'v1', at: '2026-11-27T10:01:00Z', labels: ['activated'] }], earlierMissing: false } };
   state.contributor = 'Ana <b>';
-  const context = vm.createContext({ state, esc, ...viewHelpers, $: selector => selector === '#versions-panel' ? panel : toggle });
+  const context = vm.createContext({ state, esc, ...viewHelpers, alerts: { notice() {} }, $: selector => selector === '#versions-panel' ? panel : toggle });
   vm.runInContext(between('function renderVersionsPanel(', '\nasync function loadVersions('), context);
   context.renderVersionsPanel();
   assert.equal(panel.hidden, false); assert.equal(toggle.attributes['aria-expanded'], 'true');
@@ -657,4 +657,20 @@ test('research shows under an open or answered question with copy buttons, and n
   assert.equal(node.questions[0].answer, null);
   node.status = 'explored'; node.completed = true; h.render();
   assert.doesNotMatch(h.markup(), /data-q-research data-question-id="q-b"/, 'a finished branch offers no research');
+});
+
+test('each changed snapshot of the open map reaches the alerts with the one shown before it', async () => {
+  const pulled = { id: 'map-a', revision: 6, fingerprint: 'f2', title: 'Changed', outsideChange: null };
+  const h = refreshHarness({ listed: { id: 'map-a', revision: 6, fingerprint: 'f2' }, fetched: pulled });
+  await h.refresh();
+  assert.deepEqual(h.events.noticed, [['Shown', 'Changed']]);
+});
+
+test('a refresh asked for while one runs waits for that one instead of starting another', async () => {
+  const pulled = { id: 'map-a', revision: 6, fingerprint: 'f2', title: 'Changed', outsideChange: null };
+  const h = refreshHarness({ listed: { id: 'map-a', revision: 6, fingerprint: 'f2' }, fetched: pulled });
+  const first = h.refresh(), second = h.refresh();
+  assert.equal(first, second);
+  await second;
+  assert.equal(h.events.noticed.length, 1, 'one run, one snapshot');
 });
