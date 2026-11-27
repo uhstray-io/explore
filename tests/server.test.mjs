@@ -1,10 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { startServer } from '../skills/explore/scripts/server.mjs';
+import { Problem } from '../skills/explore/scripts/store.mjs';
+import { createRegistry } from '../skills/explore/scripts/job-types.mjs';
 
 test('HTTP workspace runs the complete queue/question/result/restart loop', async () => {
   const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
@@ -22,7 +24,7 @@ test('HTTP workspace runs the complete queue/question/result/restart loop', asyn
     };
     let map = await request('/maps', { title: 'User-created idea', idea: 'A library of shared recipes.' });
     const first = await request('/next?worker=integration');
-    assert.equal(first.selected.id, map.rootId);
+    assert.equal(first.selected.id, map.rootId); assert.equal(first.jobType, 'investigate');
     map = await request(`/maps/${map.id}`);
     map = await request(`/maps/${map.id}/action`, { expectedRevision: map.revision, nodeId: map.rootId, type: 'position', x: -48.5, y: 212 });
     const publicState = await request(`/maps/${map.id}`); assert.equal(publicState.jobs[0].claimKey, undefined);
@@ -71,6 +73,28 @@ test('brief is authenticated, read-only, scoped, and does not expose worker clai
     assert.equal(scoped.counts.nodes, 1);
     assert.equal((await fetch(route + '?node=missing', { headers })).status, 404);
     assert.deepEqual(await app.store.get(map.id), before);
+  } finally { await app.close(); }
+});
+
+test('shared settings are authenticated, validated, revision-checked and saved beside the maps', async () => {
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const workspace = await mkdtemp(path.join(root, 'settings-http-'));
+  const registry = createRegistry({ settings: { 'test-minutes': { default: 2, validate: value => { if (![2, 10].includes(value)) throw new Problem('Choose 2 or 10 minutes.'); return value; } } } });
+  const app = await startServer({ workspace, port: 0, registry });
+  try {
+    const { token } = await (await fetch(app.address + '/api/session')).json();
+    const call = (body, authorized = true) => fetch(app.address + '/api/settings', { method: body ? 'POST' : 'GET',
+      headers: { ...(authorized ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    assert.equal((await call(undefined, false)).status, 401);
+    assert.equal((await call({ expectedRevision: 0, 'test-minutes': 10 }, false)).status, 401);
+    assert.deepEqual(await (await call()).json(), { version: 1, revision: 0, 'test-minutes': 2 });
+    assert.equal((await call({ expectedRevision: 0, 'test-minutes': 7 })).status, 400);
+    assert.equal((await call({ expectedRevision: 0, colour: 'blue' })).status, 400);
+    const saved = await (await call({ expectedRevision: 0, 'test-minutes': 10 })).json();
+    assert.deepEqual(saved, { version: 1, revision: 1, 'test-minutes': 10 });
+    assert.equal((await call({ expectedRevision: 0, 'test-minutes': 2 })).status, 409);
+    assert.equal(JSON.parse(await readFile(path.join(workspace, 'ideas', 'settings.json'), 'utf8'))['test-minutes'], 10);
+    assert.deepEqual((await readdir(path.join(workspace, '.explore'))).filter(name => /settings|preferences/.test(name)), []);
   } finally { await app.close(); }
 });
 

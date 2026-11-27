@@ -210,6 +210,19 @@ test('superseded questions stay readable without an answer control', () => {
   assert.doesNotMatch(h.markup(), /data-question="old-question"|data-draft="old-question"/);
 });
 
+test('the inspector reports the branch investigation, not later helper work on the same idea', () => {
+  const h = harness();
+  h.state.visibleMap.nodes[0].status = 'interrupted';
+  h.state.visibleMap.jobs = [
+    { id: 'job-a', nodeId: 'node-a', status: 'failed', error: 'The investigation could not reach its sources.' },
+    { id: 'job-b', type: 'question-help', nodeId: 'node-a', status: 'failed', error: 'Help was not available.' },
+    { id: 'job-c', type: 'map-check', nodeId: null, status: 'queued' },
+  ];
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /could not reach its sources/);
+  assert.doesNotMatch(h.markup(), /Help was not available/);
+});
+
 test('queued branches promise pickup only when a listener covers their map', () => {
   const cases = [
     [{ listening: true }, true],

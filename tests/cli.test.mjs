@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
+import { createRegistry } from '../skills/explore/scripts/job-types.mjs';
 
 const exec = promisify(execFile);
 const skill = path.resolve('skills/explore');
@@ -18,7 +19,7 @@ test('the public CLI claims work, delivers results, and gives compact idle outpu
     const idea = path.join(workspace, 'idea.json'); await writeFile(idea, JSON.stringify({ title: 'CLI flow', idea: 'Investigate shared notes.' }));
     const created = await cli(['create', '--file', idea]);
     const job = await cli(['next', '--worker', 'test']);
-    assert.equal(job.mapId, created.mapId); assert.equal(job.claimKey, undefined);
+    assert.equal(job.mapId, created.mapId); assert.equal(job.claimKey, undefined); assert.equal(job.jobType, 'investigate');
     const resultFile = path.join(workspace, 'result.json'); await writeFile(resultFile, JSON.stringify({ summary: 'Scope clarified.', body: 'Shared notes need explicit ownership.' }));
     const saved = await cli(['result', '--job', job.jobId, '--file', resultFile]); assert.equal(saved.saved, true);
     const idle = await cli(['next', '--wait', '0']); assert.equal(idle.idle, true); assert.ok(JSON.stringify(idle).length < 200);
@@ -37,6 +38,33 @@ test('the public CLI claims work, delivers results, and gives compact idle outpu
     assert.equal(usage.characters, records.reduce((n,e) => n + e.characters, 0));
     assert.equal(usage.commands, records.length); assert.equal(usage.byCommand.read.calls, 3);
     assert.ok(records.every(e => !('claimKey' in e) && !('excerpt' in e)));
+  } finally { await app.close(); }
+});
+
+test('the CLI hands out and delivers other kinds of work the same way as branch investigations', async () => {
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const workspace = await mkdtemp(path.join(root, 'cli-typed-'));
+  const registry = createRegistry({
+    jobTypes: { 'test-helper': { label: 'Test helper', target: 'node', packet: ({ node }) => ({ node: { id: node.id }, instruction: 'Return a short note.' }), validate: result => ({ note: String(result.note) }) } },
+    actions: { 'request-helper': { target: 'node', apply: ({ map, node, store }) => { store.enqueueJob(map, { type: 'test-helper', nodeId: node.id, reason: 'User asked for help.' }); } } },
+  });
+  const app = await startServer({ workspace, port: 0, registry });
+  const cli = async args => JSON.parse((await exec(process.execPath, [path.join(skill, 'scripts/cli.mjs'), ...args, '--workspace', workspace])).stdout);
+  try {
+    const map = await app.store.create({ title: 'Typed work', idea: 'Check typed jobs through the CLI.' });
+    const investigation = await app.store.claim('fixture');
+    await app.store.complete(map.id, investigation.jobId, investigation.claimKey, { summary: 'Done.', body: 'Finished.', questions: ['What next?'] });
+    const action = path.join(workspace, 'action.json');
+    await writeFile(action, JSON.stringify({ type: 'request-helper', nodeId: map.rootId, expectedRevision: (await app.store.get(map.id)).revision }));
+    await cli(['act', '--map', map.id, '--file', action]);
+    const job = await cli(['next', '--worker', 'test']);
+    assert.equal(job.jobType, 'test-helper'); assert.equal(job.claimKey, undefined); assert.equal(job.node.id, map.rootId);
+    const result = path.join(workspace, 'note.json'); await writeFile(result, JSON.stringify({ note: 'A short note.' }));
+    const saved = await cli(['result', '--job', job.jobId, '--file', result]);
+    assert.equal(saved.job, 'completed');
+    const after = await app.store.get(map.id);
+    assert.deepEqual(after.jobs.find(j => j.id === job.jobId).result, { note: 'A short note.' });
+    assert.equal(after.nodes[0].status, 'awaiting-answer');
   } finally { await app.close(); }
 });
 

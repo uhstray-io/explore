@@ -39,7 +39,7 @@ function connectionView(offline = false) {
   $('#bridge-status').classList.toggle('connected', connected);
   $('#bridge-status span').textContent = offline ? 'Server disconnected' : connected ? 'Agent is listening' : state.bridge.listening ? 'Agent on another map' : 'Connect your agent';
   const hint = $('#empty-hint');
-  hint.classList.toggle('hidden', !state.map || state.historyStep !== null || connected || !state.map.jobs.some(j => j.status === 'queued'));
+  hint.classList.toggle('hidden', !state.map || state.historyStep !== null || connected || !state.map.jobs.some(j => j.status === 'queued' && !j.unsupported));
   hint.textContent = 'Queued safely. Use the agent button above to continue.';
 }
 function renderRail() {
@@ -315,7 +315,7 @@ function renderDetail(force = false) {
   if (!n) { detail.innerHTML = `<div class="detail-empty"><span>◇</span>${historic ? 'Select an idea visible at this growth step to read today’s findings.' : 'Select an idea to look closer.'}</div>`; return; }
   const completed = n.completed || n.status === 'explored';
   const pending = ['suggested', 'queued', 'running', 'awaiting-answer', 'interrupted'].includes(n.status);
-  const job = state.visibleMap.jobs.filter(j => j.nodeId === n.id).at(-1);
+  const job = state.visibleMap.jobs.filter(j => j.nodeId === n.id && (!j.type || j.type === 'investigate')).at(-1);
   const related = state.visibleMap.edges.filter(e => e.type !== 'contains' && (e.from === n.id || e.to === n.id));
   const nearby = state.visibleMap.nodes.filter(node => node.id === n.parentId || node.parentId === n.id);
   const questionHtml = n.questions.map(q => q.answer || q.supersededAt || completed || historic ? `<div class="answer"><strong>${esc(q.text)}</strong>${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>` : `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">A question for you</div><p id="question-label-${q.id}">${esc(q.text)}</p><textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea><button type="submit" class="primary">Save answer & continue</button></form>`).join('');
