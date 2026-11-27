@@ -10,7 +10,7 @@ import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, 
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { questionFeedback } from './question-actions.mjs';
-import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, decodeMap, readProblem, generatedFrom } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile } from './map-validation.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -45,9 +45,9 @@ const literal = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt
 // Reading follows the validator's rules (H1): only the problems it marks unreadable stop a map from opening,
 // so listing, recovery and the views can rely on what they get. Explanations never quote the file.
 function parseMap(mapId, bytes) {
-  const decoded = decodeMap(bytes), problem = decoded.problem ?? readProblem(decoded.map, mapId);
+  const { map, problem } = readMapFile(bytes, mapId);
   need(!problem, unreadableMessages[problem], 409, problem);
-  return decoded.map;
+  return map;
 }
 function object(value, field) {
   need(value && typeof value === 'object' && !Array.isArray(value), `${field} must be an object.`);

@@ -61,6 +61,7 @@ const unreadableLabels = {
   'invalid-json': "Can't open: the file is damaged",
   'unsupported-version': "Can't open: saved by a newer Explore",
   'invalid-map': "Can't open: the file is incomplete",
+  'too-large': "Can't open: the file is too large",
 };
 export function unreadableLabel(problem) { return Object.hasOwn(unreadableLabels, problem) ? unreadableLabels[problem] : "Can't open this map"; }
 

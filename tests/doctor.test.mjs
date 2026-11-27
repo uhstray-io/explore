@@ -151,3 +151,26 @@ test('--support writes nothing unless --out names a new file', async () => {
   await assert.rejects(support(workspace, '--out', file), /already exists/);
   assert.equal(await readFile(file, 'utf8'), 'keep me');
 });
+
+test('doctor.mjs runs the support report itself, and a write error names only its code', async () => {
+  const workspace = await temporary('doctor-support-direct-');
+  const doctor = path.resolve('skills/explore/scripts/doctor.mjs');
+  const { stdout } = await exec(process.execPath, [doctor, '--support', '--workspace', workspace], { timeout: 20000 });
+  assert.equal(JSON.parse(stdout).format, 'explore-support');
+  assert.ok(!stdout.includes('"unknown"'), 'every field is known for a plain workspace');
+  const missingFolder = path.join(workspace, 'no-such-folder', 'report.json');
+  await assert.rejects(exec(process.execPath, [doctor, '--support', '--out', missingFolder, '--workspace', workspace], { timeout: 20000 }),
+    error => /could not be written \(ENOENT\)/.test(error.stderr) && !error.stderr.includes('no-such-folder'));
+  await assert.rejects(exec(process.execPath, [doctor, '--support', '--out'], { timeout: 20000 }), error => /--out requires a value/.test(error.stderr));
+});
+
+test('the projection keeps nothing from the diagnosis but the listed facts', async () => {
+  const { toSupportReport } = await import('../skills/explore/scripts/support-report.mjs');
+  const diagnosis = { ready: true, state: 'ready', workspace: '/home/CANARYUSER/notes', skillDirectory: '/CANARYSKILL', address: 'http://127.0.0.1:5555', nextStep: 'CANARYSTEP',
+    checks: [{ name: 'node', status: 'ok', message: 'CANARYMESSAGE' }, { name: 'CANARYNAME', status: 'CANARYSTATUS', message: 'x' }],
+    lock: { state: 'process-present', pid: 4242 }, savedMaps: 3, bridge: { listening: true, scopes: [{ mapId: 'map-CANARY', worker: 'CANARYWORKER', listening: true }] },
+    start: { executable: '/CANARYNODE', args: ['/CANARYARG'] } };
+  const text = JSON.stringify(toSupportReport(diagnosis, { version: '0.2.0', missing: [], unreadable: 0, legacy: false }));
+  for (const secret of ['CANARY', '4242', '5555']) assert.ok(!text.includes(secret), secret);
+  assert.match(text, /"name":"unknown","status":"unknown"/, 'an unexpected check becomes unknown');
+});

@@ -2,9 +2,8 @@ import path from 'node:path';
 import { readFile, mkdir, appendFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { atomicJson } from './store.mjs';
-import { diagnose, readConnection } from './doctor.mjs';
+import { runDoctor, readConnection } from './doctor.mjs';
 import { runtimePath } from './server-lock.mjs';
-import { supportReport, writeSupportReport, leftOut } from './support-report.mjs';
 
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
@@ -54,11 +53,9 @@ try {
     let output, rendered;
     switch (command) {
       case 'doctor': {
-        if (!args.includes('--support')) { output = await diagnose({ workspace }); break; }
-        const report = await supportReport({ workspace });
-        if (option('out')) { await writeSupportReport(report, path.resolve(option('out'))); console.error(leftOut); output = { supportReport: 'written' }; }
-        else output = report;
-        break;
+        const result = await runDoctor({ workspace, support: args.includes('--support'), out: option('out') });
+        if (result.stderr) console.error(result.stderr);
+        output = {}; rendered = result.stdout; break;
       }
       case 'status': case 'maps': {
         const value = await api('/api/maps');
@@ -128,7 +125,7 @@ try {
     rendered ??= JSON.stringify(output, null, 2);
     if (!['usage', 'doctor'].includes(command)) await appendFile(path.join(runtime, 'context-usage.jsonl'), JSON.stringify({ at: new Date().toISOString(), command, mapId: output.mapId || option('map') || null,
       characters: rendered.length + 1, utf8Bytes: Buffer.byteLength(rendered + '\n') }) + '\n');
-    console.log(rendered);
+    if (rendered) console.log(rendered);
   }
 } catch (error) {
   let message = error.message;
