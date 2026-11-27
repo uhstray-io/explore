@@ -1,14 +1,14 @@
-import { isOpen, isBlocking, normalizeQuestion, isResearchable, RESEARCH } from '../assets/questions.js';
+import { isOpen, isBlocking, normalizeQuestion, canResearch, EXPLAIN, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison } from './options.mjs';
+import { textField, sourceList } from './fields.mjs';
+import { nearbyIdeas, nearbyBrief, answerBrief, ownFindings, signature } from './neighbourhood.mjs';
 
 // The question ⋯ menu (B7): rate a question, dismiss it, bring it back, or ask for a better one.
 // Ratings and dismissals are the user's feedback, never content: they don't re-run research, and
 // they travel with later work on the map so the agent asks fewer questions like the bad ones.
 export const REGENERATE = 'regenerate-question';
-// Explain this question (B4): the agent explains what a question asks, with an example. It never answers.
-export const EXPLAIN = 'question-help';
-// Help me answer (B9): the agent researches a question and compares options. It never answers.
-export { RESEARCH };
+// Explain this question (B4) explains what a question asks; Help me answer (B9) researches it. Neither answers.
+export { EXPLAIN, RESEARCH };
 
 class QuestionProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new QuestionProblem(message, status); };
@@ -87,9 +87,10 @@ export const questionActions = {
   } },
   // Research a question the user is still deciding, answered or not. The research stays on its job.
   'request-research': { target: 'node', apply: ({ map, node, input, store }) => {
-    need(!store.isComplete(map, node), 'This branch is complete. Add a new direction instead.', 409);
+    const completed = store.isComplete(map, node);
+    need(!completed, 'This branch is complete. Add a new direction instead.', 409);
     const question = findQuestion(node, input.questionId);
-    need(isResearchable(question), 'Only a current question can be researched.', 409);
+    need(canResearch(question, { completed }), 'Only a current question can be researched.', 409);
     store.enqueueJob(map, { type: RESEARCH, nodeId: node.id, subjectId: question.id, reason: 'The user asked for help answering this question.', input: { question: question.text } });
   } },
   // Replace an unhelpful question: the original is set aside and the branch waits for the new one.
@@ -108,19 +109,26 @@ const explainInstruction = 'Explain what this question asks and why it matters, 
 
 const researchInstruction = 'Research this question so the user can answer it. Return options and a recommendation in the options format. Do not answer for the user; suggested answers are drafts they may copy. Do not ask questions or propose branches. Research only as deep as choosing needs, prefer primary sources and cite only sources you read. When the evidence does not settle it, use optionId null and say what is missing rather than force a winner. Return {"options": […], "recommendation": {…}, "summary": "…", "sources": […]} through the CLI; optionsLimit only with a single option, summary and sources optional.';
 const researchFields = new Set(['options', 'optionsLimit', 'recommendation', 'summary', 'sources']);
+// Research belongs to the question and its context as the agent read them: a changed premise or answer
+// nearby, or a question set aside, makes it earlier research, whether that happened before or after it arrived.
+export function researchIsStale(map, job) {
+  const node = map.nodes.find(n => n.id === job.nodeId), question = subjectOf(job, node);
+  return !question || !canResearch(question, { completed: false }) || job.inputSignature !== signature(map, node);
+}
 
 export const questionJobTypes = {
   [RESEARCH]: {
     label: 'Research a question', target: 'node',
-    // The question (with its current answer, if any), its idea and findings, and the same nearby ideas an
-    // investigation reads; the farthest are left out first when the packet would be too long, and counted.
-    packet: ({ map, job, node, budget, store }) => {
-      const question = subjectOf(job, node), findings = node.body !== (node.prompt || node.body) ? node.body : '';
+    // The question (with its current answer, if any), its idea with findings and the user's other answers there,
+    // and the same nearby ideas an investigation reads, nearest first; the farthest are left out first when the
+    // packet would be too long, and counted.
+    packet: ({ map, job, node, budget }) => {
+      const question = subjectOf(job, node), findings = ownFindings(node);
       const packet = {
         question: { id: job.subjectId, text: clip(question?.text ?? job.input?.question, 1600), ...(question?.why ? { why: clip(question.why, 600) } : {}), ...(question?.answer ? { currentAnswer: clip(question.answer, 1200) } : {}) },
-        node: { ...nodeBrief(node, { premise: 2400, summary: 700 }), findings: clip(findings, 4000) },
-        context: store.contextNodes(map, node).filter(n => n.id !== node.id).map(n => ({ ...nodeBrief(n, { premise: 600, summary: 500 }),
-          answers: n.questions.filter(q => q.answer && !q.supersededAt).slice(-3).map(q => ({ question: clip(q.text, 200), answer: clip(q.answer, 300) })) })),
+        node: { ...nodeBrief(node, { premise: 2400, summary: 700 }), findings: clip(findings, 4000), status: node.status, reviewState: node.reviewState, stale: !!node.stale,
+          answers: node.questions.filter(q => q.answer && q.id !== job.subjectId).slice(-8).map(q => answerBrief(q, { question: 300, answer: 600 })) },
+        context: nearbyIdeas(map, node).map(nearbyBrief),
         omittedContext: 0,
         retrieval: 'Use CLI read --map MAP --node NODE --section premise|findings|questions|sources to read more of any idea named here.',
         instruction: researchInstruction,
@@ -129,18 +137,19 @@ export const questionJobTypes = {
       const limit = budget - 800, size = () => JSON.stringify(packet).length;
       while (size() > limit && packet.context.length) { packet.context.pop(); packet.omittedContext++; }
       if (size() > limit) packet.node.findings = clip(findings, 1500);
+      while (size() > limit && packet.node.answers.length) packet.node.answers.shift(); // The oldest answers go last.
       return packet;
     },
-    validate: (result, { store }) => {
-      const extra = Object.keys(result).filter(key => !researchFields.has(key));
+    validate: result => {
+      const extra = Object.keys(result).filter(key => !researchFields.has(key)), fail = message => need(false, message);
       need(!extra.length, `Research returns options, a recommendation and optionally a summary and sources; remove ${extra.join(', ')}. Never answer for the user or ask questions.`);
       need(result.options !== undefined, 'Return options and a recommendation, or optionId null with what is missing.');
-      const summary = result.summary === undefined ? undefined : store.text(result.summary, 'Summary', 800);
-      return { ...normalizeComparison(result, message => need(false, message)), ...(summary ? { summary } : {}), sources: store.sources(result.sources) };
+      const summary = textField(result.summary, 'Summary', 800, fail, { optional: true });
+      return { ...normalizeComparison(result, fail), ...(summary ? { summary } : {}), sources: sourceList(result.sources, fail) };
     },
-    // Research belongs to the question and its context as they were when the agent read them: a changed
-    // premise or answer nearby, or a question set aside, makes it earlier research.
-    isStale: ({ map, job, node, store }) => { const question = subjectOf(job, node); return !question || !isResearchable(question) || job.inputSignature !== store.signature(map, node); },
+    isStale: ({ map, job }) => researchIsStale(map, job),
+    // Checked again whenever the map is shown, so research reads as earlier as soon as its context changes.
+    outdated: ({ map, job }) => researchIsStale(map, job),
   },
   [EXPLAIN]: {
     label: 'Explain a question', target: 'node',

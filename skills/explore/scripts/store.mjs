@@ -5,17 +5,18 @@ import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
-import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, latestResearch } from '../assets/questions.js';
+import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
-import { questionFeedback } from './question-actions.mjs';
+import { questionFeedback, researchIsStale } from './question-actions.mjs';
+import { sourceList } from './fields.mjs';
+import { signature, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
 
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
 // Packet fields for an answer's certainty; older answers say theirs was not recorded.
-const certaintyFields = q => { const certainty = effectiveAnswerState(q); return certainty ? { answerState: certainty.state, ...(certainty.recorded ? {} : { certaintyRecorded: false }) } : {}; };
 // Built-in actions that cover the whole map rather than one idea.
 const mapLevelActions = new Set(['cancel-job', 'restore-version', 'name-version', 'unname-version']);
 // A finished investigation of this idea that still counts. Only branch investigations complete an idea or
@@ -59,20 +60,15 @@ function text(value, field, max = 12000, optional = false) {
   return value.trim();
 }
 function validId(value) { need(typeof value === 'string' && /^[a-z0-9-]{1,64}$/.test(value), 'Invalid identifier.'); return value; }
-function safeUrl(value) {
-  const url = text(value, 'Source URL', 2000);
-  try { need(['https:', 'http:'].includes(new URL(url).protocol), 'Source URLs must use HTTP or HTTPS.'); }
-  catch { throw new Problem('Source URL must be a valid HTTP or HTTPS URL.'); }
-  return url;
-}
 // Help me answer (B9) in a node's Markdown: the question's latest research, never presented as its answer.
-function researchLines(job) {
+function researchLines(map, job) {
   if (!job) return [];
-  const { summary, sources } = job.result;
-  return ['', job.stale ? '_Earlier agent research, from before the question or its context changed. Not your answer._' : '_Agent research to help you answer, not your answer._',
-    ...(summary ? ['', summary] : []), '', ...comparisonLines(job.result, { level: 4 }),
-    ...(sources.length ? ['', 'Sources:', ...sources.map(s => `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}): ${s.note}`)] : [])];
+  const { summary, sources } = job.result, stale = job.stale || researchIsStale(map, job);
+  return ['', stale ? '_Earlier agent research, from before the question or its context changed. Not your answer._' : '_Agent research to help you answer, not your answer._',
+    ...(summary ? ['', summary] : []), '', ...comparisonLines(job.result, { level: 4 }), ...(sources.length ? ['', 'Sources:', ...sources.flatMap(evidenceLine)] : [])];
 }
+// One source as the Markdown views list evidence.
+const evidenceLine = s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`];
 export { atomicJson } from './files.mjs';
 
 export class Store {
@@ -230,16 +226,16 @@ export class Store {
         ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []),
         ...(q.previousAnswers || []).map(p => `_Earlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}_`),
         ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : []),
-        ...researchLines(latestResearch(map.jobs, q.id))]));
+        ...researchLines(map, questionJobs(map.jobs, RESEARCH, q.id).latest)]));
       if (dismissedQuestions.length) lines.push('', '## Dismissed questions', '', '_Set aside by the user; do not ask them again._', '',
         ...dismissedQuestions.map(q => `- ${q.text}${q.ratingReason ? ` — ${q.ratingReason}` : ''}${q.replacedBy === 'pending' ? ' (a replacement is on its way)' : q.replacedBy ? ' (replaced)' : ''}`));
-      if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`]));
+      if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(evidenceLine));
       const edges = map.edges.filter(e => e.from === n.id || e.to === n.id);
       if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}`));
       const earlierRuns = map.jobs.filter(j => j.nodeId === n.id && isInvestigation(j) && j.result && (j.stale || j.result.summary !== n.summary || j.result.body !== n.body));
       for (const j of earlierRuns) {
         lines.push('', j.restartedAt ? '## Earlier result before this branch was restarted' : '## Earlier investigation result', '', `Job: ${j.id}${j.restartedAt ? ` | Kept from before the restart on ${j.restartedAt.slice(0, 10)}; the full branch is in its checkpoint version.` : j.stale ? ' | A premise changed while this investigation was running.' : ' | Retained history; use the current premise and findings above.'}`, '', j.result.summary, '', j.result.body);
-        if (j.result.sources?.length) lines.push('', '### Evidence recorded for this result', ...j.result.sources.flatMap(s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`]));
+        if (j.result.sources?.length) lines.push('', '### Evidence recorded for this result', ...j.result.sources.flatMap(evidenceLine));
       }
       nodes.set(n.id, lines.join('\n') + '\n');
     }
@@ -565,26 +561,10 @@ export class Store {
       return this.save(map, { actor });
     });
   }
-  contextNodes(map, node) {
-    const ids = new Set([node.id, map.rootId]);
-    let parent = node.parentId;
-    while (parent && !ids.has(parent)) { ids.add(parent); parent = map.nodes.find(n => n.id === parent)?.parentId; }
-    // Include semantic neighbours and transitive dependencies, without expanding containment.
-    for (const e of map.edges.filter(e => e.type !== 'contains')) if (ids.has(e.from) || ids.has(e.to)) { ids.add(e.from); ids.add(e.to); }
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const e of map.edges.filter(e => e.type === 'depends_on')) if (ids.has(e.from) && !ids.has(e.to)) { ids.add(e.to); changed = true; }
-    }
-    return map.nodes.filter(n => ids.has(n.id));
-  }
-  signature(map, node) {
-    return createHash('sha256').update(JSON.stringify(this.contextNodes(map, node).map(n => [n.id, n.contentRevision]))).digest('hex');
-  }
   packet(map, job, { claimKey, budget = 15500 } = {}) {
     const node = map.nodes.find(n => n.id === job.nodeId);
     const clip = (s, length) => s.length > length ? s.slice(0, length) + '\n[Shortened; read the linked node for detail.]' : s;
-    const selected = { id: node.id, title: node.title, kind: node.kind, stale: !!node.stale, premise: clip(node.prompt || node.body, 2400), summary: node.summary === node.prompt || node.summary === node.body ? '' : clip(node.summary, 700), body: node.body === node.prompt ? '' : clip(node.body, 4000),
+    const selected = { id: node.id, title: node.title, kind: node.kind, stale: !!node.stale, premise: clip(node.prompt || node.body, 2400), summary: node.summary === node.prompt || node.summary === node.body ? '' : clip(node.summary, 700), body: clip(ownFindings(node), 4000),
       questions: node.questions.filter(q => q.answer || !q.supersededAt).slice(-8).map(q => ({ id: q.id, question: clip(q.text, 600), answer: q.answer ? clip(q.answer, 1000) : null, ...certaintyFields(q), ...(q.deferredAt ? { deferred: true } : {}), ...(q.rating ? { rating: q.rating } : {}), ...(q.dismissedAt ? { dismissed: true } : {}), ...(q.changedAt ? { changedAt: q.changedAt, previousAnswer: clip(q.previousAnswers?.at(-1)?.answer ?? '', 300) } : {}), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) })),
       sources: node.sources.slice(0, 6), file: path.join(path.dirname(this.file(map.id)), 'nodes', `${node.id}.md`) };
     if (node.revisesAnswer) selected.revisesAnswer = { questionId: node.revisesAnswer.questionId, previousAnswer: clip(node.revisesAnswer.previousAnswer, 600), answer: clip(node.revisesAnswer.answer, 600) };
@@ -592,8 +572,8 @@ export class Store {
     if (dismissed.length) selected.dismissedQuestions = dismissed; // Never asked again.
     if (node.options?.length) Object.assign(selected, { options: node.options.map(({ id, title }) => ({ id, title: clip(title, 150) })), recommendation: node.recommendation?.optionId ?? null });
     const feedback = questionFeedback(map, 10);
-    const context = this.contextNodes(map, node).filter(n => n.id !== node.id).map(n => ({ id: n.id, title: n.title,
-      summary: clip(n.summary, 500), premise: clip(n.prompt || n.body, 600), answers: n.questions.filter(q => q.answer).slice(-3).map(q => ({ question: clip(q.text, 200), answer: clip(q.answer, 300), ...certaintyFields(q), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) })), status: n.status, reviewState: n.reviewState, stale: n.stale, file: path.join(path.dirname(this.file(map.id)), 'nodes', `${n.id}.md`) }));
+    // Nearest first, so trimming from the end leaves out the farthest ideas.
+    const context = nearbyIdeas(map, node).map(n => ({ ...nearbyBrief(n), file: path.join(path.dirname(this.file(map.id)), 'nodes', `${n.id}.md`) }));
     const packet = { mapId: map.id, mapTitle: map.title, mapRevision: map.revision, jobId: job.id, jobType: INVESTIGATE, claimKey,
       reason: job.reason, selected, context, omittedContext: 0, questionFeedback: feedback.items, omittedFeedback: feedback.omitted,
       retrieval: 'Use CLI read --map MAP --node NODE --section questions|sources|premise|findings [--query TEXT or --question ID]. Pages return nextOffset and revision; pass both on continuation. Prefer excerpts over whole Markdown files.',
@@ -613,7 +593,7 @@ export class Store {
   }
   // Packet for a registered job type: shared identifying fields plus the type's own fields.
   async typedPacket(map, job, definition, node, { claimKey, budget = 15500 } = {}) {
-    const packet = { ...await definition.packet({ map, job, node, budget, store: this }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
+    const packet = { ...await definition.packet({ map, job, node, budget }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
       jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
     need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);
     packet.contextCharacters = JSON.stringify(packet).length;
@@ -643,7 +623,7 @@ export class Store {
             this.stopCompletedRepeat(map, n); await this.save(map); continue;
           }
           const claimKey = randomUUID(); // Returned once in the packet; the map keeps only its hash.
-          Object.assign(job, { status: 'running', worker, claimHash: claimHashOf(claimKey), startedAt: now(), ...(n ? { inputSignature: this.signature(map, n) } : {}) });
+          Object.assign(job, { status: 'running', worker, claimHash: claimHashOf(claimKey), startedAt: now(), ...(n ? { inputSignature: signature(map, n) } : {}) });
           let packet;
           try { packet = investigation ? this.packet(map, job, { claimKey }) : await this.typedPacket(map, job, definition, n, { claimKey }); }
           catch (error) {
@@ -663,16 +643,6 @@ export class Store {
       return null;
     });
   }
-  // Checks shared with typed job results: required text, and up to 20 sources the agent read.
-  text(value, field, max) { return text(value, field, max); }
-  sources(value) {
-    if (value === undefined) return [];
-    need(Array.isArray(value) && value.length <= 20, 'Sources must be an array of at most 20 items.');
-    return value.map(s => {
-      object(s, 'Source');
-      return { title: text(s.title, 'Source title', 200), url: safeUrl(s.url), note: text(s.note, 'Evidence note', 1500), retrievedAt: now() };
-    });
-  }
   // A result may also compare options and recommend one (C1); that stays the agent's judgement.
   validateResult(result, map, node) {
     object(result, 'Result');
@@ -687,7 +657,7 @@ export class Store {
         object(s, 'Suggestion');
         return { title: text(s.title, 'Suggestion title', 100), body: text(s.body || s.summary, 'Suggestion detail', 4000), kind: nodeKinds.has(s.kind) ? s.kind : 'research' };
       }),
-      sources: this.sources(result.sources),
+      sources: sourceList(result.sources, message => { throw new Problem(message); }),
       links: list(result.links, 'Links', 12).map(e => {
         object(e, 'Relationship');
         const exists = map.nodes.some(n => n.id === e.to);
@@ -707,9 +677,9 @@ export class Store {
         need(definition, 'This version of Explore does not know this kind of work.', 409);
         const node = job.nodeId ? map.nodes.find(n => n.id === job.nodeId) || null : null;
         // The result stays on the job record: only investigations change an idea.
-        const normalized = await definition.validate(object(result, 'Result'), { map, job, node, store: this });
+        const normalized = await definition.validate(object(result, 'Result'), { map, job, node });
         // Like an investigation, work whose idea changed while it ran is kept but marked stale.
-        const stale = definition.isStale ? !!definition.isStale({ map, job, node, store: this }) : !!(job.inputSignature && node && job.inputSignature !== this.signature(map, node));
+        const stale = definition.isStale ? !!definition.isStale({ map, job, node }) : !!(job.inputSignature && node && job.inputSignature !== signature(map, node));
         Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
         // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
         if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });
@@ -719,7 +689,7 @@ export class Store {
       const n = map.nodes.find(n => n.id === job.nodeId);
       need(!isCompleted(map, n), 'This branch was already completed. Its findings cannot be replaced.', 409);
       const normalized = this.validateResult(result, map, n);
-      const stale = job.inputSignature !== this.signature(map, n);
+      const stale = job.inputSignature !== signature(map, n);
       Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
       if (stale) {
         this.flagForReview(n, { sourceId: n.id, kind: 'result-during-change' }); n.status = 'interrupted';
@@ -867,7 +837,12 @@ export class Store {
   // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
   view(map) {
     const clone = publicMap(map);
-    for (const job of clone.jobs) if (!this.jobType(jobTypeOf(job))) job.unsupported = true;
+    clone.jobs.forEach((job, i) => {
+      const definition = this.jobType(jobTypeOf(job));
+      if (!definition) job.unsupported = true;
+      // A result whose context changed after it arrived reads as stale too (publicMap kept the jobs in order).
+      else if (job.status === 'completed' && !job.stale && definition.outdated?.({ map, job: map.jobs[i] })) job.stale = true;
+    });
     return Object.assign(clone, this.tracking(map.id));
   }
   stopCompletedRepeat(map, node) {

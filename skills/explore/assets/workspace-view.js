@@ -1,5 +1,5 @@
 import { presentation } from './graph.js';
-import { isBlocking, importanceLabel, highestImportance, RESEARCH, latestResearch } from './questions.js';
+import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH } from './questions.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
@@ -197,14 +197,14 @@ function menuHtml(id, label, items) {
 }
 // The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
 // Help me answer, Explain this question, Tidy my wording (a later issue), Answer later, Regenerate,
-// Dismiss, Good question / Bad question. Answered questions offer Help me answer while their branch is
-// unfinished (`research`), Change answer and the rating.
-export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false, research = false, esc }) {
+// Dismiss, Good question / Bad question. `kind` is 'open', 'waiting' (saved for later) or 'answered';
+// `completed` says the branch is finished, where nothing but the rating and Change answer applies.
+export function questionMenuHtml(question, { nodeId, kind, completed = false, lastBlocking = false, esc }) {
   const id = esc(question.id), node = esc(nodeId);
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
   const items = [
-    ...(kind === 'open' || research ? [item('Help me answer', 'data-q-research')] : []),
-    ...(kind === 'open' ? [item('Explain this question', 'data-q-help'), item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
+    ...(canResearch(question, { completed }) ? [item('Help me answer', 'data-q-research')] : []),
+    ...(kind === 'answered' ? [] : [item('Explain this question', 'data-q-help'), ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`)] : []), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')]),
     ...(kind === 'answered' ? [item('Change answer', 'data-q-change')] : []),
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
   ];
@@ -216,10 +216,28 @@ export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false,
 // question. Help is never an answer: it is labelled so and never touches the answer field. It opens the
 // first time it appears and stays collapsed once seen.
 export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
-  const mine = jobs.filter(job => job.type === 'question-help' && job.subjectId === question.id);
-  if (mine.some(job => job.status === 'queued' || job.status === 'running')) return `<p class="question-help-status">${listening ? 'Your agent is working on it.' : 'Queued for your agent.'}</p>`;
-  const help = mine.filter(job => job.status === 'completed' && !job.stale && job.result?.help).at(-1);
-  return help ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer</summary><p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
+  const { pending, latest: help } = questionJobs(jobs, EXPLAIN, question.id);
+  if (pending) return `<p class="question-help-status">${waitingWords(pending, listening, 'explaining this question')}</p>`;
+  return help && !help.stale ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer</summary><p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
+}
+// What a queued or running question job is doing, promising nothing while no agent is listening.
+const waitingWords = (job, listening, doing) => job.status === 'running' ? `Your agent is ${doing}.` : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.';
+// Help me answer (B9): what the agent is doing about it, or its latest research, under the question. Research
+// is never an answer: an option's suggested answer is only copied into the user's draft when they ask, and
+// research from before the question or its context changed stays visible as earlier research, without copy.
+export function questionResearchHtml({ question, jobs, listening, seen, esc }) {
+  const { pending, latest: job } = questionJobs(jobs, RESEARCH, question.id);
+  if (pending) return `<p class="question-help-status">${waitingWords(pending, listening, 'researching this question')} <button type="button" class="text-button" data-stop-job="${esc(pending.id)}">Stop</button></p>`;
+  if (!job) return '';
+  const { summary, sources = [] } = job.result;
+  const copy = option => option.suggestedAnswer ? `<button type="button" class="text-button" data-copy-answer="${esc(option.id)}" data-research-job="${esc(job.id)}" data-question-id="${esc(question.id)}"${job.stale ? ' disabled title="The question or its context changed since this research."' : ''}>Copy to my answer</button>` : '';
+  const cited = sources.length ? `<ul class="research-sources">${sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> · ${esc(s.note)}</li>`).join('')}</ul>` : '';
+  return `<details class="question-help question-research" data-help="${esc(job.id)}" data-editor="help-${esc(job.id)}"${seen.has(job.id) ? '' : ' open'}><summary>${job.stale ? 'Earlier research' : 'Research from your agent, not your answer'}</summary>${job.stale ? '<p class="form-note">The question or its context changed since. Ask again for current research.</p>' : ''}${summary ? `<p class="question-help-text">${esc(summary)}</p>` : ''}${optionCardsHtml(job.result, esc, copy)}${cited}</details>`;
+}
+// The suggested answer to copy from one option of current research, or null.
+export function researchSuggestion(jobs, jobId, optionId) {
+  const job = (jobs || []).find(item => item.id === jobId && item.type === RESEARCH && item.status === 'completed' && !item.stale);
+  return job?.result?.options?.find(option => option.id === optionId)?.suggestedAnswer ?? null;
 }
 // Git status for the open map (H9), in plain words. Unknown states fall back to the plain saved label.
 export function gitStatusLabel(status) {
@@ -251,24 +269,6 @@ export function gitCheckDelay({ last, mapId, now, force = false, every = 10000 }
   return force || last?.mapId !== mapId ? 0 : Math.max(0, every - (now - last.at));
 }
 
-// Help me answer (B9): what the agent is doing about it, or its latest research, under the question. Research
-// is never an answer: an option's suggested answer is only copied into the user's draft when they ask, and
-// research from before the question or its context changed stays visible as earlier research, without copy.
-export function questionResearchHtml({ question, jobs, listening, seen, esc }) {
-  const pending = jobs.find(job => job.type === RESEARCH && job.subjectId === question.id && (job.status === 'queued' || job.status === 'running'));
-  if (pending) return `<p class="question-help-status">${listening ? 'Your agent is researching this question.' : 'Research queued for your agent.'} <button type="button" class="text-button" data-stop-job="${esc(pending.id)}">Stop</button></p>`;
-  const job = latestResearch(jobs, question.id);
-  if (!job) return '';
-  const { summary, sources = [] } = job.result;
-  const copy = option => option.suggestedAnswer ? `<button type="button" class="text-button" data-copy-answer="${esc(option.id)}" data-research-job="${esc(job.id)}" data-question-id="${esc(question.id)}"${job.stale ? ' disabled title="The question or its context changed since this research."' : ''}>Copy to my answer</button>` : '';
-  const cited = sources.length ? `<ul class="research-sources">${sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> · ${esc(s.note)}</li>`).join('')}</ul>` : '';
-  return `<details class="question-help question-research" data-help="${esc(job.id)}" data-editor="help-${esc(job.id)}"${seen.has(job.id) ? '' : ' open'}><summary>${job.stale ? 'Earlier research' : 'Research from your agent, not your answer'}</summary>${job.stale ? '<p class="form-note">The question or its context changed since. Ask again for current research.</p>' : ''}${summary ? `<p class="question-help-text">${esc(summary)}</p>` : ''}${optionCardsHtml(job.result, esc, copy)}${cited}</details>`;
-}
-// The suggested answer to copy from one option of current research, or null.
-export function researchSuggestion(jobs, jobId, optionId) {
-  const job = (jobs || []).find(item => item.id === jobId && item.type === RESEARCH && item.status === 'completed' && !item.stale);
-  return job?.result?.options?.find(option => option.id === optionId)?.suggestedAnswer ?? null;
-}
 // The idea ⋯ menu (H2): Copy link.
 export function nodeMenuHtml(node, { esc }) {
   const id = esc(node.id);

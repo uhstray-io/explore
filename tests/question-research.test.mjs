@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Store, isCompleted } from '../skills/explore/scripts/store.mjs';
 import { questionMenuHtml, questionResearchHtml, researchSuggestion } from '../skills/explore/assets/workspace-view.js';
-import { latestResearch } from '../skills/explore/assets/questions.js';
+import { questionJobs, RESEARCH } from '../skills/explore/assets/questions.js';
 
 // Help me answer (B9, #10). Illustrative fixtures under .test-output, never ideas/.
 async function asked(questions = ['Which sync model fits?', 'Who edits notes?']) {
@@ -57,16 +57,42 @@ test('the agent gets the question, its idea, the findings and the ideas around i
   assert.ok(packet.contextCharacters <= 15500);
 });
 
-test('research on an answered question carries the current answer', async () => {
+test('research carries the current answer and the user\'s other answers on the idea, with how sure they are', async () => {
   const { store, map, act, question } = await asked();
+  const other = map.nodes[0].questions[1];
   await act({ type: 'answer', questionId: question.id, answer: 'Merge automatically.' });
+  await act({ type: 'answer', questionId: other.id, answer: 'Two of us.', answerState: 'decided' });
+  await store.claim('agent', map.id); // The branch's continuation, queued by the last answer.
   await act({ type: 'request-research', questionId: question.id });
-  const saved = await store.get(map.id);
-  const job = saved.jobs.find(j => j.type === 'question-research');
-  // The branch's own continuation is queued first; take the research job by claiming until it comes up.
-  let packet = await store.claim('agent', map.id);
-  if (packet.jobId !== job.id) packet = await store.claim('agent', map.id);
+  const packet = await store.claim('agent', map.id);
+  assert.equal(packet.jobType, 'question-research');
   assert.deepEqual(packet.question, { id: question.id, text: 'Which sync model fits?', currentAnswer: 'Merge automatically.' });
+  assert.deepEqual(packet.node.answers, [{ question: 'Who edits notes?', answer: 'Two of us.', answerState: 'decided' }]);
+});
+
+test('nearby ideas come nearest first, keep their review state and certainty, and the farthest are left out first', async () => {
+  const { store, map } = await asked();
+  let parent = map.rootId, saved = map;
+  for (let i = 0; i < 30; i++) {
+    saved = await store.action(map.id, { expectedRevision: (await store.get(map.id)).revision, nodeId: parent, type: 'suggest', title: `Level ${i}`, body: 'x'.repeat(1200) });
+    parent = saved.nodes.at(-1).id;
+  }
+  const chain = saved.nodes.slice(1).map(n => n.id);
+  await store.action(map.id, { expectedRevision: (await store.get(map.id)).revision, nodeId: parent, type: 'activate' });
+  const run = await store.claim('agent', map.id);
+  saved = await store.complete(map.id, run.jobId, run.claimKey, { summary: 'Deep.', body: 'Sync is hard here.', questions: ['Which sync model fits?'] });
+  await store.action(map.id, { expectedRevision: saved.revision, nodeId: parent, type: 'request-research', questionId: saved.nodes.find(n => n.id === parent).questions[0].id });
+  const packet = await store.claim('agent', map.id);
+  const ids = packet.context.map(n => n.id);
+  assert.equal(ids[0], map.rootId, 'the original idea first');
+  assert.equal(ids[1], chain.at(-2), 'then the direct parent');
+  assert.ok(!ids.includes(chain[0]), 'the farthest are left out');
+  assert.equal(packet.omittedContext, chain.length - 1 - (ids.length - 1));
+  assert.equal(packet.context[0].reviewState, 'unreviewed'); assert.equal(packet.context[0].stale, false);
+  assert.ok(packet.context[0].answers.every(a => a.answerState), 'answers keep how sure they are');
+  // An investigation packet orders its context the same way.
+  const investigation = store.packet(await store.get(map.id), { id: 'job-x', nodeId: parent, reason: 'r' }, { claimKey: 'k' });
+  assert.equal(investigation.context[0].id, map.rootId); assert.equal(investigation.context[1].id, chain.at(-2));
 });
 
 test('research is checked like options and stays on the job, never as an answer', async () => {
@@ -89,7 +115,7 @@ test('research is checked like options and stays on the job, never as an answer'
   assert.equal(node.status, 'awaiting-answer'); assert.equal(isCompleted(saved, node), false);
   assert.equal(node.questions[0].answer, null); assert.equal(node.options, undefined, 'the branch keeps its own comparison');
   assert.equal(node.summary, 'Depends on the field.');
-  assert.equal(latestResearch(saved.jobs, question.id).id, job.id);
+  assert.equal(questionJobs(saved.jobs, RESEARCH, question.id).latest.id, job.id);
   const markdown = await readFile(path.join(path.dirname(store.file(map.id)), 'nodes', `${map.rootId}.md`), 'utf8');
   assert.match(markdown, /### Which sync model fits\?\n\n_Awaiting the user._\n\n_Agent research to help you answer, not your answer._/);
   assert.match(markdown, /Merge edits automatically \(crdt\)/);
@@ -119,6 +145,30 @@ test('a failed, stopped or interrupted research job leaves the idea as it was', 
   saved = await store.get(map.id);
   assert.equal(researchJobs(saved).at(-1).status, 'interrupted'); assert.equal(saved.nodes[0].status, 'awaiting-answer');
   assert.equal(saved.nodes[0].summary, 'Depends on the field.'); assert.equal(isCompleted(saved, saved.nodes[0]), false);
+});
+
+test('research becomes earlier research when its context changes after it arrived, in the view and in Markdown', async () => {
+  const { store, map, act, question } = await asked();
+  await act({ type: 'request-research', questionId: question.id });
+  const packet = await store.claim('agent', map.id);
+  await store.complete(map.id, packet.jobId, packet.claimKey, result);
+  assert.equal(researchJobs(store.view(await store.get(map.id)))[0].stale, false);
+  await act({ type: 'answer', questionId: map.nodes[0].questions[1].id, answer: 'Only me.' });
+  const view = store.view(await store.get(map.id));
+  assert.equal(researchJobs(view)[0].stale, true, 'the view checks again');
+  assert.equal(researchSuggestion(view.jobs, researchJobs(view)[0].id, 'crdt'), null, 'and copy is no longer offered');
+  const markdown = await readFile(path.join(path.dirname(store.file(map.id)), 'nodes', `${map.rootId}.md`), 'utf8');
+  assert.match(markdown, /_Earlier agent research, from before the question or its context changed\. Not your answer\._/);
+});
+
+test('an empty or null summary counts as no summary', async () => {
+  for (const summary of [null, '']) {
+    const { store, map, act, question } = await asked();
+    await act({ type: 'request-research', questionId: question.id });
+    const packet = await store.claim('agent', map.id);
+    const saved = await store.complete(map.id, packet.jobId, packet.claimKey, { ...result, summary });
+    assert.equal(researchJobs(saved)[0].result.summary, undefined);
+  }
 });
 
 test('research that arrives after the premise or an answer changed is kept as stale', async () => {
@@ -162,8 +212,10 @@ test('the menu offers Help me answer first, also on answered questions of unfini
   const esc = String;
   const labels = html => [...html.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]);
   assert.deepEqual(labels(questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'open', esc })).slice(0, 3), ['Help me answer', 'Explain this question', 'Answer later']);
-  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', research: true, esc })).slice(0, 2), ['Help me answer', 'Change answer']);
-  assert.ok(!labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', esc })).includes('Help me answer'), 'not on a finished branch');
+  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', esc })).slice(0, 2), ['Help me answer', 'Change answer']);
+  assert.ok(!labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', completed: true, esc })).includes('Help me answer'), 'not on a finished branch');
+  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', deferredAt: 'x' }, { nodeId: 'node-1', kind: 'waiting', esc })), ['Help me answer', 'Explain this question', 'Regenerate', 'Dismiss', 'Good question', 'Bad question'], 'saved for later: no Answer later');
+  assert.ok(!labels(questionMenuHtml({ id: 'q-1', dismissedAt: 'x' }, { nodeId: 'node-1', kind: 'answered', esc })).includes('Help me answer'), 'not on a dismissed question');
 });
 
 test('research shows its options, recommendation and sources under the question, with copy only while current', () => {
@@ -171,7 +223,8 @@ test('research shows its options, recommendation and sources under the question,
   const question = { id: 'q-1', text: 'Which sync model?' };
   const job = (status, extra = {}) => ({ id: `job-${status}`, type: 'question-research', subjectId: 'q-1', status, stale: false, ...(status === 'completed' ? { result } : {}), ...extra });
   const html = (jobs, more = {}) => questionResearchHtml({ question, jobs, listening: false, seen: new Set(), esc, ...more });
-  assert.match(html([job('queued')]), /Research queued for your agent/);
+  assert.match(html([job('queued')]), /Queued for your agent\./);
+  assert.match(html([job('queued')], { listening: true }), /Your agent will pick this up next\./, 'a queued job is not yet being researched');
   assert.match(html([job('running')], { listening: true }), /Your agent is researching this question/);
   assert.match(html([job('queued')]), /data-stop-job="job-queued"/);
   const current = html([job('completed')]);

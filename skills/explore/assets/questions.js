@@ -68,11 +68,14 @@ export function replaceAnswer(question, { answer, answerState, actor, at, mark =
   Object.assign(question, { answer, changedAt: at }, answerState ? { answerState } : {}, actor?.name ? { answeredBy: { name: actor.name } } : {});
 }
 
-// Help me answer (B9): research the agent did so the user can answer a question. It never answers.
+// Work about one question. Its results live on the jobs, never on the question: Explain this question (B4)
+// and Help me answer (B9) never answer.
+export const EXPLAIN = 'question-help';
 export const RESEARCH = 'question-research';
-// The question's latest finished research, current or stale; research lives on its jobs, never on the question.
-export function latestResearch(jobs, questionId) {
-  return (jobs || []).filter(job => job.type === RESEARCH && job.subjectId === questionId && job.status === 'completed' && job.result).at(-1) ?? null;
+// The question's open job of `type`, and its latest finished one with a result (current or stale).
+export function questionJobs(jobs, type, questionId) {
+  const mine = (jobs || []).filter(job => job.type === type && job.subjectId === questionId);
+  return { pending: mine.find(job => job.status === 'queued' || job.status === 'running') ?? null, latest: mine.filter(job => job.status === 'completed' && job.result).at(-1) ?? null };
 }
-// Researchable: a question still asked on its idea, answered or not. The branch must also be unfinished.
-export function isResearchable(question) { return !question.supersededAt && !question.dismissedAt && !question.replacedBy; }
+// Help me answer is offered on a question still asked on an unfinished branch, answered or not.
+export function canResearch(question, { completed }) { return !completed && !question.supersededAt && !question.dismissedAt && !question.replacedBy; }

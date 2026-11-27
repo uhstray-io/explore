@@ -89,7 +89,7 @@ A `question-help` packet carries the open `question` (`id`, `text`), its idea (`
 
 ## Researching a question
 
-A `question-research` packet carries the `question` (`id`, `text`, its `why` when given, and `currentAnswer` when the user already answered it), its idea (`node`: `id`, `title`, `premise`, `summary`, `findings`), the same nearby ideas an investigation reads (`context`, each with its latest current answers; the farthest are left out first when the packet would be too long, counted in `omittedContext`) and a `retrieval` hint. Research the question so the user can answer it, then return options and a recommendation in the options format above, plus an optional `summary` (800 characters) and `sources` (as in results, at most 20):
+A `question-research` packet carries the `question` (`id`, `text`, its `why` when given, and `currentAnswer` when the user already answered it), its idea (`node`: `id`, `title`, `premise`, `summary`, `findings`, `status`, `reviewState`, `stale`, and the user's other `answers` there with how sure each is), the same nearby ideas an investigation reads (`context`: the original idea first, then nearest first, each with its review state and latest answers; the farthest are left out first when the packet would be too long, counted in `omittedContext`) and a `retrieval` hint. Research the question so the user can answer it, then return options and a recommendation in the options format above, plus an optional `summary` (800 characters) and `sources` (as in results, at most 20):
 
 ```json
 {
@@ -101,7 +101,7 @@ A `question-research` packet carries the `question` (`id`, `text`, its `why` whe
 }
 ```
 
-Options and a recommendation are required; when the evidence does not settle it, use `"optionId": null` with `missing`. Any other field, including `questions`, `suggestions`, `links`, `body` or an `answer`, rejects the result. The research stays on the job: it never answers the question, never changes the idea's findings, options or status, and never completes the branch. It is shown under the question as "Research from your agent, not your answer", where the user may copy a suggested answer into their own draft. Research that arrives after the question was set aside, or after the premise or an answer nearby changed, is kept as stale and shown as earlier research. The user asks for it with `request-research` (`questionId`); never request it on their behalf.
+Options and a recommendation are required; when the evidence does not settle it, use `"optionId": null` with `missing`. Any other field, including `questions`, `suggestions`, `links`, `body` or an `answer`, rejects the result. The research stays on the job: it never answers the question, never changes the idea's findings, options or status, and never completes the branch. It is shown under the question as "Research from your agent, not your answer", where the user may copy a suggested answer into their own draft. Research is earlier research, with nothing to copy, once the question is set aside or the premise or an answer nearby changes, whether that happens while you work or later. The user asks for it with `request-research` (`questionId`); never request it on their behalf.
 
 ## Regenerating a question
 
@@ -175,7 +175,7 @@ Successful CLI commands append content-free counts to `.explore/context-usage.js
 
 `brief --map ID` returns a bounded extraction of the saved map's findings, answers, open questions, review state, stale material, directions, work states, and relationships. This includes partial findings while a branch waits for an answer. A revised premise without a current result appears separately from findings; superseded questions and actual answers appear as records of previous premises. `--node ID` narrows it to that branch. Each section identifies its source nodes and omitted items; use targeted reads when a detail matters. The default JSON omits the duplicate Markdown representation; `--format markdown` prints the readable version instead. Neither form runs research, accepts conclusions, nor changes a map. These are saved statements, not a newly verified synthesis. Brief output, including Markdown, is counted exactly by `usage`.
 
-`doctor` and `usage` also work while the server is stopped. Neither creates the runtime directory nor adds its own output to the usage log. Work packets target fewer than 16,000 characters and node section responses are bounded as above; these limits do not measure total host context or vendor token costs.
+`doctor` and `usage` also work while the server is stopped. Neither creates the runtime directory nor adds its own output to the usage log. In every packet, `context` lists the original idea first and then nearby ideas nearest first, so the farthest are the ones left out when a packet would be too long. Work packets target fewer than 16,000 characters and node section responses are bounded as above; these limits do not measure total host context or vendor token costs.
 
 No additional provider connection is required to open a saved map. Existing format-1 snapshots remain readable. On restart, historical repeat jobs on already completed branches are cancelled while stored content and job history are retained; unfinished investigations remain retryable.
 
