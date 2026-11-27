@@ -189,3 +189,29 @@ test('the check-answers panel shows what it reads, its progress, and each point 
   assert.match(html, /data-select="a"[^>]*>Root &lt;i&gt; · Budget\?/);
   assert.match(checkAnswersHtml({ map: { ...map, proposals: [{ ...proposal, stale: false, items: [] }] }, preview, listening: true, esc }), /No tensions found/);
 });
+
+test('the question menu lists its items in the agreed order and is labelled for assistive technology', async () => {
+  const { questionMenuHtml } = await import('../skills/explore/assets/workspace-view.js');
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const open = questionMenuHtml({ id: 'q1', text: 'Budget?', answer: null }, { nodeId: 'n1', kind: 'open', lastBlocking: false, esc });
+  assert.match(open, /<button[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-label="More for this question"/);
+  assert.match(open, /role="menu"[^>]*hidden/);
+  const labels = [...open.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]);
+  assert.deepEqual(labels, ['Answer later', 'Regenerate', 'Dismiss', 'Good question', 'Bad question']);
+  assert.match(questionMenuHtml({ id: 'q1', answer: null }, { nodeId: 'n1', kind: 'open', lastBlocking: true, esc }), />Dismiss and continue</);
+  const answered = questionMenuHtml({ id: 'q2', answer: 'Yes' }, { nodeId: 'n1', kind: 'answered', esc });
+  assert.deepEqual([...answered.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]), ['Good question', 'Bad question']);
+  assert.match(open, /data-reason-for="q1"[^>]*hidden/); assert.match(open, /What was wrong\? \(optional\)/);
+  const rated = questionMenuHtml({ id: 'q3', answer: 'Yes', rating: 'bad', ratingReason: 'Leading.' }, { nodeId: 'n1', kind: 'answered', esc });
+  assert.match(rated, /You rated this a bad question/); assert.match(rated, /data-q-rate=""[^>]*>Undo</);
+});
+
+test('arrow keys move around the menu and wrap; Home and End jump to the ends', async () => {
+  const { menuFocusIndex } = await import('../skills/explore/assets/workspace-view.js');
+  assert.equal(menuFocusIndex(0, 'ArrowDown', 5), 1);
+  assert.equal(menuFocusIndex(4, 'ArrowDown', 5), 0);
+  assert.equal(menuFocusIndex(0, 'ArrowUp', 5), 4);
+  assert.equal(menuFocusIndex(2, 'Home', 5), 0);
+  assert.equal(menuFocusIndex(2, 'End', 5), 4);
+  assert.equal(menuFocusIndex(2, 'x', 5), 2);
+});
