@@ -1,6 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { agentDialog } from './agent-dialog.js';
+import { changesDialog } from './changes-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
 import { questionClick } from './question-clicks.js';
@@ -122,6 +123,7 @@ function renderEdges() {
 }
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
+  changes.mapChanged(state.map.revision);
   const historic = state.historyStep !== null;
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
@@ -742,6 +744,9 @@ $('#new-map').addEventListener('click', showCreate); $('#start-exploration').add
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
 // Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
+// Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
+const changes = changesDialog({ api, map: () => state.map });
+$('#changes-open').addEventListener('click', () => { $('#tools-dialog').close(); changes.show(); });
 const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
 $('#storage-open').addEventListener('click', storageDialog({ api, esc, titleOf: id => state.maps.find(map => map.id === id)?.title ?? id }));

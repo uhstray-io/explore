@@ -86,6 +86,10 @@ Before an investigation result is saved, it is checked against these exploration
 
 A repeated delivery of a saved result changes nothing and returns only the saved `{ code, field }` of its warnings. Run `result --job ID --file result.json --check` to get `{ ok, errors, warnings }` without saving or touching the job (it exits non-zero when `ok` is false, and a malformed result fails as it would on delivery), and reconsider warnings before the final `result`: a completed branch cannot change afterwards.
 
+### What changed since a commit
+
+`changes --map ID --since REF [--format json|markdown]` compares the map as committed at `REF` (default `HEAD`) with the current saved map, matching ideas and questions by ID: new, removed and revised ideas, answers given or changed, questions opened or closed, links added or removed, and changed findings. It only reads Git (`rev-parse` and `show`), never commits or fetches, and refuses refs that could be read as options.
+
 ## Other kinds of work
 
 Every packet from `next` carries `jobType`. `investigate` is the branch investigation above; a job saved without a `type` is one. Other types are registered in `scripts/job-types.mjs` by the features that need them. Each such packet carries `mapId`, `jobId`, `jobType`, `reason` and `instruction`, plus the type's own fields. Follow its `instruction`, then deliver the result it describes with the same `result --job ID --file result.json` command, or use `fail`. The result is kept on the job record. It never changes the idea's status, findings, questions or completion, and it never accepts anything for the user. If the idea or its context changed while the work ran, the result is kept but marked `stale`.

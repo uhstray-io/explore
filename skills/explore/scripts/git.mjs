@@ -16,9 +16,9 @@ const environment = () => ({ ...Object.fromEntries(Object.entries(process.env).f
 //                                        decisions and is never shown or returned to a client.
 //   { outcome: 'missing' }               Git is not installed. `cwd` must exist; every caller checks it.
 //   { outcome: 'failed' }                A timeout, the output cap, or any other failure to run.
-export function git(args, { cwd, input, binary = 'git', timeout = 5000 } = {}) {
+export function git(args, { cwd, input, binary = 'git', timeout = 5000, maxBuffer = maxOutput } = {}) {
   return new Promise(resolve => {
-    const child = execFile(binary, ['--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], { cwd, env: environment(), timeout, maxBuffer: maxOutput, windowsHide: true },
+    const child = execFile(binary, ['--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], { cwd, env: environment(), timeout, maxBuffer, windowsHide: true },
       (error, stdout, stderr) => resolve(!error ? { outcome: 'ok', stdout }
         : error.code === 'ENOENT' ? { outcome: 'missing' }
         : typeof error.code === 'number' && !error.killed ? { outcome: 'exit', code: error.code, stderr }
