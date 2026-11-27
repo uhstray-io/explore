@@ -227,7 +227,7 @@ test('the browser lists versions, previews one without writing, and restores it'
     const before = await readFile(path.join(workspace, 'ideas', map.id, 'map.json'), 'utf8');
     const preview = await (await call(`/maps/${map.id}/versions/${target.id}`)).json();
     assert.equal(preview.map.nodes.length, 1); assert.equal(preview.counts.nodesRemoved, 1);
-    assert.doesNotMatch(JSON.stringify(preview), /claimKey|inputSignature/);
+    assert.doesNotMatch(JSON.stringify(preview), /claimKey|claimHash|inputSignature/);
     assert.equal(await readFile(path.join(workspace, 'ideas', map.id, 'map.json'), 'utf8'), before);
     assert.equal((await call(`/maps/${map.id}/versions/nope`)).status, 404);
     assert.equal((await call(`/maps/map-00000000/versions`)).status, 404);
