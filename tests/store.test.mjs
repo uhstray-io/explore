@@ -188,7 +188,7 @@ test('growth records one durable batch per result, including semantic connection
   const earlier = saved.nodes[1];
   const job = await store.claim('one');
   saved = await store.complete(map.id, job.jobId, job.claimKey, result({
-    suggestions: [{ title: 'New direction', body: 'A new branch.' }, { title: 'New direction', body: 'A duplicate branch.' }, { title: 'Existing direction', body: 'Already exists.' }],
+    suggestions: [{ title: 'New direction', body: 'A new branch.' }, { title: 'Existing direction', body: 'Already exists.' }],
     links: [{ to: earlier.id, type: 'supports' }, { to: earlier.id, type: 'supports' }],
   }));
   const addition = saved.growth.batches.at(-1);

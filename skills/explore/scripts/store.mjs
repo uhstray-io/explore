@@ -10,6 +10,7 @@ import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
+import { checkResult as checkAgainstMap, sameText } from './result-checks.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
 
 const now = () => new Date().toISOString();
@@ -679,12 +680,15 @@ export class Store {
         return exists ? { from: node.id, to: e.to, type: e.type } : null;
       }).filter(Boolean) };
   }
-  complete(mapId, jobId, claimKey, result) {
+  async complete(mapId, jobId, claimKey, result) { return (await this.deliver(mapId, jobId, claimKey, result)).map; }
+  // Saves a result and resolves { map, warnings }. An investigation result is first checked against the
+  // exploration rules (K3): errors reject it with the claim still valid; warnings are saved as codes on the job.
+  deliver(mapId, jobId, claimKey, result) {
     return this.serial(async () => {
       const map = await this.get(mapId);
       const job = map.jobs.find(j => j.id === jobId);
       need(job && holdsClaim(job, claimKey), 'The job claim is not valid.', 409);
-      if (job.status === 'completed') return map; // Delivery retry must not create duplicate branches.
+      if (job.status === 'completed') return { map, warnings: [] }; // Delivery retry must not create duplicate branches or re-run checks.
       need(job.status === 'running', 'This work is no longer running.', 409);
       if (!isInvestigation(job)) {
         const definition = this.jobType(job.type);
@@ -698,13 +702,15 @@ export class Store {
         // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
         if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });
         this.event(map, 'job-result', job.nodeId, `${definition.label}; ${job.id}`);
-        return this.save(map);
+        return { map: await this.save(map), warnings: [] };
       }
       const n = map.nodes.find(n => n.id === job.nodeId);
       need(!isCompleted(map, n), 'This branch was already completed. Its findings cannot be replaced.', 409);
       const normalized = this.validateResult(result, map, n);
+      const { errors, warnings } = checkAgainstMap(normalized, map, n);
+      if (errors.length) throw Object.assign(new Problem('This result breaks the exploration rules. Fix the listed items and send it again with the same claim.', 400, 'result-checks'), { errors });
       const stale = job.inputSignature !== this.signature(map, n);
-      Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
+      Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale }, warnings.length ? { resultWarnings: warnings.map(({ code, field }) => ({ code, field })) } : {});
       if (stale) {
         this.flagForReview(n, { sourceId: n.id, kind: 'result-during-change' }); n.status = 'interrupted';
         this.event(map, 'stale-result', n.id, 'Result retained in job history. A premise changed during research.');
@@ -718,7 +724,7 @@ export class Store {
         if (n.status === 'explored') n.completedAt = now();
         const addedNodes = [], addedEdges = [];
         for (const s of normalized.suggestions) {
-          if (map.nodes.some(existing => existing.parentId === n.id && existing.title.toLowerCase() === s.title.toLowerCase())) continue;
+          if (map.nodes.some(existing => existing.parentId === n.id && sameText(existing.title, s.title))) continue; // Reported as existing-branch.
           const child = this.node(s.title, s.body, s.kind, n.id);
           const edge = { from: n.id, to: child.id, type: 'contains' };
           map.nodes.push(child); map.edges.push(edge);
@@ -731,8 +737,21 @@ export class Store {
         this.recordGrowth(map, addedNodes, addedEdges);
         this.event(map, 'result', n.id, job.id);
       }
-      return this.save(map);
+      return { map: await this.save(map), warnings };
     });
+  }
+  // `result --check`: every check a delivery would run, against the current map, without saving or touching
+  // the job. Resolves { ok, errors, warnings }; a result that fails structural validation is one `invalid-result` error.
+  async checkResult(mapId, jobId, claimKey, result) {
+    const map = await this.get(mapId), job = map.jobs.find(j => j.id === jobId);
+    need(job && holdsClaim(job, claimKey) && job.status === 'running', 'The active job claim is not valid.', 409);
+    const node = job.nodeId ? map.nodes.find(n => n.id === job.nodeId) || null : null, investigation = isInvestigation(job);
+    if (investigation) need(!isCompleted(map, node), 'This branch was already completed. Its findings cannot be replaced.', 409);
+    let normalized;
+    try { normalized = investigation ? this.validateResult(result, map, node) : await this.jobType(job.type)?.validate(object(result, 'Result'), { map, job, node }); }
+    catch (error) { if (error.status === 400) return { ok: false, errors: [{ code: 'invalid-result', field: null, message: error.message }], warnings: [] }; throw error; }
+    const { errors, warnings } = investigation ? checkAgainstMap(normalized, map, node) : { errors: [], warnings: [] };
+    return { ok: !errors.length, errors, warnings };
   }
   fail(mapId, jobId, claimKey, reason) {
     return this.serial(async () => {
