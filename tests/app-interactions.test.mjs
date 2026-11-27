@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -584,6 +584,18 @@ test('resolving a flag re-renders without ending the review, so the next flagged
   first.stale = false; h.render();
   assert.ok(h.state.reviewing, 'review mode survives the re-render of a resolved finding');
   assert.doesNotMatch(h.markup(), /review-step/);
+});
+
+test('an open question shows its importance and a Why? link; an answered one keeps a quieter label', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'awaiting-answer';
+  node.questions = [{ id: 'q-a', text: 'Offline for days?', answer: null, importance: 'high', why: 'Decides the sync design.' }];
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /<summary><span>High importance<\/span> · <span class="why-link">Why\?<\/span><\/summary><p>Decides the sync design\.<\/p>/);
+  node.questions[0].answer = 'Yes.'; node.status = 'queued'; h.render();
+  assert.match(h.markup(), /<small class="certainty-label">High importance<\/small>/);
+  assert.doesNotMatch(h.markup(), /question-why/);
 });
 
 test('a finished branch offers Restart from this answer, and its preview keeps the change editor open', () => {
