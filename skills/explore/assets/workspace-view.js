@@ -47,6 +47,62 @@ export function outsideChangeNote(change, seenAt) {
   return `Updated from a change outside Explore, for example a pull.${change.preserved ? ' The earlier version was kept.' : ''}`;
 }
 
+// Version history in plain words. The first label of a change describes it best.
+const versionWords = {
+  activated: 'Exploration started', answered: 'Answer saved', result: 'Agent result', suggested: 'Direction added',
+  accepted: 'Finding accepted', revised: 'Premise revised', 'revision-suggested': 'Changed premise added', cancelled: 'Exploration stopped',
+  failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
+  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'before-outside-change': 'Before a pull or branch switch',
+  preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
+};
+export function versionLabel(version) {
+  if (version.name) return version.name;
+  const label = (version.labels || []).find(item => Object.hasOwn(versionWords, item));
+  return label ? versionWords[label] : 'Saved change';
+}
+
+// Undo goes back to the version before my latest change. Anything saved after it, such as work
+// merged from someone else, is undone too, so it is named for the user to confirm. Pressing Undo
+// again steps further back: each earlier undo cancels the change it undid. Copies kept around a
+// pull are bookkeeping, never a change to undo. Without any change of mine, the latest change counts.
+const keptCopies = new Set(['before-outside-change', 'preserved']);
+function findUndo(versions, me) {
+  const cancelled = new Set();
+  let pending = 0;
+  for (let index = 0; index < versions.length; index++) {
+    const version = versions[index], labels = version.labels || [];
+    if (labels.some(label => keptCopies.has(label)) || (me && version.author !== me)) continue;
+    if (labels.includes('change-undone')) { pending += 1; continue; }
+    if (pending) { pending -= 1; cancelled.add(version.id); continue; }
+    const target = versions[index + 1];
+    if (!target) return null;
+    const alsoUndone = versions.slice(0, index).filter(other => !cancelled.has(other.id) && other.author !== me
+      && !(other.labels || []).some(label => keptCopies.has(label) || label === 'change-undone'));
+    return { target, undoing: version, alsoUndone };
+  }
+  return undefined;
+}
+export function undoTarget(versions, me) {
+  const mine = me ? findUndo(versions, me) : undefined;
+  if (mine !== undefined) return mine;
+  return findUndo(versions, null) ?? null;
+}
+
+const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+export function restoreSummary({ counts, reopened }, { undo = false } = {}) {
+  const verb = undo ? 'Undoing' : 'Restoring';
+  const parts = [
+    counts.nodesRemoved && `removes ${count(counts.nodesRemoved, 'idea')}`,
+    counts.nodesAdded && `brings back ${count(counts.nodesAdded, 'idea')}`,
+    counts.nodesChanged && `changes ${count(counts.nodesChanged, 'idea')}`,
+    counts.linksRemoved && `removes ${count(counts.linksRemoved, 'connection')}`,
+    counts.linksAdded && `brings back ${count(counts.linksAdded, 'connection')}`,
+  ].filter(Boolean);
+  const changes = parts.length ? `${verb} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}.` : `${verb} changes no ideas or connections.`;
+  const reopens = reopened.length ? ` It reopens ${count(reopened.length, 'finished branch', 'finished branches')}.` : '';
+  return `${changes}${reopens} Nothing is explored until you choose Retry, and you can undo ${undo ? 'this too' : 'the restore'}.`;
+}
+
 export function briefFilename(title) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}-brief.md`;

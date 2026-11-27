@@ -6,10 +6,10 @@ This repository contains a portable agent skill plus its dependency-free local w
 
 - Suggestions stay inactive until the user chooses a branch. Creating an exploration authorizes its initial investigation.
 - Questions use actual user answers. An agent completing research does not accept its own conclusion.
-- Completed branches stay complete; changed premises create new inactive investigations and retain earlier findings.
+- Completed branches stay complete, except when the user explicitly restores an earlier version; the restore preview lists every branch it reopens. Changed premises create new inactive investigations and retain earlier findings.
 - The localhost UI stores and queues work. It does not run or wake an LLM. Do not promise background research unless the actual host integration supports it.
 - JSON snapshots are authoritative; Markdown is generated. Use the app/CLI/Store for mutations. Preserve old format-1 maps.
-- History shows graph growth, with current content and positions. It is not a historical snapshot of every edit or conclusion. Undated older data must stay explicitly unknown.
+- Growth history shows additions with current content and positions. Version history keeps saved versions in the repo for preview and explicit restore; restoring creates a new revision, never rewrites earlier versions and never starts research. Undated older data must stay explicitly unknown.
 - Briefs are bounded extracts. Keep accepted, provisional, stale, unanswered, and unexplored material distinct; expose omissions and retrieval paths.
 - Everything about an exploration lives in the repo: maps, version history, positions, settings, and pin and archive state. Anyone who clones or pulls must get the same experience and be able to continue any map. Only the server token and connection, the lock, and live claim keys stay in `.explore/`.
 - Keep the experience simple and frictionless: no approval steps, sensible defaults, and one ⋯ menu per item for secondary actions. Advanced options must not crowd the main path.

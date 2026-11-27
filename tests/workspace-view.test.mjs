@@ -79,3 +79,56 @@ test('an outside change is announced once, quietly', async () => {
   assert.doesNotMatch(outsideChangeNote({ ...change, preserved: null, inGit: true }, null), /kept/);
   assert.equal(outsideChangeNote(null, null), null);
 });
+
+test('versions are described in plain words, never internal event names', async () => {
+  const { versionLabel } = await import('../skills/explore/assets/workspace-view.js');
+  assert.equal(versionLabel({ labels: ['answered', 'activated'] }), 'Answer saved');
+  assert.equal(versionLabel({ labels: ['result'] }), 'Agent result');
+  assert.equal(versionLabel({ labels: ['version-restored'] }), 'Restored an earlier version');
+  assert.equal(versionLabel({ labels: ['before-outside-change'] }), 'Before a pull or branch switch');
+  assert.equal(versionLabel({ labels: ['something-new'] }), 'Saved change');
+  assert.equal(versionLabel({ labels: ['suggested'], name: 'Before the workshop' }), 'Before the workshop');
+});
+
+test('undo goes back to the version before my latest change and names anything newer it also undoes', async () => {
+  const { undoTarget } = await import('../skills/explore/assets/workspace-view.js');
+  const versions = [{ id: 'v4', author: 'Bo' }, { id: 'v3', author: 'Ana' }, { id: 'v2' }, { id: 'v1', author: 'Ana' }];
+  assert.deepEqual(undoTarget(versions, 'Ana'), { target: versions[2], undoing: versions[1], alsoUndone: [versions[0]] });
+  assert.deepEqual(undoTarget(versions, null), { target: versions[1], undoing: versions[0], alsoUndone: [] });
+  assert.deepEqual(undoTarget(versions, 'Cy'), { target: versions[1], undoing: versions[0], alsoUndone: [] }, 'with no change of mine, undo the latest');
+  assert.equal(undoTarget([{ id: 'v1', author: 'Ana' }], 'Ana'), null, 'nothing earlier to go back to');
+  assert.equal(undoTarget([], 'Ana'), null);
+});
+
+test('a restore summary says what changes and that research does not start', async () => {
+  const { restoreSummary } = await import('../skills/explore/assets/workspace-view.js');
+  const text = restoreSummary({ counts: { nodesAdded: 0, nodesRemoved: 2, nodesChanged: 1, linksAdded: 0, linksRemoved: 2 }, reopened: ['node-a'] });
+  assert.match(text, /removes 2 ideas/); assert.match(text, /changes 1 idea\b/); assert.match(text, /removes 2 connections/);
+  assert.match(text, /reopens 1 finished branch\b/); assert.match(text, /Nothing is explored until you choose Retry/);
+  assert.doesNotMatch(text, /adds 0/);
+  assert.match(restoreSummary({ counts: { nodesAdded: 0, nodesRemoved: 0, nodesChanged: 1, linksAdded: 0, linksRemoved: 0 }, reopened: [] }), /^Restoring changes 1 idea\./);
+});
+
+test('an undo summary speaks of undoing', async () => {
+  const { restoreSummary } = await import('../skills/explore/assets/workspace-view.js');
+  const text = restoreSummary({ counts: { nodesAdded: 1, nodesRemoved: 0, nodesChanged: 0, linksAdded: 1, linksRemoved: 0 }, reopened: [] }, { undo: true });
+  assert.match(text, /^Undoing brings back 1 idea and brings back 1 connection\./); assert.match(text, /you can undo this too/);
+});
+
+test('pressing undo again steps further back instead of redoing', async () => {
+  const { undoTarget } = await import('../skills/explore/assets/workspace-view.js');
+  const T = { id: 'T' }, A = { id: 'A', author: 'Ana', labels: ['suggested'] }, B = { id: 'B', author: 'Ana', labels: ['suggested'] };
+  const U1 = { id: 'U1', author: 'Ana', labels: ['change-undone'] };
+  assert.deepEqual(undoTarget([U1, B, A, T], 'Ana'), { target: T, undoing: A, alsoUndone: [] });
+  const U2 = { id: 'U2', author: 'Ana', labels: ['change-undone'] };
+  assert.equal(undoTarget([U2, U1, B, A, T], 'Ana'), null, 'nothing of mine is left to undo');
+  assert.deepEqual(undoTarget([U1, B, A, T], null), { target: T, undoing: A, alsoUndone: [] }, 'the same without a Git name');
+});
+
+test('copies kept around a pull are never the change that undo undoes', async () => {
+  const { undoTarget } = await import('../skills/explore/assets/workspace-view.js');
+  const A = { id: 'A', author: 'Ana', labels: ['answered'] }, X = { id: 'X', author: 'Bo', labels: ['result'] };
+  const P = { id: 'P', labels: ['before-outside-change'] }, K = { id: 'K', labels: ['preserved'] }, O = { id: 'O' };
+  assert.deepEqual(undoTarget([P, X, A, O], 'Ana'), { target: O, undoing: A, alsoUndone: [X] });
+  assert.deepEqual(undoTarget([P, K, X, A, O], null), { target: A, undoing: X, alsoUndone: [] });
+});

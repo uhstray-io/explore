@@ -77,6 +77,7 @@ If someone pulled or switched branches since you last read the map, an action fa
 - `revise`: `body`. Revises unfinished work and marks dependent findings for review. Questions and actual answers from earlier premises are retained with `supersededAt`; unanswered earlier questions no longer block continuation. Retry explicitly to investigate the new premise. Completed branches reject direct revision.
 - `fork-revision`: `body`, optional `title`. For a completed branch, create an inactive child with the changed premise. Preserve the original premise, findings, evidence, and review history; flag affected findings for review. Activate the child separately. The child records `revises` pointing to its earlier investigation.
 - `accept`: user accepts a current finding. Never self-accept a model conclusion.
+- `restore-version`, `name-version`, `unname-version`: user-only, no `nodeId`. Version history belongs to the user; an agent never restores or names a version, even when asked indirectly. Work packets, briefs and `read` always use the current map, not a version.
 - `cancel`: stops queued work or rejects subsequent results from the claimed run. The agent should also stop its actual investigation; this API cannot kill host-owned subagents.
 - `position`: `x`, `y`. Presentation only.
 - `cancel-job`: `jobId`, no `nodeId`. Stops queued or running work that is not a branch investigation. Use `cancel` for a branch.

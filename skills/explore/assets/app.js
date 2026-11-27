@@ -1,6 +1,6 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
@@ -77,7 +77,7 @@ async function openMap(id) {
   try {
     const map = await api(`/maps/${id}`); if (version !== openVersion) return;
     state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
-    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; navigation(false);
+    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); location.hash = id;
     renderMap(true); renderRail();
@@ -116,7 +116,7 @@ function renderMap(fit = false, preserveView = false) {
   $('#map-title').textContent = state.map.title; $('#canvas-title').textContent = state.map.title;
   const overview = mapOverview(state.visibleMap);
   $('#canvas-subtitle').textContent = `${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
-  $('#saved-state').textContent = historic ? 'Read-only history' : 'Saved locally';
+  $('#saved-state').textContent = historic ? (state.versionPreview ? 'Saved version, read-only' : 'Read-only history') : 'Saved in this repo';
   $('#workspace').classList.toggle('history-mode', historic);
   $('#canvas').setAttribute('aria-label', historic ? 'Map growth history. Read-only. Drag the background to pan; select an idea to view today’s findings.' : 'Constellation. Drag a node to move it or the background to pan. Focus a node and use Alt plus arrow keys to move it.');
   $('#canvas-instruction').textContent = historic ? 'Read-only history · pan or zoom to inspect · return to live to arrange ideas' : 'Drag nodes to arrange · Alt + arrow keys moves a focused node · / finds an idea';
@@ -129,7 +129,8 @@ function renderMap(fit = false, preserveView = false) {
     return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span><span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span><span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span>${major ? `<span class="node-caption">${esc(n.title)}</span>` : ''}</button>`;
   }).join('');
   renderEdges();
-  renderDetail(); renderOverview(); renderHistory();
+  renderDetail(); renderOverview(); renderHistory(); renderVersionsPanel();
+  if (state.versionsOpen && !state.versionChoice && state.versions?.revision !== state.map.revision) loadVersions();
   if (focusedNode) $(`[data-node="${focusedNode}"]`)?.focus({ preventScroll: true });
   if (!$('#node-results').hidden) searchNodes();
   connectionView();
@@ -228,7 +229,8 @@ $('#overview-panel').addEventListener('keydown', event => {
 });
 
 function renderHistory() {
-  const historic = state.historyStep !== null;
+  // A version preview reuses the read-only canvas but has its own panel.
+  const historic = state.historyStep !== null && !state.versionPreview;
   $('#history-panel').hidden = !historic;
   $('#show-history').setAttribute('aria-expanded', String(historic));
   $('#show-history').disabled = !state.timeline.steps.length;
@@ -255,15 +257,91 @@ function setGrowthStep(index) {
   renderMap(false, true);
 }
 function returnLive() {
-  state.historySource = null; state.historyStep = null;
+  const fromVersion = !!state.versionPreview;
+  state.historySource = null; state.historyStep = null; state.versionPreview = null; state.versionChoice = null;
   renderMap(false, true);
-  $('#show-history').focus({ preventScroll: true });
+  $(fromVersion ? '#show-versions' : '#show-history').focus({ preventScroll: true });
 }
 $('#show-history').addEventListener('click', () => { if (state.historyStep !== null) returnLive(); else setGrowthStep(state.timeline.latestStep); });
 $('#return-live').addEventListener('click', returnLive);
 $('#history-slider').addEventListener('input', event => setGrowthStep(event.target.value));
 $('#history-previous').addEventListener('click', () => setGrowthStep(state.historyStep - 1));
 $('#history-next').addEventListener('click', () => setGrowthStep(state.historyStep + 1));
+
+// Version history: one panel to undo, preview and restore. A preview shows the saved version on the
+// read-only canvas; nothing changes until the user restores.
+function renderVersionsPanel() {
+  const panel = $('#versions-panel'), open = !!state.versionsOpen && !!state.map;
+  panel.hidden = !open; $('#show-versions').setAttribute('aria-expanded', String(open));
+  if (!open) return;
+  const data = state.versions, choice = state.versionChoice;
+  const when = at => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const heading = `<div class="history-heading"><strong>Versions</strong><button class="secondary" data-version-close>${state.versionPreview ? 'Return to live' : 'Close'}</button></div>`;
+  if (choice) {
+    const undoing = choice.undo, also = undoing?.alsoUndone.length || 0;
+    const shown = undoing ? undoing.undoing : choice.version; // An undo names the change it undoes.
+    panel.innerHTML = `${heading}<p class="history-description" role="status">${esc(undoing ? `Undo “${versionLabel(shown)}”` : versionLabel(shown))} · ${esc(when(shown.at))}${shown.author ? ` · ${esc(shown.author)}` : ''}</p>
+      <p class="version-summary">${esc(restoreSummary(choice, { undo: !!undoing }))}${also ? ` This also undoes ${also === 1 ? 'a newer change' : `${also} newer changes`} saved after yours.` : ''}</p>
+      <div class="version-actions"><button class="primary" data-version-restore>${undoing ? 'Undo' : 'Restore this version'}</button><button class="secondary" data-version-back>Back to the list</button></div>
+      ${undoing ? '' : `<details class="version-name"><summary>${choice.version.name ? 'Rename this version' : 'Name this version'}</summary><form data-version-name><label class="visually-hidden" for="version-name">Version name</label><input id="version-name" name="name" maxlength="120" required value="${esc(choice.version.name || '')}" placeholder="For example: Before the workshop"><button class="secondary">Save name</button>${choice.version.name ? '<button type="button" class="text-button" data-version-unname>Remove name</button>' : ''}</form></details>`}`;
+    return;
+  }
+  if (!data) { panel.innerHTML = `${heading}<p class="history-description">Loading versions…</p>`; return; }
+  const undo = undoTarget(data.versions, state.contributor);
+  panel.innerHTML = `${heading}${undo ? `<button class="secondary version-undo" data-version-undo>Undo last change: ${esc(versionLabel(undo.undoing))}</button>` : ''}
+    ${data.versions.length ? `<ul class="version-list">${data.versions.map(version => `<li><button data-version="${esc(version.id)}"><strong>${esc(versionLabel(version))}</strong><small>${esc([version.author, when(version.at)].filter(Boolean).join(' · '))}${version.name ? ' · named' : ''}</small></button></li>`).join('')}</ul>` : '<p class="history-description">No versions yet. Each change you save is kept here.</p>'}
+    ${data.failed ? '<p class="version-note">Versions could not be loaded. Close and open the panel to try again.</p>' : ''}${data.earlierMissing ? '<p class="version-note">Earlier versions were not recorded or were tidied away. Committed ones remain in Git history.</p>' : ''}`;
+}
+async function loadVersions() {
+  if (!state.map || state.versionsLoading) return;
+  const mapId = state.map.id, revision = state.map.revision;
+  state.versionsLoading = true;
+  try { const data = await api(`/maps/${mapId}/versions`); if (state.map?.id === mapId) { state.versions = { ...data, revision }; renderVersionsPanel(); } }
+  catch (error) { toast(error.message); if (state.map?.id === mapId) { state.versions = { versions: [], earlierMissing: false, revision, failed: true }; renderVersionsPanel(); } }
+  finally { state.versionsLoading = false; }
+}
+async function previewVersion(id, undo = null) {
+  const mapId = state.map?.id; if (!mapId || gesture || state.mutating) return;
+  try {
+    const preview = await api(`/maps/${mapId}/versions/${encodeURIComponent(id)}`);
+    if (state.map?.id !== mapId) return;
+    state.versionChoice = { ...preview, undo }; state.versionPreview = preview;
+    state.historySource = preview.map; state.historyStep = Math.max(0, growthTimeline(preview.map).latestStep);
+    renderMap(false, true);
+  } catch (error) { toast(error.message); }
+}
+async function restoreChosen() {
+  const choice = state.versionChoice; if (!choice) return;
+  returnLive();
+  if (await act(null, 'restore-version', { version: choice.version.id, expectedRevision: choice.revision, ...(choice.undo ? { undo: true } : {}) })) toast(choice.undo ? 'Undone. Versions keeps the change you undid.' : 'Restored. You can undo this from Versions.');
+  state.versions = null; loadVersions();
+}
+$('#show-versions').addEventListener('click', () => {
+  state.versionsOpen = !state.versionsOpen;
+  if (!state.versionsOpen && state.versionPreview) returnLive();
+  state.versionChoice = null; renderVersionsPanel();
+  if (state.versionsOpen) loadVersions();
+});
+$('#versions-panel').addEventListener('click', event => {
+  const button = event.target.closest('button'); if (!button) return;
+  if (button.dataset.version) previewVersion(button.dataset.version);
+  else if ('versionUndo' in button.dataset) { const undo = undoTarget(state.versions?.versions || [], state.contributor); if (undo) previewVersion(undo.target.id, undo); }
+  else if ('versionRestore' in button.dataset) restoreChosen();
+  else if ('versionBack' in button.dataset) { returnLive(); renderVersionsPanel(); }
+  else if ('versionClose' in button.dataset) { state.versionsOpen = false; returnLive(); }
+  else if ('versionUnname' in button.dataset) nameChosen(null);
+});
+$('#versions-panel').addEventListener('submit', event => { event.preventDefault(); nameChosen(new FormData(event.target).get('name')); });
+async function nameChosen(name) {
+  const choice = state.versionChoice; if (!choice) return;
+  const mapId = state.map.id;
+  try {
+    await api(`/maps/${mapId}/action`, { type: name === null ? 'unname-version' : 'name-version', version: choice.version.id, ...(name === null ? {} : { name }), expectedRevision: state.map.revision, expectedFingerprint: state.map.fingerprint ?? undefined });
+    toast(name === null ? 'Name removed.' : 'Version named. Named versions are always kept.');
+    choice.version = { ...choice.version, name: name === null ? undefined : String(name).trim() };
+    state.versions = null; renderVersionsPanel(); loadVersions();
+  } catch (error) { toast(error.message); }
+}
 
 let briefVersion = 0;
 async function showBrief(nodeId = null) {
@@ -332,7 +410,7 @@ function renderDetail(force = false) {
   const nearby = state.visibleMap.nodes.filter(node => node.id === n.parentId || node.parentId === n.id);
   const questionHtml = n.questions.map(q => q.answer || q.supersededAt || completed || historic ? `<div class="answer"><strong>${esc(q.text)}</strong>${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${q.answeredBy?.name ? `<small class="answered-by">Answered by ${esc(q.answeredBy.name)}${q.answeredAt ? ` · ${esc(new Date(q.answeredAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))}` : ''}</small>` : ''}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>` : `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">A question for you</div><p id="question-label-${q.id}">${esc(q.text)}</p><textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea><button type="submit" class="primary">Save answer & continue</button></form>`).join('');
   $('#detail').innerHTML = `<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span></div><h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}
-    ${historic ? '<p class="state-note history-detail-note">Read-only growth history. These are today’s findings and status, not a past version of the research.</p>' : ''}
+    ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${n.stale ? '<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.</p>' : ''}
     ${completed && !historic ? '<p class="state-note">This branch is complete. Add a new direction to keep exploring; these findings stay here.</p>' : ''}
     ${n.status === 'suggested' && !historic ? '<p class="state-note">A possible direction. Nothing runs until you choose to explore it.</p>' : ''}
@@ -391,7 +469,7 @@ function showCreate() {
   $('#create-dialog').showModal(); $('#idea').focus();
 }
 function showWelcome() {
-  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; localStorage.removeItem('explore-map'); navigation(false);
+  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.versionsOpen = false; localStorage.removeItem('explore-map'); navigation(false);
   $('#welcome').classList.remove('hidden'); $('#workspace').classList.add('hidden'); $('#map-title').textContent = 'A place to think'; renderRail();
 }
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
@@ -530,7 +608,7 @@ try {
   const session = await (await fetch('/api/session')).json(); state.token = session.token; state.session = session;
   $('#workspace-name').textContent = session.workspace;
   // Contributions are attributed by Git name; say plainly when there is none.
-  api('/contributor').then(person => { $('#contributor').textContent = person.name ? `You: ${person.name} (from Git)` : 'Answers aren’t attributed: Git has no user name.'; }).catch(() => {});
+  api('/contributor').then(person => { state.contributor = person.name; $('#contributor').textContent = person.name ? `You: ${person.name} (from Git)` : 'Answers aren’t attributed: Git has no user name.'; }).catch(() => {});
   await refresh();
   const saved = location.hash.slice(1) || localStorage.getItem('explore-map');
   if (saved && state.maps.some(m => m.id === saved)) await openMap(saved);

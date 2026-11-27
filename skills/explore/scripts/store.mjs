@@ -1,9 +1,11 @@
-import { mkdir, readFile, readdir, open, rename, writeFile, unlink } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
+import { atomicWrite, atomicJson } from './files.mjs';
+import { Versions, compareVersion, restorableHash, shouldRecord } from './versions.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -11,6 +13,8 @@ const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
 const kinds = new Set(['idea', 'question', 'research', 'decision', 'risk']);
 const relations = new Set(['depends_on', 'supports', 'contradicts', 'related_to']);
 const active = job => ['queued', 'running'].includes(job.status);
+// Built-in actions that cover the whole map rather than one idea.
+const mapLevelActions = new Set(['cancel-job', 'restore-version', 'name-version', 'unname-version']);
 // Only branch investigations complete an idea or count as its findings; other job types never do.
 export function isCompleted(map, node) {
   return !!node.completedAt || node.status === 'explored' || map.jobs.some(job => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && job.result && !job.result.questions?.length);
@@ -68,24 +72,22 @@ function safeUrl(value) {
   catch { throw new Problem('Source URL must be a valid HTTP or HTTPS URL.'); }
   return url;
 }
-// `beforeRename` runs once the new contents are synced; if it throws, the old file stays untouched.
-async function atomicWrite(file, contents, beforeRename) {
-  await mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${randomUUID()}.tmp`;
-  const handle = await open(temp, 'wx');
-  try { await handle.writeFile(contents); await handle.sync(); }
-  finally { await handle.close(); }
-  try { if (beforeRename) await beforeRename(); await rename(temp, file); }
-  catch (error) { await unlink(temp).catch(() => {}); throw error; }
-}
-export async function atomicJson(file, value) { await atomicWrite(file, JSON.stringify(value, null, 2) + '\n'); }
+export { atomicJson } from './files.mjs';
 
 export class Store {
-  constructor(directory, { registry = defaultRegistry } = {}) {
+  constructor(directory, { registry = defaultRegistry, versionLimits } = {}) {
     this.directory = path.resolve(directory); this.registry = registry; this.tail = Promise.resolve();
     // Per map: the exact bytes Explore last wrote or adopted, the latest outside change, and a lock
     // that keeps reads and adoption from interleaving with that map's saves.
     this.adopted = new Map(); this.outside = new Map(); this.locks = new Map(); this.basis = new WeakMap();
+    // How many events each loaded map had, so a save knows what changed and labels its version.
+    this.eventsAtLoad = new WeakMap();
+    this.versions = new Versions(this.directory, versionLimits);
+    // A preview compares a version with the map as it is now; it writes nothing.
+    this.versions.preview = async (mapId, id) => {
+      const current = await this.get(mapId), { version, map } = await this.versions.get(mapId, id);
+      return { version, map, revision: current.revision, ...compareVersion(current, map, isCompleted) };
+    };
   }
   serial(work) {
     const result = this.tail.then(work);
@@ -104,7 +106,7 @@ export class Store {
     try { bytes = await readFile(this.file(mapId)); }
     catch (error) { if (error.code === 'ENOENT') throw new Problem('Map not found.', 404, 'not-found'); throw error; }
     const map = parseMap(mapId, bytes), fingerprint = fingerprintOf(bytes);
-    this.basis.set(map, fingerprint);
+    this.basis.set(map, fingerprint); this.eventsAtLoad.set(map, map.history.length);
     return { map, bytes, fingerprint };
   }
   // Reading adopts what is on disk: after a pull or branch switch, that version is the map.
@@ -117,9 +119,15 @@ export class Store {
     if (!known || known.fingerprint === fingerprint) return; // The first read after start adopts silently.
     const change = { at: now(), preserved: null, inGit: false };
     this.outside.set(mapId, change);
-    // Keep the version that was replaced unless Git already has it, so ordinary pulls add no files.
-    try { change.inGit = await this.inGit(mapId, known.bytes); if (!change.inGit) change.preserved = await this.preserve(mapId, known.bytes, known.fingerprint); }
-    catch {} // Keeping a copy is a courtesy; the read itself must still succeed.
+    // Keep the version that was replaced as a version, unless version history or Git already has it,
+    // so ordinary pulls add no files.
+    try {
+      const replaced = JSON.parse(known.bytes.toString('utf8'));
+      const existing = await this.versions.findContent(mapId, replaced);
+      if (existing) change.preserved = existing.id;
+      else if (await this.inGit(mapId, known.bytes)) change.inGit = true;
+      else change.preserved = await this.versions.record(replaced, { labels: ['before-outside-change'] });
+    } catch {} // Keeping a copy is a courtesy; the read itself must still succeed.
   }
   // Asks Git for the object name these bytes would have as this map's file, applying the repository's
   // line-ending and attribute rules, then whether Git has that object. A Windows checkout's CRLF copy
@@ -134,14 +142,21 @@ export class Store {
       return true;
     } catch { return false; }
   }
-  async preserve(mapId, bytes, fingerprint) {
-    const dir = path.join(this.directory, mapId, 'preserved'), tag = fingerprint.slice(0, 16);
-    await mkdir(dir, { recursive: true });
-    const existing = (await readdir(dir)).find(name => name.endsWith(`-${tag}.json`));
-    if (existing) return `preserved/${existing}`;
-    const name = `${now().replace(/[:.]/g, '-')}-${tag}.json`;
-    await atomicWrite(path.join(dir, name), bytes);
-    return `preserved/${name}`;
+  // Copies kept by H3 before version history existed become versions labelled `preserved`.
+  async importPreserved(mapId) {
+    const dir = path.join(this.directory, mapId, 'preserved');
+    let names;
+    try { names = (await readdir(dir)).filter(name => name.endsWith('.json')); } catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    for (const name of names) {
+      try {
+        const kept = parseMap(mapId, await readFile(path.join(dir, name)));
+        const stamp = name.match(/^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)-(\d{3})Z/);
+        const at = stamp ? `${stamp[1]}T${stamp[2]}:${stamp[3]}:${stamp[4]}.${stamp[5]}Z` : undefined;
+        if (!await this.versions.findContent(mapId, kept)) await this.versions.record(kept, { labels: ['preserved'], at, kept: true });
+        if (!await this.versions.findContent(mapId, kept)) return; // Only delete what version history now holds.
+      } catch { return; } // Leave the folder for the user if a copy cannot be imported.
+    }
+    await rm(dir, { recursive: true, force: true });
   }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
   async list() {
@@ -162,21 +177,30 @@ export class Store {
     return [...readable.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), ...maps];
   }
   // A save writes only over the version its change was based on; otherwise someone changed the file meanwhile.
-  async save(map) {
+  // Each content change is recorded as a version just before map.json is replaced; moving ideas and the
+  // queue's own bookkeeping are not. `actor` is the contributor who made the change, if known.
+  async save(map, { actor = null } = {}) {
     map.revision += 1;
     map.updatedAt = now();
+    const labels = [...new Set(map.history.slice(this.eventsAtLoad.get(map) ?? 0).map(event => event.type))];
     const bytes = Buffer.from(JSON.stringify(map, null, 2) + '\n'), fingerprint = fingerprintOf(bytes);
+    let versionError = null;
     await this.withMapLock(map.id, async () => {
       const basis = this.basis.get(map);
       // Checked after the new file is written and synced, just before it replaces the old one.
       await atomicWrite(this.file(map.id), bytes, async () => {
-        if (!basis) return;
-        let onDisk = null;
-        try { onDisk = fingerprintOf(await readFile(this.file(map.id))); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-        if (onDisk !== basis) { map.revision -= 1; throw new Problem(changedOutside, 409, 'changed-outside'); }
+        if (basis) {
+          let onDisk = null;
+          try { onDisk = fingerprintOf(await readFile(this.file(map.id))); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+          if (onDisk !== basis) { map.revision -= 1; throw new Problem(changedOutside, 409, 'changed-outside'); }
+        }
       });
-      this.adopted.set(map.id, { fingerprint, bytes }); this.basis.set(map, fingerprint);
+      this.adopted.set(map.id, { fingerprint, bytes }); this.basis.set(map, fingerprint); this.eventsAtLoad.set(map, map.history.length);
+      // Recorded only once the change is saved, so no version ever shows content that was not.
+      // A failure to record never rolls back the map; it is reported after the save.
+      if (shouldRecord(labels)) { try { await this.versions.record(map, { labels, author: actor?.name }); } catch (error) { versionError = error; } }
     });
+    if (versionError) { await this.project(map).catch(() => {}); throw new Problem(`Map saved, but this version could not be recorded: ${versionError.message}`, 500); }
     // Views carry their revision: a crash here cannot make them authoritative.
     try { await this.project(map); }
     catch (error) {
@@ -319,11 +343,31 @@ export class Store {
       need(input.expectedRevision === map.revision, 'This map changed. Refresh and try again; your text has been kept.', 409);
       need((input.expectedFingerprint ?? known ?? fingerprint) === fingerprint, changedOutside, 409, 'changed-outside');
       const declared = Object.hasOwn(this.registry.actions, input.type) ? this.registry.actions[input.type] : null;
-      const mapLevel = input.type === 'cancel-job' || declared?.target === 'map';
+      const mapLevel = mapLevelActions.has(input.type) || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);
       if (!mapLevel) need(n, 'Node not found.', 404);
-      if (declared) { await declared.apply({ map, node: n, input, store: this, actor }); return this.save(map); }
+      if (declared) { await declared.apply({ map, node: n, input, store: this, actor }); return this.save(map, { actor }); }
+      // Naming a version changes only that version's file, so the map is not saved again.
+      if (input.type === 'name-version' || input.type === 'unname-version') {
+        await this.withMapLock(map.id, () => this.versions.name(map.id, input.version, input.type === 'name-version' ? input.name : null));
+        return map;
+      }
       switch (input.type) {
+        case 'restore-version': {
+          // A restore never starts research; work that was active in that version comes back interrupted.
+          need(!map.jobs.some(active), 'Wait until queued or running work finishes, or stop it, before restoring a version.', 409);
+          const { map: snapshot } = await this.versions.get(map.id, input.version);
+          need(isRecord(snapshot) && wellFormed(snapshot, map.id), 'This version is damaged and cannot be restored. Choose another version.', 409);
+          need(restorableHash(snapshot) !== restorableHash(map), 'The map already matches this version.', 409);
+          const positions = map.view?.positions || {};
+          Object.assign(map, { title: snapshot.title, originalIdea: snapshot.originalIdea, rootId: snapshot.rootId, nodes: snapshot.nodes, edges: snapshot.edges,
+            jobs: snapshot.jobs.map(job => active(job) ? { ...job, status: 'interrupted', finishedAt: now(), error: 'Interrupted by restoring an earlier version. Retry to continue.' } : job) });
+          for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
+          // Today's layout wins for ideas that still exist; the event log and growth history only grow.
+          map.view = { ...map.view, positions: Object.fromEntries(map.nodes.map(node => [node.id, positions[node.id] ?? snapshot.view?.positions?.[node.id]]).filter(([, point]) => point)) };
+          this.event(map, input.undo ? 'change-undone' : 'version-restored', null, input.version);
+          break;
+        }
         case 'cancel-job': {
           const job = map.jobs.find(j => j.id === input.jobId);
           need(job, 'Job not found.', 404);
@@ -390,7 +434,7 @@ export class Store {
           map.view.positions[n.id] = { x: input.x, y: input.y }; break;
         default: throw new Problem('Unknown action.');
       }
-      return this.save(map);
+      return this.save(map, { actor });
     });
   }
   contextNodes(map, node) {
@@ -565,6 +609,7 @@ export class Store {
     return this.serial(async () => {
       // An unreadable map is listed as such and left untouched; it never stops the others or startup.
       for (const item of (await this.list()).filter(item => !item.unreadable)) {
+        await this.importPreserved(item.id);
         const map = await this.get(item.id); let changed = false;
         for (const n of map.nodes) if (isCompleted(map, n) && n.status !== 'explored') {
           this.stopCompletedRepeat(map, n); changed = true;
