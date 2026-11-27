@@ -15,10 +15,18 @@ const registry = createRegistry({
     'test-map-check': { label: 'Test map check', target: 'map',
       packet: ({ map }) => ({ ideas: map.nodes.length, instruction: 'Count the ideas.' }),
       validate: result => ({ count: Number(result.count) }) },
+    'test-async': { label: 'Test async', target: 'node',
+      packet: async ({ node }) => ({ node: node.id, instruction: 'Built asynchronously.' }),
+      validate: async result => ({ note: String(result.note) }) },
+    'test-huge': { label: 'Test huge', target: 'map',
+      packet: () => ({ instruction: 'Too long. '.repeat(2000) }),
+      validate: result => result },
   },
   actions: {
     'request-helper': { target: 'node', apply: ({ map, node, input, store }) => { store.enqueueJob(map, { type: 'test-helper', nodeId: node.id, subjectId: input.questionId, reason: 'User asked for help.' }); } },
     'request-map-check': { target: 'map', apply: ({ map, store }) => { store.enqueueJob(map, { type: 'test-map-check', reason: 'User asked for a map check.' }); } },
+    'request-async': { target: 'node', apply: ({ map, node, store }) => { store.enqueueJob(map, { type: 'test-async', nodeId: node.id, reason: 'Async test.' }); } },
+    'request-huge': { target: 'map', apply: ({ map, store }) => { store.enqueueJob(map, { type: 'test-huge', reason: 'Huge test.' }); } },
     'rename-map': { target: 'map', apply: ({ map, input }) => { map.title = input.title; } },
   },
   settings: {
@@ -79,12 +87,14 @@ test('a completed helper job never completes its idea', async () => {
 
 test('failing, recovering and cancelling a helper job leave the idea unchanged', async () => {
   const { store, map } = await explored();
-  const status = () => store.get(map.id).then(m => m.nodes[0].status);
+  const before = await store.get(map.id);
+  const root = structuredClone(before.nodes[0]), growth = structuredClone(before.growth);
+  const unchanged = saved => { assert.deepEqual(saved.nodes[0], root); assert.deepEqual(saved.growth, growth); };
   await act(store, map.id, { type: 'request-helper', nodeId: map.rootId });
   let packet = await store.claim('test');
   let saved = await store.fail(map.id, packet.jobId, packet.claimKey, 'Could not help.');
   assert.equal(saved.jobs.find(j => j.id === packet.jobId).status, 'failed');
-  assert.equal(await status(), 'awaiting-answer');
+  unchanged(saved);
 
   await act(store, map.id, { type: 'request-helper', nodeId: map.rootId });
   packet = await store.claim('test');
@@ -92,14 +102,74 @@ test('failing, recovering and cancelling a helper job leave the idea unchanged',
   await restarted.recover();
   saved = await restarted.get(map.id);
   assert.equal(saved.jobs.find(j => j.id === packet.jobId).status, 'interrupted');
-  assert.equal(saved.nodes[0].status, 'awaiting-answer');
+  unchanged(saved);
 
   saved = await act(restarted, map.id, { type: 'request-helper', nodeId: map.rootId });
   const queued = saved.jobs.at(-1);
   saved = await act(restarted, map.id, { type: 'cancel-job', jobId: queued.id });
   assert.equal(saved.jobs.find(j => j.id === queued.id).status, 'cancelled');
-  assert.equal(saved.nodes[0].status, 'awaiting-answer');
+  unchanged(saved);
   await assert.rejects(act(restarted, map.id, { type: 'cancel-job', jobId: queued.id }), error => error.status === 409);
+
+  await act(restarted, map.id, { type: 'request-helper', nodeId: map.rootId });
+  packet = await restarted.claim('test');
+  saved = await act(restarted, map.id, { type: 'cancel-job', jobId: packet.jobId });
+  assert.equal(saved.jobs.find(j => j.id === packet.jobId).status, 'cancelled', 'running work can be stopped too');
+  await assert.rejects(restarted.complete(map.id, packet.jobId, packet.claimKey, { note: 'Too late.' }), error => error.status === 409);
+  unchanged(await restarted.get(map.id));
+});
+
+test('map-level work can fail and be stopped like work on an idea', async () => {
+  const { store, map } = await explored();
+  await act(store, map.id, { type: 'request-map-check' });
+  let packet = await store.claim('test');
+  let saved = await store.fail(map.id, packet.jobId, packet.claimKey, 'Could not count.');
+  assert.equal(saved.jobs.find(j => j.id === packet.jobId).status, 'failed');
+  saved = await act(store, map.id, { type: 'request-map-check' });
+  saved = await act(store, map.id, { type: 'cancel-job', jobId: saved.jobs.at(-1).id });
+  assert.equal(saved.jobs.at(-1).status, 'cancelled');
+});
+
+test('a helper result whose idea changed while it ran is kept but marked stale', async () => {
+  const { store, map } = await explored();
+  await act(store, map.id, { type: 'request-helper', nodeId: map.rootId });
+  const packet = await store.claim('test');
+  const current = await store.get(map.id);
+  await act(store, map.id, { type: 'answer', nodeId: map.rootId, questionId: current.nodes[0].questions[0].id, answer: 'The owner decides.' });
+  const saved = await store.complete(map.id, packet.jobId, packet.claimKey, { note: 'Written before the answer.' });
+  const job = saved.jobs.find(j => j.id === packet.jobId);
+  assert.equal(job.status, 'completed'); assert.equal(job.stale, true);
+  assert.deepEqual(job.result, { note: 'Written before the answer.' });
+});
+
+test('asynchronous packet builders and validators are awaited', async () => {
+  const { store, map } = await explored();
+  await act(store, map.id, { type: 'request-async', nodeId: map.rootId });
+  const packet = await store.claim('test');
+  assert.equal(packet.instruction, 'Built asynchronously.');
+  const saved = await store.complete(map.id, packet.jobId, packet.claimKey, { note: 'Awaited.' });
+  assert.deepEqual(saved.jobs.find(j => j.id === packet.jobId).result, { note: 'Awaited.' });
+});
+
+test('work too large for the packet budget fails with a reason and the queue moves on', async () => {
+  const { store, map } = await explored();
+  await act(store, map.id, { type: 'request-huge' });
+  await act(store, map.id, { type: 'request-helper', nodeId: map.rootId });
+  const packet = await store.claim('test');
+  assert.equal(packet.jobType, 'test-helper');
+  const huge = (await store.get(map.id)).jobs.find(j => j.type === 'test-huge');
+  assert.equal(huge.status, 'failed'); assert.match(huge.error, /packet budget/); assert.equal(huge.claimKey, undefined);
+});
+
+test('work this version cannot run is not counted as waiting', async () => {
+  const { store, map } = await explored();
+  const saved = await store.get(map.id);
+  saved.jobs.push({ id: 'job-0000beef', type: 'from-the-future', nodeId: null, status: 'queued', reason: 'Newer Explore.', createdAt: new Date().toISOString() });
+  await writeFile(store.file(map.id), JSON.stringify(saved, null, 2));
+  assert.equal((await store.list())[0].pending, 0);
+  const view = store.view(await store.get(map.id));
+  assert.equal(view.jobs.find(j => j.id === 'job-0000beef').unsupported, true);
+  assert.equal(view.jobs.find(j => j.id !== 'job-0000beef').unsupported, undefined);
 });
 
 test('cancel-job leaves branch investigations to the existing cancel action', async () => {
@@ -210,6 +280,23 @@ test('settings are shared in the repo next to the maps and validated per field',
   await assert.rejects(store.updateSettings({ expectedRevision: 0, 'test-minutes': 2 }), error => error.status === 409);
   await assert.rejects(access(path.join(dir, '.explore')), 'settings never go to the local runtime folder');
   assert.equal((await store.list()).length, 1, 'the settings file is not mistaken for a map');
+});
+
+test('a save with no settings changes nothing and creates no file', async () => {
+  const { dir, store } = await fixture();
+  await assert.rejects(store.updateSettings({ expectedRevision: 0 }), error => error.status === 400 && /Choose a setting/.test(error.message));
+  await assert.rejects(access(path.join(dir, 'ideas', 'settings.json')));
+});
+
+test('settings saved by a newer Explore version are shown as defaults and never overwritten', async () => {
+  const { dir, store } = await fixture();
+  const file = path.join(dir, 'ideas', 'settings.json');
+  const newer = JSON.stringify({ version: 2, revision: 7, 'test-minutes': 10, futureField: 'kept' });
+  await writeFile(file, newer);
+  const settings = await store.getSettings();
+  assert.equal(settings.newer, true); assert.equal(settings['test-minutes'], 2);
+  await assert.rejects(store.updateSettings({ expectedRevision: settings.revision, 'test-minutes': 10 }), error => error.status === 409 && /newer version/.test(error.message));
+  assert.equal(await readFile(file, 'utf8'), newer);
 });
 
 test('an unreadable settings file falls back to defaults and is replaced only by a save', async () => {

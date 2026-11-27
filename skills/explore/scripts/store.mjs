@@ -67,7 +67,7 @@ export class Store {
     for (const entry of entries.filter(e => e.isDirectory() && /^map-[a-f0-9]{8}$/.test(e.name))) {
       const m = await this.get(entry.name);
       maps.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt,
-        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued').length });
+        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length });
     }
     return maps.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
@@ -321,8 +321,8 @@ export class Store {
     return packet;
   }
   // Packet for a registered job type: shared identifying fields plus the type's own fields.
-  typedPacket(map, job, definition, node, budget = 15500) {
-    const packet = { ...definition.packet({ map, job, node, budget }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
+  async typedPacket(map, job, definition, node, budget = 15500) {
+    const packet = { ...await definition.packet({ map, job, node, budget }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
       jobId: job.id, jobType: job.type, claimKey: job.claimKey, reason: job.reason };
     need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);
     packet.contextCharacters = JSON.stringify(packet).length;
@@ -351,7 +351,7 @@ export class Store {
           }
           Object.assign(job, { status: 'running', worker, claimKey: randomUUID(), startedAt: now(), ...(n ? { inputSignature: this.signature(map, n) } : {}) });
           let packet;
-          try { packet = investigation ? this.packet(map, job) : this.typedPacket(map, job, definition, n); }
+          try { packet = investigation ? this.packet(map, job) : await this.typedPacket(map, job, definition, n); }
           catch (error) {
             Object.assign(job, { status: 'failed', finishedAt: now(), error: error.message }); delete job.claimKey;
             if (investigation) n.status = 'interrupted';
@@ -399,7 +399,10 @@ export class Store {
         need(definition, 'This version of Explore does not know this kind of work.', 409);
         const node = job.nodeId ? map.nodes.find(n => n.id === job.nodeId) || null : null;
         // The result stays on the job record: only investigations change an idea.
-        Object.assign(job, { status: 'completed', finishedAt: now(), result: definition.validate(object(result, 'Result'), { map, job, node }), stale: false });
+        const normalized = await definition.validate(object(result, 'Result'), { map, job, node });
+        // Like an investigation, work whose idea changed while it ran is kept but marked stale.
+        const stale = !!(job.inputSignature && node && job.inputSignature !== this.signature(map, node));
+        Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
         this.event(map, 'job-result', job.nodeId, `${definition.label}; ${job.id}`);
         return this.save(map);
       }
@@ -472,8 +475,10 @@ export class Store {
     catch (error) { if (error.code === 'ENOENT') return { saved: {}, settings: { version: 1, revision: 0, ...defaults } }; throw error; }
     let saved = null;
     try { saved = JSON.parse(raw); } catch {}
-    if (!saved || typeof saved !== 'object' || Array.isArray(saved) || saved.version !== 1 || !Number.isSafeInteger(saved.revision) || saved.revision < 0)
-      return { saved: {}, settings: { version: 1, revision: 0, ...defaults, unreadable: true } };
+    const shaped = saved && typeof saved === 'object' && !Array.isArray(saved) && Number.isSafeInteger(saved.revision) && saved.revision >= 0;
+    // A newer format is shown as defaults and left alone; only that newer version may change it.
+    if (shaped && Number.isSafeInteger(saved.version) && saved.version > 1) return { saved, newer: true, settings: { version: 1, revision: saved.revision, ...defaults, newer: true } };
+    if (!shaped || saved.version !== 1) return { saved: {}, settings: { version: 1, revision: 0, ...defaults, unreadable: true } };
     const values = {};
     for (const [key, field] of Object.entries(this.registry.settings)) {
       try { values[key] = Object.hasOwn(saved, key) ? field.validate(saved[key]) : field.default; } catch { values[key] = field.default; }
@@ -484,17 +489,25 @@ export class Store {
   updateSettings(input) {
     return this.serial(async () => {
       object(input, 'Settings');
-      const { saved, settings } = await this.readSettings();
+      const { saved, settings, newer } = await this.readSettings();
+      need(!newer, 'These settings were saved by a newer version of Explore. Update Explore to change them.', 409);
       need(input.expectedRevision === settings.revision, 'Settings changed. Refresh and try again.', 409);
       const changes = {};
       for (const [key, value] of Object.entries(input)) {
         if (key === 'expectedRevision') continue;
         need(Object.hasOwn(this.registry.settings, key), `Unknown setting: ${key}.`);
-        changes[key] = this.registry.settings[key].validate(value);
+        changes[key] = await this.registry.settings[key].validate(value);
       }
+      need(Object.keys(changes).length > 0, 'Choose a setting to change.');
       await atomicJson(this.settingsFile(), { ...saved, ...changes, version: 1, revision: settings.revision + 1 });
       return this.getSettings();
     });
+  }
+  // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
+  view(map) {
+    const clone = publicMap(map);
+    for (const job of clone.jobs) if (!this.jobType(jobTypeOf(job))) job.unsupported = true;
+    return clone;
   }
   stopCompletedRepeat(map, node) {
     for (const job of map.jobs.filter(j => j.nodeId === node.id && isInvestigation(j) && active(j))) {

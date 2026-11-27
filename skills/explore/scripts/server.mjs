@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, open, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { Store, Problem, publicMap, atomicJson } from './store.mjs';
+import { Store, Problem, atomicJson } from './store.mjs';
 import { contextExcerpt } from './context.mjs';
 import { mapBrief } from './brief.mjs';
 
@@ -60,7 +60,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
         if (req.method === 'GET' && contextRoute) return send(res, 200, contextExcerpt(await store.get(contextRoute[1]), url.searchParams.get('node'), Object.fromEntries(url.searchParams)));
         const match = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)(?:\/(action|result|fail))?$/);
-        if (req.method === 'GET' && match && !match[2]) return send(res, 200, publicMap(await store.get(match[1])));
+        if (req.method === 'GET' && match && !match[2]) return send(res, 200, store.view(await store.get(match[1])));
         if (req.method === 'GET' && url.pathname === '/api/next') {
           const workerName = (url.searchParams.get('worker') || 'agent').slice(0, 100);
           const mapId = url.searchParams.get('map') || null;
@@ -84,12 +84,12 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         for await (const chunk of req) { bytes += chunk.length; if (bytes > 180000) throw new Problem('Request is too large.', 413); chunks.push(chunk); }
         const raw = Buffer.concat(chunks).toString('utf8');
         let body; try { body = JSON.parse(raw); } catch { throw new Problem('Invalid JSON.'); }
-        if (url.pathname === '/api/maps') return send(res, 201, publicMap(await store.create(body)));
-        if (url.pathname === '/api/demo') return send(res, 201, publicMap(await store.demo()));
+        if (url.pathname === '/api/maps') return send(res, 201, store.view(await store.create(body)));
+        if (url.pathname === '/api/demo') return send(res, 201, store.view(await store.demo()));
         if (url.pathname === '/api/settings') return send(res, 200, await store.updateSettings(body));
-        if (match?.[2] === 'action') return send(res, 200, publicMap(await store.action(match[1], body)));
-        if (match?.[2] === 'result') return send(res, 200, publicMap(await store.complete(match[1], body.jobId, body.claimKey, body.result)));
-        if (match?.[2] === 'fail') return send(res, 200, publicMap(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
+        if (match?.[2] === 'action') return send(res, 200, store.view(await store.action(match[1], body)));
+        if (match?.[2] === 'result') return send(res, 200, store.view(await store.complete(match[1], body.jobId, body.claimKey, body.result)));
+        if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
       const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };

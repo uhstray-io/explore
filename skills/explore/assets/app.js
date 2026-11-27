@@ -39,7 +39,7 @@ function connectionView(offline = false) {
   $('#bridge-status').classList.toggle('connected', connected);
   $('#bridge-status span').textContent = offline ? 'Server disconnected' : connected ? 'Agent is listening' : state.bridge.listening ? 'Agent on another map' : 'Connect your agent';
   const hint = $('#empty-hint');
-  hint.classList.toggle('hidden', !state.map || state.historyStep !== null || connected || !state.map.jobs.some(j => j.status === 'queued'));
+  hint.classList.toggle('hidden', !state.map || state.historyStep !== null || connected || !state.map.jobs.some(j => j.status === 'queued' && !j.unsupported));
   hint.textContent = 'Queued safely. Use the agent button above to continue.';
 }
 function renderRail() {

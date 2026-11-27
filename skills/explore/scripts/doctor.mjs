@@ -44,7 +44,7 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
   let workspaceExists = false;
   try { workspaceExists = (await stat(workspace)).isDirectory(); } catch { /* Report missing/inaccessible without raw errors. */ }
   add('workspace', workspaceExists ? 'ok' : 'error', workspaceExists ? 'Workspace directory is accessible.' : 'Use an existing, accessible workspace directory.');
-  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/style.css', 'assets/constellation.css'];
+  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/style.css', 'assets/constellation.css'];
   const missing = [];
   for (const file of files) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
   add('package', missing.length ? 'error' : 'ok', missing.length ? `Restore the complete skill package; missing: ${missing.join(', ')}.` : 'Skill scripts, references, and browser assets are accessible.');
