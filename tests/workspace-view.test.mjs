@@ -215,3 +215,22 @@ test('arrow keys move around the menu and wrap; Home and End jump to the ends', 
   assert.equal(menuFocusIndex(2, 'End', 5), 4);
   assert.equal(menuFocusIndex(2, 'x', 5), 2);
 });
+
+test('the question sequence follows the newest batch and counts what is handled', async () => {
+  const { questionSequence } = await import('../skills/explore/assets/workspace-view.js');
+  const old = { id: 'q0', text: 'Earlier?', answer: 'Yes.', jobId: 'job-1' };
+  const a = { id: 'q1', text: 'One?', answer: 'Done.', jobId: 'job-2' }, b = { id: 'q2', text: 'Two?', answer: null, jobId: 'job-2' }, c = { id: 'q3', text: 'Three?', answer: null, jobId: 'job-2' };
+  let sequence = questionSequence({ questions: [old, a, b, c] });
+  assert.deepEqual([sequence.current.id, sequence.index, sequence.total, sequence.remaining], ['q2', 2, 3, 2]);
+  sequence = questionSequence({ questions: [old, a, { ...b, deferredAt: 't' }, c] });
+  assert.deepEqual([sequence.current.id, sequence.index, sequence.total], ['q3', 3, 3], 'answer later advances');
+  sequence = questionSequence({ questions: [old, a, { ...b, dismissedAt: 't', replacedBy: 'pending' }, c] });
+  assert.equal(sequence.current.id, 'q3'); assert.equal(sequence.total, 3, 'a pending regeneration still counts');
+  const replacement = { id: 'q4', text: 'Better two?', answer: null, jobId: 'job-9', replaces: 'q2' };
+  sequence = questionSequence({ questions: [old, a, { ...b, dismissedAt: 't', replacedBy: 'q4' }, { ...c, answer: 'x' }, replacement] });
+  assert.deepEqual([sequence.current.id, sequence.index, sequence.total], ['q4', 3, 3], 'a replacement takes its original’s place');
+  sequence = questionSequence({ questions: [old, { ...a }, { ...b, answer: 'x' }, { ...c, answer: 'y' }] });
+  assert.equal(sequence.current, null); assert.equal(sequence.total, 3); assert.equal(sequence.remaining, 0);
+  const legacy = questionSequence({ questions: [{ id: 'l1', text: 'A?', answer: null }, { id: 'l2', text: 'B?', answer: null }] });
+  assert.deepEqual([legacy.current.id, legacy.index, legacy.total], ['l1', 1, 2], 'older maps: all open questions are one batch');
+});
