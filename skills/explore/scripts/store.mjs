@@ -691,19 +691,18 @@ export class Store {
       need(job && holdsClaim(job, claimKey), 'The job claim is not valid.', 409);
       // A retried delivery must not create duplicate branches or re-run checks; it repeats the saved warning codes.
       if (job.status === 'completed') return { map, warnings: job.resultWarnings ?? [] };
-      const { definition, node, normalized, errors, warnings } = await this.prepareDelivery(map, job, result);
+      const { definition, node: n, normalized, errors, warnings } = await this.prepareDelivery(map, job, result);
       if (errors.length) throw new Problem('This result breaks the exploration rules. Fix the listed items and send it again with the same claim.', 400, 'result-checks', errors);
       if (!isInvestigation(job)) {
         // The result stays on the job record: only investigations change an idea.
         // Like an investigation, work whose idea changed while it ran is kept but marked stale.
-        const stale = definition.isStale ? !!definition.isStale({ map, job, node }) : !!(job.inputSignature && node && job.inputSignature !== this.signature(map, node));
+        const stale = definition.isStale ? !!definition.isStale({ map, job, node: n }) : !!(job.inputSignature && n && job.inputSignature !== this.signature(map, n));
         Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
         // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
         if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });
         this.event(map, 'job-result', job.nodeId, `${definition.label}; ${job.id}`);
         return { map: await this.save(map), warnings: [] };
       }
-      const n = node;
       const stale = job.inputSignature !== this.signature(map, n);
       Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale }, warnings.length ? { resultWarnings: warnings.map(({ code, field }) => ({ code, field })) } : {});
       if (stale) {

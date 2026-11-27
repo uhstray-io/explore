@@ -28,7 +28,9 @@ const q = text => ({ text });
 
 test('re-asking an answered question or repeating one within a result is an error', () => {
   assert.deepEqual(codes(checkAgainstMap(result({ questions: [q('who edits the notes')] }), map, root).errors), ['answered-question questions[0]']);
-  assert.deepEqual(codes(checkAgainstMap(result({ questions: [q('Which colour')] }), map, root).errors), ['dismissed-question questions[0]'], 'the user dismissed it');
+  assert.deepEqual(codes(checkAgainstMap(result({ questions: [q('Which colour')] }), map, root).errors), ['dismissed-question questions[0]'], 'dismissed on this idea');
+  const elsewhere = checkAgainstMap(result({ questions: [q('Which colour?')] }), map, map.nodes[1]);
+  assert.deepEqual([codes(elsewhere.errors), codes(elsewhere.warnings)], [[], ['dismissed-elsewhere questions[0]']], 'dismissed on another idea only warns');
   assert.deepEqual(codes(checkAgainstMap(result({ questions: [q('Which phones?'), q('which  phones')] }), map, root).errors), ['duplicate-question questions[1]']);
   assert.deepEqual(codes(checkAgainstMap(result({ suggestions: [{ title: 'Offline maps' }, { title: 'Offline maps.' }] }), map, root).errors), ['duplicate-suggestion suggestions[1]']);
   const { message } = checkAgainstMap(result({ questions: [q(`Who edits the notes?${' '.repeat(3)}`)] }), map, root).errors[0];

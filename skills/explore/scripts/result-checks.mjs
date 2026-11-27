@@ -1,6 +1,6 @@
 // Result checks (K3): the skill's own exploration rules, applied to an investigation result before it is
-// saved. Errors are certain breaches (re-asking what the user already answered or dismissed, or repeating
-// something in one result): the result is rejected and the agent fixes and resends it with the same claim.
+// saved. Errors are certain breaches (re-asking what the user already answered, or dismissed on this idea, or
+// repeating something in one result): the result is rejected and the agent fixes and resends it with the same claim.
 // Everything heuristic is only a warning, so a false positive never blocks delivery.
 
 // Comparisons ignore case, repeated whitespace and trailing punctuation.
@@ -25,13 +25,16 @@ const weakNote = source => normal(source.note) === normal(source.title) || sourc
 export function checkAgainstMap(result, map, node) {
   const errors = [], warnings = [], earlier = map.nodes.flatMap(n => n.questions);
   const answered = keys(earlier.filter(q => q.answer && !q.supersededAt).map(q => q.text));
-  const dismissed = keys(earlier.filter(q => q.dismissedAt && !q.supersededAt).map(q => q.text));
+  // A dismissal means "not useful here": the agent sees this idea's dismissals, not every branch's.
+  const dismissedHere = keys(node.questions.filter(q => q.dismissedAt && !q.supersededAt).map(q => q.text));
+  const dismissedElsewhere = keys(map.nodes.filter(n => n.id !== node.id).flatMap(n => n.questions).filter(q => q.dismissedAt && !q.supersededAt).map(q => q.text));
   const superseded = keys(earlier.filter(q => q.answer && q.supersededAt).map(q => q.text));
   const titles = keys(map.nodes.map(n => n.title)), seenQuestions = new Set(), seenTitles = new Set();
   result.questions.forEach((question, i) => {
     const field = `questions[${i}]`, key = normal(question.text);
     if (answered.has(key)) errors.push({ code: 'answered-question', field, message: `${quote(question.text)} was already answered. Build on the saved answer instead of asking again.` });
-    else if (dismissed.has(key)) errors.push({ code: 'dismissed-question', field, message: `${quote(question.text)} was dismissed by the user. Do not ask it again.` });
+    else if (dismissedHere.has(key)) errors.push({ code: 'dismissed-question', field, message: `${quote(question.text)} was dismissed by the user on this idea. Do not ask it again.` });
+    else if (dismissedElsewhere.has(key)) warnings.push({ code: 'dismissed-elsewhere', field, message: `${quote(question.text)} was dismissed on another idea. Ask it here only if it matters for this one.` });
     else if (superseded.has(key)) warnings.push({ code: 'superseded-question', field, message: `${quote(question.text)} was answered under an earlier premise. Ask again only if the change makes that answer doubtful.` });
     if (seenQuestions.has(key)) errors.push({ code: 'duplicate-question', field, message: `${quote(question.text)} appears twice in this result.` });
     if (compound(question.text)) warnings.push({ code: 'compound-question', field, message: `${quote(question.text)} may ask two things. Ask one thing per question.` });

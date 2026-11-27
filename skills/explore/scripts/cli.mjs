@@ -85,7 +85,7 @@ try {
         const m = await api(`/api/maps/${claim.mapId}/${command}`, payload);
         if (check) { output = { mapId: claim.mapId, ...m }; if (!m.ok) process.exitCode = 1; break; } // So `result --check && result` stops.
         output = { saved: true, mapId: m.id, revision: m.revision, job: m.jobs.find(j => j.id === claim.jobId)?.status,
-          stale: m.jobs.find(j => j.id === claim.jobId)?.stale || false, warnings: m.warnings ?? [] };
+          stale: m.jobs.find(j => j.id === claim.jobId)?.stale || false, warnings: m.warnings };
         break;
       }
       case 'read': {
