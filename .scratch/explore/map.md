@@ -37,6 +37,8 @@ Research synthesis: [persistent exploration workspace proposal](../../docs/resea
 - [Track map growth and replay its history](issues/12-map-growth-history.md) has an additions-only implementation on the review branch; visual owner acceptance remains pending.
 - [Make exploration easier to navigate, resume, and review](issues/13-exploration-workspace.md) records the 2026-10-29 improvement initiative on `codex/exploration-workspace`. Start with its [review guide](../../docs/review-guide.md) and [verification record](../../docs/iterations/2026-10-29.md).
 
+- 2026-11-27: renamed to Explore and planned the next features as GitHub issues #1–#69, tracked in #70. Start with [the roadmap](../../docs/roadmap.md).
+
 ## Not yet specified
 
 - Detailed interaction between live grilling, proposed branches, and evidence on the canvas.

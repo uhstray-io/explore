@@ -6,6 +6,10 @@ A skill for exploring complex ideas through a persistent visual mind map, focuse
 
 Target environments: Codex, Claude Code, and GitHub Copilot. The first working trial uses the invoking Codex agent; Claude Code and Copilot live execution still need hands-on validation.
 
+## Roadmap
+
+Planned features are [GitHub issues](https://github.com/uhstray-io/explore/issues), tracked in [#70](https://github.com/uhstray-io/explore/issues/70). [The roadmap](docs/roadmap.md) records branch state, open decisions and known defects.
+
 ## Exploration workspace review
 
 The `codex/exploration-workspace` branch adds focused progress navigation, map and branch briefs, a read-only growth timeline, and better startup/resumption guidance. Start with [the review guide](docs/review-guide.md) for decisions, limits, and a walkthrough. Run `node scripts/review-demo.mjs --serve` to try an isolated illustrative map without modifying your saved ideas.

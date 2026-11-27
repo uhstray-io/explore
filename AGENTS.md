@@ -23,8 +23,8 @@ This repository contains a portable agent skill plus its dependency-free local w
 
 Do not use the owner's `ideas/` for tests. `.explore/` (or `.grill-my-mind/` in workspaces from before the rename) contains runtime credentials and claims: never commit it or print its token fields. Standalone `prototypes/` snapshots are preserved comparisons, not the live app.
 
-## Review context
+## Planned work
 
-Read `docs/review-guide.md` for the improvement branch and its limits, and `.scratch/explore/map.md` for the local issue tracker. Record decisions with reasons and verification, not hidden reasoning. A copied skill package or simulated worker test does not prove live Claude Code/Copilot compatibility.
+Planned features are GitHub issues on `uhstray-io/explore`, tracked in #70. Read `docs/roadmap.md` before picking an issue, switching branches or merging: it records branch state, decisions still open with the owner, and known defects. Earlier design decisions are in `.scratch/explore/map.md`. Record new decisions with reasons and verification, not hidden reasoning. A copied skill package or simulated worker test does not prove live Claude Code/Copilot compatibility.
 
-The owner requested review on `codex/exploration-workspace`. Do not merge or push main as part of this initiative. Keep pre-existing owner map edits out of implementation commits.
+The owner merges into `main`. Commit owner map edits under `ideas/` separately from implementation work.
