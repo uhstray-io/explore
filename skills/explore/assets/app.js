@@ -144,7 +144,8 @@ function zoom(factor, cx = $('#canvas').clientWidth / 2, cy = $('#canvas').clien
   state.x = cx - (cx - state.x) * ratio; state.y = cy - (cy - state.y) * ratio; state.scale = next; transform();
 }
 function selectNode(nodeId) {
-  for (const shown of document.querySelectorAll('#detail details.question-help[open]')) markHelpSeen(shown.dataset.help);
+  // Help that was open while its idea was shown counts as seen once the selection moves elsewhere.
+  if (nodeId !== state.selected) for (const shown of document.querySelectorAll('#detail details.question-help[open]')) markHelpSeen(shown.dataset.help);
   state.selected = visibleSelection(state.visibleMap, nodeId);
   showAddress();
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
