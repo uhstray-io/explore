@@ -101,6 +101,13 @@ export class Versions {
       if (kept > 1 && (kept > this.limits.count || bytes > this.limits.bytes)) await unlink(this.file(mapId, version.id)).catch(() => {});
     }
   }
+  // Removes one unnamed, unimported version: the storage cleanup's only way to delete history (J5).
+  async remove(mapId, id) {
+    const file = this.file(mapId, id), version = (await this.scan(mapId)).find(item => item.id === id);
+    need(version, 'Version not found.', 404);
+    need(!version.name && !version.kept, 'Named and imported versions are always kept.', 409);
+    await unlink(file); this.headers.delete(file);
+  }
   async name(mapId, id, name) {
     const file = this.file(mapId, id), versions = await this.scan(mapId);
     need(versions.some(version => version.id === id), 'Version not found.', 404);

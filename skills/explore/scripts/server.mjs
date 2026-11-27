@@ -11,6 +11,7 @@ import { exportMap } from './transfer.mjs';
 import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
+import { createStorage } from './storage.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
 
@@ -36,6 +37,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
   const store = new Store(dataDirectory || path.join(workspace, 'ideas'), { ...(registry ? { registry } : {}), onSaved: map => listeners.noteActivity(map.id) });
   const contributor = gitContributor(workspace), version = await packageVersion();
   let address, worker = '', closing = false;
+  const storage = createStorage(store, { runtime });
   const bridgeStatus = () => ({ ...listeners.status(), worker });
   try { await store.recover(); } catch (error) { await unlink(lockPath); throw error; }
   const send = (res, status, data) => {
@@ -54,6 +56,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
       if (url.pathname.startsWith('/api/')) {
         if (req.headers.authorization !== `Bearer ${token}`) throw new Problem('Open the workspace again to reconnect.', 401);
         if (req.method === 'GET' && url.pathname === '/api/maps') return send(res, 200, { maps: await store.list(), bridge: bridgeStatus() });
+        if (req.method === 'GET' && url.pathname === '/api/storage') return send(res, 200, await storage.inventory());
         if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, await store.getSettings());
         if (req.method === 'GET' && url.pathname === '/api/contributor') { const actor = await contributor(); return send(res, 200, actor ? { name: actor.name, source: 'git' } : { name: null }); }
         const briefRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/brief$/);
@@ -117,6 +120,8 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (url.pathname === '/api/maps') return send(res, 201, store.view(await store.create(body)));
         if (url.pathname === '/api/demo') return send(res, 201, store.view(await store.demo()));
         if (url.pathname === '/api/settings') return send(res, 200, await store.updateSettings(body));
+        if (url.pathname === '/api/storage/preview') return send(res, 200, await storage.preview(body));
+        if (url.pathname === '/api/storage/clean') return send(res, 200, await storage.clean(body));
         if (url.pathname === '/api/import') return send(res, 200, await store.importMap(body.data, { asCopy: body.asCopy === true }));
         if (match?.[2] === 'action') return send(res, 200, store.view(await store.action(match[1], body, { actor: await contributor() })));
         if (match?.[2] === 'result') {
@@ -127,7 +132,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/storage-dialog.js': 'storage-dialog.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
