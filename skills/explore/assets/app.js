@@ -1,6 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { agentDialog } from './agent-dialog.js';
+import { createAlerts } from './alerts.js';
 import { questionClick } from './question-clicks.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived } from './workspace-view.js';
@@ -54,7 +55,8 @@ function renderRail() {
   if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
 }
 async function refresh({ force = false } = {}) {
-  if (state.refreshing || state.mutating || gesture || (document.hidden && !force)) return;
+  if (state.refreshing || state.mutating || gesture || (document.hidden && !force && Date.now() - (state.hiddenPolledAt ?? 0) < 15000)) return;
+  if (document.hidden) state.hiddenPolledAt = Date.now(); // A hidden tab still checks, every 15 seconds, for alerts.
   state.refreshing = true;
   const version = openVersion;
   const previouslyListening = agentListening();
@@ -71,6 +73,7 @@ async function refresh({ force = false } = {}) {
       const mapId = state.map.id, mutations = state.mutations, map = await api(`/maps/${mapId}`);
       if (version === openVersion && state.map?.id === mapId && !state.mutating && !gesture && mutations === state.mutations) {
         if (tidyArrived(state.map.jobs, map.jobs, state.selected)) toast('Your tidied wording is ready under your answer.');
+        alerts.notice(state.map, map);
         state.map = map; renderMap();
         const note = outsideChangeNote(map.outsideChange, state.outsideSeen[mapId]);
         state.outsideSeen[mapId] = map.outsideChange?.at; if (note) toast(note);
@@ -712,6 +715,8 @@ function showWelcome() {
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
 $('#new-map').addEventListener('click', showCreate); $('#start-exploration').addEventListener('click', showCreate);
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
+// Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
+const alerts = createAlerts({ focusNode: nodeId => focusNode(nodeId) });
 const showHelp = agentDialog({ api, toast, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
 $('#create-form').addEventListener('submit', async event => {

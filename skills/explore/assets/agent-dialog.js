@@ -1,4 +1,5 @@
 import { listenChoices } from './listening.js';
+import { notifyKey } from './alerts.js';
 
 // The prompt to paste into a coding agent: continue this workspace, and this map when one is open.
 export function agentPrompt(session, map) {
@@ -32,7 +33,22 @@ export function agentDialog({ api, toast, session, map }) {
     try { await navigator.clipboard.writeText($('#agent-prompt').value); status.textContent = 'Prompt copied. Paste it into your coding agent.'; }
     catch { $('#agent-prompt').focus(); $('#agent-prompt').select(); status.textContent = 'Copy the selected prompt above.'; }
   });
+  // Notify me in the background (K12). The browser is asked only here, when the user turns it on; never on load.
+  const notify = $('#notify-toggle'), notifyNote = $('#notify-note');
+  const permission = () => typeof Notification === 'function' ? Notification.permission : 'unavailable';
+  const describeNotify = () => {
+    notifyNote.textContent = permission() === 'denied' || permission() === 'unavailable' ? 'This browser will not show notifications here. The count in the tab title still works.'
+      : 'Alerts arrive only while this tab is open and an agent is listening. They name the map and the idea, never findings or answers.';
+  };
+  notify.addEventListener('change', async () => {
+    if (notify.checked && permission() === 'default') await Notification.requestPermission();
+    if (permission() !== 'granted') notify.checked = false;
+    try { localStorage.setItem(notifyKey, notify.checked ? 'on' : 'off'); } catch {}
+    describeNotify();
+  });
   return function show() {
+    try { notify.checked = localStorage.getItem(notifyKey) === 'on' && permission() === 'granted'; } catch { notify.checked = false; }
+    describeNotify();
     $('#agent-prompt').value = agentPrompt(session(), map());
     status.textContent = ''; loadSetting(); $('#help-dialog').showModal();
   };
