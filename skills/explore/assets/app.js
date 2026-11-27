@@ -47,8 +47,8 @@ function renderRail() {
   const html = state.maps.length ? state.maps.map(m => m.unreadable ? `<button class="map-link unreadable" data-map="${m.id}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.id)}</strong><small>${esc(unreadableLabel(m.problem))}</small></span></button>` : `<button class="map-link ${state.map?.id === m.id ? 'current' : ''}" data-map="${m.id}" ${state.map?.id === m.id ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.title)}</strong><small>${m.demo ? 'Example map' : `${m.count} ${m.count === 1 ? 'idea' : 'ideas'}`}${m.pending ? ` · ${m.pending} queued` : ''}</small></span></button>`).join('') : '<p class="empty-list">Your ideas will find a home here.</p>';
   if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
 }
-async function refresh() {
-  if (state.refreshing || state.mutating || gesture || document.hidden) return;
+async function refresh({ force = false } = {}) {
+  if (state.refreshing || state.mutating || gesture || (document.hidden && !force)) return;
   state.refreshing = true;
   const version = openVersion;
   const previouslyListening = agentListening();
@@ -72,19 +72,6 @@ async function refresh() {
     if ((state.detailDeferred || previouslyListening !== agentListening()) && version === openVersion && state.map) renderDetail();
   } catch { connectionView(true); }
   finally { state.refreshing = false; }
-}
-// Opens a map at `nodeId` when it has that idea, otherwise at its root. `push` adds a history entry; opening
-// what the address already names (startup, Back and Forward) replaces it instead.
-async function openMap(id, { nodeId = null, push = true } = {}) {
-  const version = ++openVersion;
-  try {
-    const map = await api(`/maps/${id}`); if (version !== openVersion) return;
-    state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
-    state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
-    $('#find-node').value = ''; $('#node-results').hidden = true;
-    localStorage.setItem('explore-map', id); showAddress({ push });
-    renderMap(true); renderRail();
-  } catch (error) { toast(error.message); }
 }
 function layout() {
   const source = state.historySource || state.map;
@@ -160,6 +147,19 @@ function selectNode(nodeId) {
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
   $('#focus-selected').disabled = !state.selected; renderDetail();
 }
+// Opens a map at `nodeId` when it has that idea, otherwise at its root. `push` adds a history entry; opening
+// what the address already names (startup, Back and Forward) replaces it instead.
+async function openMap(id, { nodeId = null, push = true } = {}) {
+  const version = ++openVersion;
+  try {
+    const map = await api(`/maps/${id}`); if (version !== openVersion) return;
+    state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
+    state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
+    $('#find-node').value = ''; $('#node-results').hidden = true;
+    localStorage.setItem('explore-map', id); showAddress({ push });
+    renderMap(true); renderRail();
+  } catch (error) { toast(error.message); }
+}
 // Address routing (H2). The address bar always names the open map and the selected idea, so it can be copied as
 // a link. This is its only writer: a new map pushes a history entry, a new selection replaces it.
 function showAddress({ push = false } = {}) {
@@ -177,11 +177,12 @@ async function openReference({ mapId, nodeId }, { push = true } = {}) {
   focusNode(found ? nodeId ?? state.selected : state.map.rootId);
 }
 // Loading, editing, Back and Forward: follow whatever the address names, unless that is already shown.
-function followAddress() {
+// Returns whether the address named a map; anything else in it is not a reference.
+async function followAddress() {
   const target = parseAddress(location.hash.slice(1));
-  if (!target) { if (!location.hash.slice(1)) showWelcome(); return; } // Anything else in the address is not a reference.
-  if (target.mapId === state.map?.id && (target.nodeId ?? state.selected) === state.selected && state.historyStep === null) return;
-  return openReference(target, { push: false });
+  if (!target) return false;
+  if (target.mapId !== state.map?.id || (target.nodeId ?? state.selected) !== state.selected || state.historyStep !== null) await openReference(target, { push: false });
+  return true;
 }
 function focusNode(nodeId) {
   if (!state.positions[nodeId] || !state.visibleMap.nodes.some(node => node.id === nodeId)) return;
@@ -897,17 +898,15 @@ $('#nodes').addEventListener('keydown', async event => {
   selectNode(id); await act(id, 'position', { x, y }); $(`[data-node="${id}"]`)?.focus();
 });
 window.addEventListener('resize', () => { if (state.map && state.historyStep === null) { if (state.overview) fitMap(); else centerSelected(); } });
-// Editing the address fires hashchange; Back and Forward between Explore's own entries fire popstate.
-window.addEventListener('hashchange', followAddress);
-window.addEventListener('popstate', followAddress);
+// Editing the address, Back and Forward all fire hashchange: every Explore entry has its own fragment.
+window.addEventListener('hashchange', async () => { if (!(await followAddress()) && !location.hash.slice(1)) showWelcome(); });
 try {
   const session = await (await fetch('/api/session')).json(); state.token = session.token; state.session = session;
   $('#workspace-name').textContent = session.workspace;
   // Contributions are attributed by Git name; say plainly when there is none.
   api('/contributor').then(person => { state.contributor = person.name; $('#contributor').textContent = person.name ? `You: ${person.name} (from Git)` : 'Answers aren’t attributed: Git has no user name.'; }).catch(() => {});
-  await refresh();
+  await refresh({ force: true });
   const saved = localStorage.getItem('explore-map');
-  if (parseAddress(location.hash.slice(1))) await followAddress();
-  else if (saved && state.maps.some(m => m.id === saved)) await openMap(saved, { push: false });
+  if (!(await followAddress()) && saved && state.maps.some(m => m.id === saved)) await openMap(saved, { push: false });
   setInterval(refresh, 2500);
 } catch (error) { toast(`Cannot connect to the workspace: ${error.message}`); connectionView(true); }

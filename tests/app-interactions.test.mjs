@@ -265,7 +265,7 @@ test('agent coverage changes refresh queued guidance even without a map revision
     const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
       api: async () => ({ maps: [{ id: 'map-a', revision: 2 }], bridge: bridge(after) }),
       renderRail() {}, connectionView() {}, renderDetail() { renders++; } });
-    vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+    vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
     await context.refresh();
     assert.equal(renders, expectedRenders);
   }
@@ -282,7 +282,7 @@ function refreshHarness({ listed, fetched, mutateDuringFetch = false }) {
     },
     renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() { events.renders++; },
     toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; state.map = null; } });
-  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
   return { state, events, refresh: context.refresh };
 }
 
@@ -411,7 +411,7 @@ test('a map list that was requested before another map opened never closes the n
     },
     renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() {},
     toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; } });
-  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
   await context.refresh();
   assert.equal(events.welcome, 0); assert.deepEqual(events.toasts, []);
 });

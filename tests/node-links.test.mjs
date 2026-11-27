@@ -42,20 +42,22 @@ test('the idea menu offers Copy link and shares the question menu\'s structure',
 
 // The real routing functions from app.js, run against a fake address bar and history.
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
-const routing = app.slice(app.indexOf('// Address routing (H2).'), app.indexOf('\nfunction focusNode('));
+const routing = app.slice(app.indexOf('// Opens a map at `nodeId`'), app.indexOf('\nfunction focusNode('));
 function browser(address = '') {
   const maps = { 'map-aaaaaaaa': { id: 'map-aaaaaaaa', rootId: 'node-aaaaaaa0', nodes: [{ id: 'node-aaaaaaa0' }, { id: 'node-aaaaaaa1' }] },
     'map-bbbbbbbb': { id: 'map-bbbbbbbb', rootId: 'node-bbbbbbb0', nodes: [{ id: 'node-bbbbbbb0' }] } };
   const entries = [address], toasts = [];
   let index = 0;
-  const location = { get hash() { return entries[index] ? `#${entries[index]}` : ''; } };
+  // Setting the hash navigates, as in a browser: a different fragment adds an entry and drops the forward ones.
+  const location = { get hash() { return entries[index] ? `#${entries[index]}` : ''; },
+    set hash(value) { const next = String(value).replace(/^#/, ''); if (next !== entries[index]) { entries.splice(index + 1, Infinity, next); index++; } } };
   const write = url => url.slice(1);
   const history = { pushState(_, __, url) { entries.splice(index + 1, Infinity, write(url)); index++; }, replaceState(_, __, url) { entries[index] = write(url); } };
-  const state = { maps: Object.values(maps).map(({ id }) => ({ id })), map: null, selected: null, historyStep: null };
+  const state = { maps: Object.values(maps).map(({ id }) => ({ id })), map: null, selected: null, historyStep: null, outsideSeen: {} };
   const context = vm.createContext({ state, location, history, toast: message => toasts.push(message), nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage,
     showWelcome: () => { state.map = null; state.selected = null; }, returnLive: () => { state.historyStep = null; },
-    // As in app.js: opening a map selects the idea when it has it, then writes the address; focusing selects.
-    openMap: async (id, { nodeId = null, push = true } = {}) => { const map = maps[id]; state.map = map; state.selected = map.nodes.some(n => n.id === nodeId) ? nodeId : map.rootId; context.showAddress({ push }); },
+    // The real openMap runs; only its page and server edges are stubbed.
+    api: async route => structuredClone(maps[route.split('/').pop()]), openVersion: 0, localStorage: { setItem() {} }, $: () => ({}), navigation() {}, renderMap() {}, renderRail() {},
     focusNode: id => { state.selected = id; context.showAddress(); } });
   vm.runInContext(routing, context);
   return { context, state, toasts, entries: () => entries.slice(), at: () => index,
