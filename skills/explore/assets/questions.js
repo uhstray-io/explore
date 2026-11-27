@@ -72,6 +72,8 @@ export function replaceAnswer(question, { answer, answerState, actor, at, mark =
 // and Help me answer (B9) never answer.
 export const EXPLAIN = 'question-help';
 export const RESEARCH = 'question-research';
+// Tidy my wording (Z3): the agent tidies the user's draft; only the user decides whether to use it.
+export const TIDY = 'clean-answer';
 // The question's open job of `type`, and its latest finished one with a result (current or stale).
 export function questionJobs(jobs, type, questionId) {
   const mine = (jobs || []).filter(job => job.type === type && job.subjectId === questionId);

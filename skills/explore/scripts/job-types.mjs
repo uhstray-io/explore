@@ -13,6 +13,8 @@
 //     isStale(context), optional, decides whether a result is stale when it arrives. With `recheck: true` it is
 //     asked again whenever the map is shown, so a delivered result can become stale later.
 //     A map-level job has `nodeId: null`.
+//     Optional: release({ map, job }) when work stops without a result, and beforeSave(map) to keep the type's own
+//     invariants before every save.
 //
 // Actions: { target: 'node' | 'map', apply({ map, node, input, store }) }
 //   Store.action skips the idea lookup only for map-level actions. Every action still

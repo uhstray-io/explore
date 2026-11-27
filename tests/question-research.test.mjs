@@ -219,10 +219,10 @@ test('research is refused on a finished branch and on a dismissed question', asy
 test('the menu offers Help me answer first, also on answered questions of unfinished branches', () => {
   const esc = String;
   const labels = html => [...html.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]);
-  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'open', esc })).slice(0, 3), ['Help me answer', 'Explain this question', 'Answer later']);
+  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'open', esc })).slice(0, 4), ['Help me answer', 'Explain this question', 'Tidy my wording', 'Answer later']);
   assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', esc })).slice(0, 2), ['Help me answer', 'Change answer']);
   assert.ok(!labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', completed: true, esc })).includes('Help me answer'), 'not on a finished branch');
-  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', deferredAt: 'x' }, { nodeId: 'node-1', kind: 'waiting', esc })), ['Help me answer', 'Explain this question', 'Good question', 'Bad question'], 'saved for later: nothing that disturbs a running branch');
+  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', deferredAt: 'x' }, { nodeId: 'node-1', kind: 'waiting', esc })), ['Help me answer', 'Explain this question', 'Tidy my wording', 'Good question', 'Bad question'], 'saved for later: nothing that disturbs a running branch');
   assert.ok(!labels(questionMenuHtml({ id: 'q-1', dismissedAt: 'x' }, { nodeId: 'node-1', kind: 'answered', esc })).includes('Help me answer'), 'not on a dismissed question');
 });
 
