@@ -194,3 +194,21 @@ test('a missing workspace or option value is a usage error; -h shows help; ideas
   const help = await run(['-h'], dir); assert.equal(help.code, 0); assert.match(help.stdout, /Usage/);
   const all = await run(['--workspace', dir, 'ideas'], dir); assert.equal(all.code, 0); assert.match(all.stdout, /1 map checked/);
 });
+
+test('a map whose views could not be generated is unreadable, so it never stops the server from starting', async () => {
+  const { store } = await workspace();
+  const good = await fullMap(store);
+  const { readProblem } = await import('../skills/explore/scripts/map-validation.mjs');
+  for (const change of [map => { map.nodes[0].title = 3; }, map => { delete map.nodes[0].summary; }, map => { map.nodes[0].sources[0].title = null; }]) {
+    const map = structuredClone(good); change(map);
+    assert.equal(readProblem(map, good.id), 'invalid-map');
+    await writeFile(store.file(good.id), JSON.stringify(map, null, 2));
+    await new Store(store.directory).recover(); // Listed as unreadable and left alone, never a crash.
+  }
+});
+
+test('a named path with no maps in it is a usage error', async () => {
+  const { dir } = await workspace();
+  await mkdir(path.join(dir, 'docs'), { recursive: true });
+  assert.equal((await run(['--workspace', dir, 'docs'], dir)).code, 2);
+});

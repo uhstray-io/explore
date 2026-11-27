@@ -38,6 +38,7 @@ export async function validateWorkspace({ workspace, paths = [], cwd = process.c
   if (!await isDirectory(workspace)) throw new UsageError('The workspace is not a folder.');
   const targets = paths.length ? paths.map(item => path.resolve(cwd, item)) : [path.join(workspace, 'ideas')];
   const files = paths.length || await isDirectory(targets[0]) ? (await Promise.all(targets.map(mapFiles))).flat() : [];
+  if (paths.length && !files.length) throw new UsageError('No maps were found in the paths given.');
   const maps = [];
   for (const file of files) {
     const folder = path.basename(path.dirname(file)), shown = path.relative(workspace, file);
