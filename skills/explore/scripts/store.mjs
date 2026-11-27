@@ -74,8 +74,9 @@ const evidenceLine = s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) 
 export { atomicJson } from './files.mjs';
 
 export class Store {
-  constructor(directory, { registry = defaultRegistry, versionLimits } = {}) {
-    this.directory = path.resolve(directory); this.registry = registry; this.tail = Promise.resolve();
+  // `onSaved(map)` is told about every saved change, whatever caused it (the server restarts listening windows).
+  constructor(directory, { registry = defaultRegistry, versionLimits, onSaved = () => {} } = {}) {
+    this.directory = path.resolve(directory); this.registry = registry; this.tail = Promise.resolve(); this.onSaved = onSaved;
     // Per map: the exact bytes Explore last wrote or adopted, the latest outside change, and a lock
     // that keeps reads and adoption from interleaving with that map's saves.
     this.adopted = new Map(); this.outside = new Map(); this.locks = new Map(); this.basis = new WeakMap();
@@ -197,6 +198,7 @@ export class Store {
         }
       });
       this.adopted.set(map.id, { fingerprint, bytes }); this.basis.set(map, fingerprint); this.eventsAtLoad.set(map, map.history.length);
+      this.onSaved(map);
       // Recorded only once the change is saved, so no version ever shows content that was not.
       // A failure to record never rolls back the map; it is reported after the save.
       if (shouldRecord(labels)) { try { await this.versions.record(map, { labels, author: actor?.name }); } catch (error) { versionError = error; } }
