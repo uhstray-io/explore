@@ -22,7 +22,9 @@ export const unreadableMessages = {
   'invalid-json': 'This map file is not valid JSON. Restore it from Git or a preserved copy.',
   'unsupported-version': 'This map uses an unsupported format version.',
   'invalid-map': 'This map file is missing required parts or belongs to another folder. Restore it from Git or a preserved copy.',
+  'too-large': 'This map file is larger than 64 MiB. Restore it from Git or a preserved copy.',
 };
+export const maxMapBytes = 64 * 1024 * 1024;
 // JSON strings cannot contain raw line breaks, so a line starting with a marker is never map content.
 export const hasConflictMarkers = raw => /^(<{7}|={7}|>{7})(\s|$)/m.test(raw);
 // Bytes to a parsed map, with one policy for everyone: strict UTF-8, and a leading byte-order mark is ignored.
@@ -31,6 +33,14 @@ export function decodeMap(bytes) {
   try { raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return { problem: 'invalid-utf8' }; }
   if (hasConflictMarkers(raw)) return { problem: 'conflict-markers' };
   try { return { map: JSON.parse(raw) }; } catch { return { problem: 'invalid-json' }; }
+}
+// What the server reads from these bytes as the map in `folderId`: { map }, or the { problem } it cannot open.
+export function readMapFile(bytes, folderId) {
+  if (bytes.length > maxMapBytes) return { problem: 'too-large' };
+  const decoded = decodeMap(bytes);
+  if (decoded.problem) return decoded;
+  const problem = readProblem(decoded.map, folderId);
+  return problem ? { problem } : decoded;
 }
 // The reason, if any, that the server cannot open this parsed map.
 export function readProblem(map, folderId) {
@@ -156,8 +166,8 @@ export function validateMap(map, { folderId } = {}) {
 }
 
 // Checks the bytes of a map.json: size and readability first, then the map itself.
-export function checkMapFile(bytes, { folderId, maxBytes = 64 * 1024 * 1024 } = {}) {
-  if (bytes.length > maxBytes) return { map: null, errors: [{ code: 'too-large', at: 'map.json', message: `The file is larger than ${maxBytes} bytes.` }], warnings: [] };
+export function checkMapFile(bytes, { folderId, maxBytes = maxMapBytes } = {}) {
+  if (bytes.length > maxBytes) return { map: null, errors: [{ code: 'too-large', at: 'map.json', message: `The file is larger than ${maxBytes} bytes.`, unreadable: true }], warnings: [] };
   const { map, problem } = decodeMap(bytes);
   if (problem) return { map: null, errors: [{ code: problem, at: 'map.json', message: unreadableMessages[problem], unreadable: true }], warnings: [] };
   return { map, ...validateMap(map, { folderId }) };
