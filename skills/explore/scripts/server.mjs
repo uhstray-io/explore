@@ -1,14 +1,13 @@
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFile, open, unlink, stat } from 'node:fs/promises';
+import { readFile, open, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { Store, Problem, atomicJson, publicMap } from './store.mjs';
 import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
 import { exportMap } from './transfer.mjs';
-import { mapGitStatus } from './git.mjs';
 import { previewRestart } from './restart.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
@@ -82,11 +81,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         }
         // Git status of a map's file (H9): read-only, and available even for a map that cannot be opened.
         const gitRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/git-status$/);
-        if (req.method === 'GET' && gitRoute) {
-          const folder = path.dirname(store.file(gitRoute[1]));
-          await stat(folder).catch(() => { throw new Problem('Map not found.', 404); });
-          return send(res, 200, { ...await mapGitStatus(folder), checkedAt: new Date().toISOString() });
-        }
+        if (req.method === 'GET' && gitRoute) return send(res, 200, await store.gitStatus(gitRoute[1]));
         const exportRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/export$/);
         if (req.method === 'GET' && exportRoute) return send(res, 200, await exportMap(store, exportRoute[1]));
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);

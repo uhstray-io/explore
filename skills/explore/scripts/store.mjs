@@ -1,9 +1,9 @@
-import { mkdir, readFile, readdir, writeFile, rm, access } from 'node:fs/promises';
+import { mkdir, readFile, readdir, writeFile, rm, access, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
-import { git } from './git.mjs';
+import { hasContent, mapGitStatus } from './git.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
@@ -118,17 +118,15 @@ export class Store {
       const replaced = JSON.parse(known.bytes.toString('utf8'));
       const existing = await this.versions.findContent(mapId, replaced);
       if (existing) change.preserved = existing.id;
-      else if (await this.inGit(mapId, known.bytes)) change.inGit = true;
+      else if (await hasContent(path.dirname(this.file(mapId)), known.bytes)) change.inGit = true;
       else change.preserved = await this.versions.record(replaced, { labels: ['before-outside-change'] });
     } catch {} // Keeping a copy is a courtesy; the read itself must still succeed.
   }
-  // Asks Git for the object name these bytes would have as this map's file, applying the repository's
-  // line-ending and attribute rules, then whether Git has that object. A Windows checkout's CRLF copy
-  // of committed work therefore counts as already in Git.
-  async inGit(mapId, bytes) {
+  // Where this map's file stands in Git (H9), from read-only Git. It works for a map that cannot be opened.
+  async gitStatus(mapId) {
     const folder = path.dirname(this.file(mapId));
-    const hashing = await git(['hash-object', '--path=map.json', '--stdin'], { cwd: folder, input: bytes });
-    return Boolean(hashing.ok && (await git(['cat-file', '-e', hashing.stdout.trim()], { cwd: folder })).ok);
+    need((await stat(folder).catch(() => null))?.isDirectory(), 'Map not found.', 404, 'not-found');
+    return { ...await mapGitStatus(folder), checkedAt: now() };
   }
   // Copies kept by H3 before version history existed become versions labelled `preserved`.
   async importPreserved(mapId) {

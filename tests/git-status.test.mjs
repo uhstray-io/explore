@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { mapGitStatus } from '../skills/explore/scripts/git.mjs';
-import { gitStatusLabel, gitStatusDetail } from '../skills/explore/assets/workspace-view.js';
+import { mapGitStatus, parseStatus, git as runGit } from '../skills/explore/scripts/git.mjs';
+import { gitStatusLabel, gitStatusDetail, gitCheckDelay } from '../skills/explore/assets/workspace-view.js';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 
 // Git status for a map (H9, #38). Disposable repositories under .test-output; the no-repository case
@@ -28,15 +28,15 @@ const hash = async file => createHash('sha256').update(await readFile(file)).dig
 
 test('a map file is new, committed, modified, staged or both', async () => {
   const { dir, folder } = await repo();
-  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', untracked: true, branch: 'main', upstream: false });
+  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', untracked: true, branch: 'main' });
   await git(dir, 'add', '-A'); await git(dir, 'commit', '-q', '-m', 'first');
-  assert.deepEqual(await mapGitStatus(folder), { state: 'committed', branch: 'main', upstream: false });
+  assert.deepEqual(await mapGitStatus(folder), { state: 'committed', branch: 'main' });
   await writeFile(path.join(folder, 'map.json'), '{"v":2}\n');
-  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', staged: false, unstaged: true, branch: 'main', upstream: false });
+  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', staged: false, unstaged: true, branch: 'main' });
   await git(dir, 'add', 'ideas/map-0000abcd/map.json');
-  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', staged: true, unstaged: false, branch: 'main', upstream: false });
+  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', staged: true, unstaged: false, branch: 'main' });
   await writeFile(path.join(folder, 'map.json'), '{"v":3}\n');
-  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', staged: true, unstaged: true, branch: 'main', upstream: false });
+  assert.deepEqual(await mapGitStatus(folder), { state: 'not-committed', staged: true, unstaged: true, branch: 'main' });
 });
 
 test('ignored maps, conflicts, detached heads and upstreams are reported as such', async () => {
@@ -52,19 +52,53 @@ test('ignored maps, conflicts, detached heads and upstreams are reported as such
   assert.equal((await mapGitStatus(folder)).state, 'conflict');
   await git(dir, 'merge', '--abort');
   await git(dir, 'checkout', '-q', '--detach');
-  assert.equal((await mapGitStatus(folder)).branch, 'detached');
+  assert.deepEqual(await mapGitStatus(folder), { state: 'committed', detached: true });
   await git(dir, 'checkout', '-q', 'main');
   await git(dir, 'branch', '-q', '--set-upstream-to=other');
-  const tracked = await mapGitStatus(folder);
-  assert.equal(tracked.upstream, true); assert.equal(tracked.ahead, 1); assert.equal(tracked.behind, 1);
+  assert.deepEqual((await mapGitStatus(folder)).upstream, { ahead: 1, behind: 1 });
+  // An upstream whose branch was deleted is gone, not in sync.
+  await git(dir, 'branch', '-q', '-D', 'other');
+  assert.deepEqual((await mapGitStatus(folder)).upstream, { gone: true });
+  // A branch really named "detached" keeps its name.
+  await git(dir, 'checkout', '-q', '-b', 'detached');
+  assert.deepEqual(await mapGitStatus(folder), { state: 'committed', branch: 'detached' });
 });
 
-test('outside a repository, or without Git, the state says so', async () => {
+test('the status parser reads renames, a deleted upstream, detached heads and real branch names', () => {
+  const entry = path => `1 .M N... 100644 100644 100644 abc abc ${path}`;
+  assert.deepEqual(parseStatus(['# branch.oid abc', '# branch.head main', '# branch.upstream origin/main', '# branch.ab +2 -3', entry('map.json'), ''].join('\0')),
+    { file: { state: 'not-committed', staged: false, unstaged: true }, where: { branch: 'main', upstream: { ahead: 2, behind: 3 } } });
+  assert.deepEqual(parseStatus(['# branch.head main', '# branch.upstream origin/gone', ''].join('\0')), { file: null, where: { branch: 'main', upstream: { gone: true } } });
+  assert.deepEqual(parseStatus(['# branch.head (detached)', ''].join('\0')).where, { detached: true });
+  assert.deepEqual(parseStatus(['# branch.head detached', ''].join('\0')).where, { branch: 'detached' });
+  // A rename is followed by its old path, which is not an entry of its own.
+  assert.deepEqual(parseStatus(['# branch.head main', '2 R. N... 100644 100644 100644 abc abc R100 map.json', '? old.json', ''].join('\0')).file, { state: 'not-committed', staged: true, unstaged: false });
+  assert.deepEqual(parseStatus('u UU N... 100644 100644 100644 100644 a b c map.json\0').file, { state: 'conflict' });
+  assert.deepEqual(parseStatus('! map.json\0').file, { state: 'ignored' });
+});
+
+test('outside a repository, without Git, or when Git is too slow, the state says so', async t => {
   const outside = await mkdtemp(path.join(os.tmpdir(), 'explore-norepo-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
   await writeFile(path.join(outside, 'map.json'), '{}\n');
   assert.deepEqual(await mapGitStatus(outside), { state: 'no-repository' });
   const { folder } = await repo();
   assert.deepEqual(await mapGitStatus(folder, { binary: 'git-that-does-not-exist' }), { state: 'unknown' });
+  // A timeout is unknown, never "no repository".
+  assert.deepEqual(await mapGitStatus(folder, { timeout: 1 }), { state: 'unknown' });
+  assert.equal((await runGit(['status'], { cwd: folder, timeout: 1 })).outcome, 'failed');
+  assert.equal((await runGit(['rev-parse', '--verify', '-q', 'no-such-ref'], { cwd: folder })).outcome, 'exit');
+  assert.equal((await runGit(['status'], { cwd: folder, binary: 'git-that-does-not-exist' })).outcome, 'missing');
+});
+
+test('inherited Git variables cannot point the check at another repository', async t => {
+  const { folder } = await repo();
+  const other = await repo();
+  await git(other.dir, 'add', '-A'); await git(other.dir, 'commit', '-q', '-m', 'other');
+  const saved = process.env.GIT_DIR;
+  process.env.GIT_DIR = path.join(other.dir, '.git');
+  t.after(() => { if (saved === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = saved; });
+  assert.equal((await mapGitStatus(folder)).state, 'not-committed', 'its own repository, where the map is new');
 });
 
 test('checking changes nothing in the repository', async () => {
@@ -80,16 +114,31 @@ test('checking changes nothing in the repository', async () => {
 
 test('the label and its details say where the map stands, in plain words', () => {
   assert.equal(gitStatusLabel({ state: 'committed', branch: 'main' }), 'Saved · committed on main');
-  assert.equal(gitStatusLabel({ state: 'committed', branch: 'detached' }), 'Saved · committed');
+  assert.equal(gitStatusLabel({ state: 'committed', branch: 'detached' }), 'Saved · committed on detached');
+  assert.equal(gitStatusLabel({ state: 'committed', detached: true }), 'Saved · committed');
   assert.equal(gitStatusLabel({ state: 'not-committed' }), 'Saved locally · not committed');
-  assert.equal(gitStatusLabel({ state: 'conflict' }), 'Git conflict · resolve before editing');
+  assert.equal(gitStatusLabel({ state: 'conflict' }), 'Git conflict · merge not finished');
+  assert.match(gitStatusDetail({ state: 'conflict', branch: 'main' }), /stage it \(git add\) and finish the merge/);
   assert.equal(gitStatusLabel({ state: 'no-repository' }), 'Saved locally · no Git repository');
   assert.equal(gitStatusLabel({ state: 'ignored' }), 'Saved locally · ignored by Git');
   assert.equal(gitStatusLabel({ state: 'unknown' }), 'Saved in this repo');
   assert.equal(gitStatusLabel(null), 'Saved in this repo');
-  const detail = gitStatusDetail({ state: 'committed', branch: 'main', upstream: true, ahead: 2, behind: 0, checkedAt: '2026-11-27T10:00:00.000Z' });
+  const detail = gitStatusDetail({ state: 'committed', branch: 'main', upstream: { ahead: 2, behind: 0 }, checkedAt: '2026-11-27T10:00:00.000Z' });
   assert.match(detail, /Branch main · 2 ahead, 0 behind its upstream/); assert.match(detail, /Checked /); assert.match(detail, /the remote may be newer/);
-  assert.match(gitStatusDetail({ state: 'not-committed', staged: true, unstaged: false, branch: 'main', upstream: false, checkedAt: '2026-11-27T10:00:00.000Z' }), /staged, not committed · Branch main · no upstream/i);
+  assert.match(gitStatusDetail({ state: 'not-committed', staged: true, unstaged: false, branch: 'main', checkedAt: '2026-11-27T10:00:00.000Z' }), /staged, not committed · Branch main · no upstream/i);
+  assert.match(gitStatusDetail({ state: 'committed', branch: 'main', upstream: { gone: true } }), /Branch main · its upstream branch is gone/);
+  assert.match(gitStatusDetail({ state: 'committed', detached: true }), /Detached HEAD · no upstream/);
+  assert.match(gitStatusDetail({ state: 'committed', branch: 'detached' }), /Branch detached/);
+  assert.match(gitStatusDetail({ state: 'unknown' }), /could not be checked/);
+});
+
+test('Git is asked at once when forced or for another map, otherwise at most every 10 seconds', () => {
+  const last = { mapId: 'map-a', at: 1000 };
+  assert.equal(gitCheckDelay({ last: null, mapId: 'map-a', now: 1000 }), 0);
+  assert.equal(gitCheckDelay({ last, mapId: 'map-a', now: 4000 }), 7000, 'a save soon after a check waits for the end of the window');
+  assert.equal(gitCheckDelay({ last, mapId: 'map-a', now: 4000, force: true }), 0);
+  assert.equal(gitCheckDelay({ last, mapId: 'map-b', now: 4000 }), 0);
+  assert.equal(gitCheckDelay({ last, mapId: 'map-a', now: 20000 }), 0);
 });
 
 test('the server reports a map\'s status without paths or raw Git output, even for a map it cannot open', async () => {
@@ -104,6 +153,7 @@ test('the server reports a map\'s status without paths or raw Git output, even f
     assert.ok(!JSON.stringify(status).includes(dir) && !JSON.stringify(status).includes('\\\\'));
     // The fixture folder holds a map.json the server cannot open; its status still comes back.
     assert.equal((await (await get('/maps/map-0000abcd/git-status')).json()).state, 'not-committed');
-    assert.equal((await get('/maps/map-99999999/git-status')).status, 404);
+    const missing = await get('/maps/map-99999999/git-status');
+    assert.equal(missing.status, 404); assert.equal((await missing.json()).code, 'not-found');
   } finally { await app.close(); }
 });

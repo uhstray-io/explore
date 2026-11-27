@@ -218,9 +218,10 @@ export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
 // Git status for the open map (H9), in plain words. Unknown states fall back to the plain saved label.
 export function gitStatusLabel(status) {
   switch (status?.state) {
-    case 'committed': return status.branch && status.branch !== 'detached' && status.branch !== 'unknown' ? `Saved · committed on ${status.branch}` : 'Saved · committed';
+    case 'committed': return status.branch ? `Saved · committed on ${status.branch}` : 'Saved · committed';
     case 'not-committed': return 'Saved locally · not committed';
-    case 'conflict': return 'Git conflict · resolve before editing';
+    // A map.json with conflict markers cannot be opened, so an open map in conflict is resolved but not yet staged.
+    case 'conflict': return 'Git conflict · merge not finished';
     case 'no-repository': return 'Saved locally · no Git repository';
     case 'ignored': return 'Saved locally · ignored by Git';
     default: return 'Saved in this repo';
@@ -228,13 +229,20 @@ export function gitStatusLabel(status) {
 }
 // What hovering or focusing the label shows: the branch, how it compares with its upstream, and when this was checked.
 export function gitStatusDetail(status) {
-  if (!status || ['unknown', 'no-repository'].includes(status.state)) return status?.state === 'no-repository' ? 'This map is not inside a Git repository.' : 'Git status could not be checked.';
-  const change = status.state === 'not-committed' ? (status.untracked ? 'New, never committed' : status.staged && status.unstaged ? 'Staged, with further changes' : status.staged ? 'Staged, not committed' : 'Changed, not staged') : null;
-  const branch = status.branch === 'detached' ? 'Detached HEAD' : `Branch ${status.branch}`;
-  const upstream = status.upstream ? `${status.ahead ?? 0} ahead, ${status.behind ?? 0} behind its upstream` : 'no upstream';
+  if (status?.state === 'no-repository') return 'This map is not inside a Git repository.';
+  if (!status || status.state === 'unknown') return 'Git status could not be checked. Click to try again.';
+  const change = status.state === 'conflict' ? 'Git still lists map.json as unmerged. Once its content is right, stage it (git add) and finish the merge'
+    : status.state !== 'not-committed' ? null
+    : status.untracked ? 'New, never committed' : status.staged && status.unstaged ? 'Staged, with further changes' : status.staged ? 'Staged, not committed' : 'Changed, not staged';
+  const branch = status.branch ? `Branch ${status.branch}` : 'Detached HEAD';
+  const upstream = !status.upstream ? 'no upstream' : status.upstream.gone ? 'its upstream branch is gone' : `${status.upstream.ahead} ahead, ${status.upstream.behind} behind its upstream`;
   const when = status.checkedAt ? `Checked ${new Date(status.checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : '';
-  const facts = [change, branch, upstream].filter(Boolean).join(' · ');
-  return [facts, when, 'Explore does not fetch, so the remote may be newer. Click to check again.'].filter(Boolean).join('. ');
+  return [[change, branch, upstream].filter(Boolean).join(' · '), when, 'Explore does not fetch, so the remote may be newer. Click to check again.'].filter(Boolean).join('. ');
+}
+// How long to wait before asking Git again: at once when forced or for another map, otherwise at most once
+// every 10 seconds per map, so saves close together share one check at the end of the window.
+export function gitCheckDelay({ last, mapId, now, force = false, every = 10000 }) {
+  return force || last?.mapId !== mapId ? 0 : Math.max(0, every - (now - last.at));
 }
 
 // The idea ⋯ menu (H2): Copy link.
