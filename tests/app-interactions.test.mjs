@@ -592,7 +592,7 @@ test('an open question shows its importance and a Why? link; an answered one kee
   node.status = 'awaiting-answer';
   node.questions = [{ id: 'q-a', text: 'Offline for days?', answer: null, importance: 'high', why: 'Decides the sync design.' }];
   h.document.activeElement = null; h.render();
-  assert.match(h.markup(), /<summary><span>High importance<\/span><span class="why-link">Why\?<\/span><\/summary><p>Decides the sync design\.<\/p>/);
+  assert.match(h.markup(), /<summary><span>High importance<\/span> · <span class="why-link">Why\?<\/span><\/summary><p>Decides the sync design\.<\/p>/);
   node.questions[0].answer = 'Yes.'; node.status = 'queued'; h.render();
   assert.match(h.markup(), /<small class="certainty-label">High importance<\/small>/);
   assert.doesNotMatch(h.markup(), /question-why/);

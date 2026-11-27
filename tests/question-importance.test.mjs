@@ -6,7 +6,7 @@ import { Store } from '../skills/explore/scripts/store.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { contextExcerpt } from '../skills/explore/scripts/context.mjs';
 import { importanceName, highestImportance, normalizeQuestion } from '../skills/explore/assets/questions.js';
-import { importanceHtml, overviewNote } from '../skills/explore/assets/workspace-view.js';
+import { importanceHtml, overviewFilters } from '../skills/explore/assets/workspace-view.js';
 
 // Importance and "Why this question?" (B2, #4). Illustrative fixtures under .test-output, never ideas/.
 async function fixture() {
@@ -81,14 +81,16 @@ test('levels have words, and the overview notes the highest open importance unde
   const questions = [{ importance: 'low', answer: null }, { importance: 'medium', answer: null }, { importance: 'high', answer: 'Done.' }];
   assert.equal(highestImportance(questions), 'medium');
   assert.equal(highestImportance([{ answer: null }]), null);
-  assert.equal(overviewNote({ id: 'answer' }, { questions }), ' · Medium importance');
-  assert.equal(overviewNote({ id: 'queued' }, { questions }), '', 'only the Needs your answer list shows it');
+  const note = id => overviewFilters.find(filter => filter.id === id).note;
+  assert.equal(note('answer')({ questions }), ' · Medium importance');
+  assert.equal(note('queued'), undefined, 'only the Needs your answer list shows it');
+  assert.equal(note('answer')({ questions: [{ importance: 'urgent', answer: null }] }), '', 'an unknown level is never labelled');
 });
 
 test('an open question shows its label, and Why? is a native disclosure only when there is a reason', () => {
   const esc = value => String(value).replace(/</g, '&lt;');
   assert.equal(importanceHtml({ id: 'q-1', importance: 'high', why: 'Sync <must> queue.' }, { esc }),
-    '<details class="question-importance question-why"><summary><span>High importance</span><span class="why-link">Why?</span></summary><p>Sync &lt;must> queue.</p></details>');
+    '<details class="question-importance question-why"><summary><span>High importance</span> · <span class="why-link">Why?</span></summary><p>Sync &lt;must> queue.</p></details>');
   assert.equal(importanceHtml({ id: 'q-2', importance: 'low' }, { esc }), '<p class="question-importance"><span>Low importance</span></p>');
   assert.match(importanceHtml({ id: 'q-3', why: 'Only a reason.' }, { esc }), /<summary><span class="why-link">Why\?<\/span><\/summary>/);
   assert.equal(importanceHtml({ id: 'q-4' }, { esc }), '');

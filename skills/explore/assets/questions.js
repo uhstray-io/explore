@@ -24,6 +24,7 @@ export function certaintyText(question) {
 export const importanceLevels = ['high', 'medium', 'low'];
 const importanceWords = { high: 'High', medium: 'Medium', low: 'Low' };
 export function importanceName(level) { return Object.hasOwn(importanceWords, level) ? importanceWords[level] : 'Unranked'; }
+export function importanceLabel(level) { return Object.hasOwn(importanceWords, level) ? `${importanceWords[level]} importance` : null; }
 // Unranked sorts last. Sorting by rank is stable, so map order holds within a level.
 export function importanceRank(level) { const index = importanceLevels.indexOf(level); return index < 0 ? importanceLevels.length : index; }
 export function highestImportance(questions) { return importanceLevels[Math.min(importanceLevels.length, ...questions.filter(isOpen).map(q => importanceRank(q.importance)))] ?? null; }

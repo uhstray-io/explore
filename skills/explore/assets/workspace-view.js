@@ -1,5 +1,5 @@
 import { presentation } from './graph.js';
-import { isBlocking, importanceName, highestImportance } from './questions.js';
+import { isBlocking, importanceLabel, highestImportance } from './questions.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
@@ -22,7 +22,8 @@ export function questionSequence(node) {
 }
 
 export const overviewFilters = [
-  { id: 'answer', label: 'Needs your answer', empty: 'No questions are waiting for you.', matches: node => node.status === 'awaiting-answer' },
+  { id: 'answer', label: 'Needs your answer', empty: 'No questions are waiting for you.', matches: node => node.status === 'awaiting-answer',
+    note: node => { const label = importanceLabel(highestImportance(node.questions)); return label ? ` · ${label}` : ''; } },
   { id: 'queued', label: 'Queued', empty: 'No branches are waiting in the queue.', matches: node => node.status === 'queued' },
   { id: 'unexplored', label: 'Unexplored', empty: 'Every suggested direction has been explored or started.', matches: node => node.status === 'suggested' },
   { id: 'stale', label: 'Needs review', empty: 'No findings are flagged by a changed premise.', matches: node => Boolean(node.stale) },
@@ -114,14 +115,9 @@ export function undoTarget(versions, me) {
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // Importance on an open question (B2): a text label, and a Why? disclosure with the agent's reason.
 export function importanceHtml(question, { esc }) {
-  const label = question.importance ? `<span>${importanceName(question.importance)} importance</span>` : '';
+  const label = importanceLabel(question.importance) ? `<span>${importanceLabel(question.importance)}</span>` : '';
   if (!question.why) return label ? `<p class="question-importance">${label}</p>` : '';
-  return `<details class="question-importance question-why"><summary>${label}<span class="why-link">Why?</span></summary><p>${esc(question.why)}</p></details>`;
-}
-// The note beside an idea in the overview list: its most important open question, under "Needs your answer".
-export function overviewNote(group, node) {
-  const level = group.id === 'answer' ? highestImportance(node.questions || []) : null;
-  return level ? ` · ${importanceName(level)} importance` : '';
+  return `<details class="question-importance question-why"><summary>${label ? `${label} · ` : ''}<span class="why-link">Why?</span></summary><p>${esc(question.why)}</p></details>`;
 }
 
 export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo = false } = {}) {

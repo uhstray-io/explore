@@ -1,5 +1,5 @@
 import { Problem, hasFindings } from './store.mjs';
-import { isOpen, isBlocking, certaintyText, effectiveAnswerState, importanceRank, importanceName } from '../assets/questions.js';
+import { isOpen, isBlocking, certaintyText, effectiveAnswerState, importanceRank, importanceLabel } from '../assets/questions.js';
 import { proposalOutdated } from './map-jobs.mjs';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
@@ -70,7 +70,7 @@ export function mapBrief(map, nodeId = null) {
     for (const section of brief.sections) {
       lines.push('', `## ${section.label}`, '');
       for (const item of section.items) {
-        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${item.importance ? ` (${importanceName(item.importance)} importance)` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}`);
+        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}`);
       }
       if (!section.total) lines.push('_None recorded in this scope._');
       if (section.omitted) lines.push(`_${section.omitted} more records omitted. Use paged map reads and targeted node sections._`);
