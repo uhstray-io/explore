@@ -174,3 +174,15 @@ test('the projection keeps nothing from the diagnosis but the listed facts', asy
   for (const secret of ['CANARY', '4242', '5555']) assert.ok(!text.includes(secret), secret);
   assert.match(text, /"name":"unknown","status":"unknown"/, 'an unexpected check becomes unknown');
 });
+
+test('a map is never saved larger than the server will open', async () => {
+  const workspace = await temporary('doctor-size-');
+  const { Store } = await import('../skills/explore/scripts/store.mjs');
+  const store = new Store(path.join(workspace, 'ideas'));
+  const map = await store.create({ title: 'Big', idea: 'Grows.' });
+  const before = await readFile(store.file(map.id), 'utf8');
+  const loaded = await store.get(map.id);
+  loaded.nodes[0].body = 'x'.repeat(65 * 1024 * 1024);
+  await assert.rejects(store.save(loaded), error => error.status === 413 && /too large to save/.test(error.message));
+  assert.equal(await readFile(store.file(map.id), 'utf8'), before);
+});

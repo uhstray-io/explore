@@ -35,9 +35,13 @@ try {
   const workspace = path.resolve(option('workspace', process.cwd()));
   const runtime = runtimePath(workspace);
   if (command === 'help' || args.includes('--help')) { console.log(usage); }
-  else {
-    if (!['doctor', 'status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'usage', 'act'].includes(command)) throw new Error(usage);
-    const connection = ['doctor', 'usage'].includes(command) ? null : await readConnection(workspace);
+  else if (command === 'doctor') {
+    const { stdout, stderr } = await runDoctor({ workspace, support: args.includes('--support'), out: option('out') });
+    if (stdout) console.log(stdout);
+    if (stderr) console.error(stderr);
+  } else {
+    if (!['status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'usage', 'act'].includes(command)) throw new Error(usage);
+    const connection = command === 'usage' ? null : await readConnection(workspace);
     if (connection) secrets.push(connection.token);
     async function api(route, data) {
       const response = await fetch(connection.address + route, { method: data ? 'POST' : 'GET',
@@ -52,11 +56,6 @@ try {
     };
     let output, rendered;
     switch (command) {
-      case 'doctor': {
-        const result = await runDoctor({ workspace, support: args.includes('--support'), out: option('out') });
-        if (result.stderr) console.error(result.stderr);
-        output = {}; rendered = result.stdout; break;
-      }
       case 'status': case 'maps': {
         const value = await api('/api/maps');
         const revision = createHash('sha256').update(JSON.stringify(value.maps.map(m => [m.id, m.revision, m.updatedAt]))).digest('hex').slice(0, 16);
@@ -123,9 +122,9 @@ try {
       default: throw new Error(usage);
     }
     rendered ??= JSON.stringify(output, null, 2);
-    if (!['usage', 'doctor'].includes(command)) await appendFile(path.join(runtime, 'context-usage.jsonl'), JSON.stringify({ at: new Date().toISOString(), command, mapId: output.mapId || option('map') || null,
+    if (command !== 'usage') await appendFile(path.join(runtime, 'context-usage.jsonl'), JSON.stringify({ at: new Date().toISOString(), command, mapId: output.mapId || option('map') || null,
       characters: rendered.length + 1, utf8Bytes: Buffer.byteLength(rendered + '\n') }) + '\n');
-    if (rendered) console.log(rendered);
+    console.log(rendered);
   }
 } catch (error) {
   let message = error.message;

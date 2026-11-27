@@ -1,6 +1,7 @@
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { mapFolderPattern, readMapFile, maxMapBytes } from './map-validation.mjs';
+import { isVersion } from './package-version.mjs';
 
 // A support report (J3): a small JSON file that is safe to attach to a public bug report. doctor gathers the
 // facts; this module projects them field by field onto fixed sets, never by copying the diagnosis and
@@ -32,15 +33,15 @@ export async function countUnreadableMaps(workspace) {
 export function toSupportReport(diagnosis, { version, missing, unreadable, legacy, generatedAt = new Date().toISOString() }) {
   return {
     format: 'explore-support', version: 1, generatedAt,
-    skillVersion: version ?? 'unknown',
+    skillVersion: isVersion(version) ? version : 'unknown',
     node: /^\d+\.\d+\.\d+$/.test(process.versions.node) ? process.versions.node : 'unknown',
     platform: process.platform, arch: process.arch,
     state: pick(diagnosis.state, states), ready: diagnosis.ready === true,
     checks: diagnosis.checks.map(check => ({ name: pick(check.name, checkNames), status: pick(check.status, statuses) })),
-    missingPackageFiles: missing,
+    missingPackageFiles: Array.isArray(missing) && missing.every(file => typeof file === 'string' && /^[\w./-]+$/.test(file)) ? missing : 'unknown',
     lock: { state: pick(diagnosis.lock?.state, lockStates) },
     savedMaps: Number.isSafeInteger(diagnosis.savedMaps) ? diagnosis.savedMaps : 'unknown',
-    unreadableMaps: unreadable,
+    unreadableMaps: Number.isSafeInteger(unreadable) ? unreadable : 'unknown',
     // With no server started nothing can be listening; otherwise only a server that answered can say.
     bridge: diagnosis.bridge ? { listening: diagnosis.bridge.listening === true, scopeCount: Array.isArray(diagnosis.bridge.scopes) ? diagnosis.bridge.scopes.length : 0 }
       : diagnosis.state === 'not-started' ? { listening: false, scopeCount: 0 } : 'unknown',

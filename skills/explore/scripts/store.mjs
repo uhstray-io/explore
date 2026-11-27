@@ -10,7 +10,7 @@ import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, 
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { questionFeedback } from './question-actions.mjs';
-import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes } from './map-validation.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -181,6 +181,7 @@ export class Store {
     map.updatedAt = now();
     const labels = [...new Set(map.history.slice(this.eventsAtLoad.get(map) ?? 0).map(event => event.type))];
     const bytes = Buffer.from(JSON.stringify(map, null, 2) + '\n'), fingerprint = fingerprintOf(bytes);
+    if (bytes.length > maxMapBytes) { map.revision -= 1; throw new Problem('This map is too large to save (over 64 MiB). Shorten long text or move part of it into another map.', 413, 'too-large'); }
     let versionError = null;
     await this.withMapLock(map.id, async () => {
       const basis = this.basis.get(map);
