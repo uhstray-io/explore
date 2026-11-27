@@ -197,13 +197,22 @@ export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false,
   const id = esc(question.id), node = esc(nodeId);
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
   const items = [
-    ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
+    ...(kind === 'open' ? [item('Explain this question', 'data-q-help'), item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
     ...(kind === 'answered' ? [item('Change answer', 'data-q-change')] : []),
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
   ];
   const rated = question.rating ? `<p class="question-rated">You rated this ${question.rating === 'good' ? 'a good question' : 'a bad question'}${question.ratingReason ? `: ${esc(question.ratingReason)}` : ''} · <button type="button" class="text-button" data-q-rate="" data-question-id="${id}" data-node-id="${node}">Undo</button></p>` : '';
   return menuHtml(id, 'More for this question', items)
     + `<div class="question-reason" data-reason-for="${id}" hidden><label class="visually-hidden" for="reason-${id}">What was wrong? (optional)</label><input id="reason-${id}" maxlength="600" placeholder="What was wrong? (optional)"><button type="button" class="secondary" data-send-reason="${id}" data-node-id="${node}">Send</button></div>${rated}`;
+}
+// Explain this question (B4): what the agent is doing about it, or its latest current help, under the
+// question. Help is never an answer: it is labelled so and never touches the answer field. It opens the
+// first time it appears and stays collapsed once seen.
+export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
+  const mine = jobs.filter(job => job.type === 'question-help' && job.subjectId === question.id);
+  if (mine.some(job => job.status === 'queued' || job.status === 'running')) return `<p class="question-help-status">${listening ? 'Your agent is working on it.' : 'Queued for your agent.'}</p>`;
+  const help = mine.filter(job => job.status === 'completed' && !job.stale && job.result?.help).at(-1);
+  return help ? `<details class="question-help" data-help="${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer</summary><p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
 }
 // The idea ⋯ menu (H2): Copy link.
 export function nodeMenuHtml(node, { esc }) {

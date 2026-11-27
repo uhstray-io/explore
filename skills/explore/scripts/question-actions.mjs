@@ -4,6 +4,8 @@ import { isOpen, isBlocking, normalizeQuestion } from '../assets/questions.js';
 // Ratings and dismissals are the user's feedback, never content: they don't re-run research, and
 // they travel with later work on the map so the agent asks fewer questions like the bad ones.
 export const REGENERATE = 'regenerate-question';
+// Explain this question (B4): the agent explains what a question asks, with an example. It never answers.
+export const EXPLAIN = 'question-help';
 
 class QuestionProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new QuestionProblem(message, status); };
@@ -66,6 +68,13 @@ export const questionActions = {
     delete question.dismissedAt; delete question.dismissedBy;
     store.event(map, 'question-restored', node.id, question.id);
   } },
+  // Explain an open question. The help stays on its job; the branch keeps waiting for the user's answer.
+  'request-help': { target: 'node', apply: ({ map, node, input, store }) => {
+    need(!store.isComplete(map, node), 'This branch is complete. Add a new direction instead.', 409);
+    const question = findQuestion(node, input.questionId);
+    need(isOpen(question), 'Only an open question can be explained.', 409);
+    store.enqueueJob(map, { type: EXPLAIN, nodeId: node.id, subjectId: question.id, reason: 'The user asked what this question means.', input: { question: question.text } });
+  } },
   // Replace an unhelpful question: the original is set aside and the branch waits for the new one.
   'regenerate-question': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     need(!store.isComplete(map, node), 'This branch is complete. Add a new direction instead.', 409);
@@ -80,7 +89,30 @@ export const questionActions = {
 
 const regenerateInstruction = 'Ask one replacement question that serves the same purpose better. Take the user\'s reason into account. Do not repeat the original or any dismissed question, and do not answer it. Return {"question": {"text": "…", "importance": "low|medium|high", "why": "…"}} through the CLI; importance and why are optional, and importance needs why.';
 
+const explainInstruction = 'Explain what this question asks and why it matters, define unfamiliar terms, and give one clearly illustrative example. Do not answer it or recommend an answer. Return {"help": "…"} through the CLI (at most 3,000 characters).';
+
 export const questionJobTypes = {
+  [EXPLAIN]: {
+    label: 'Explain a question', target: 'node',
+    // The question, its idea and the path up to the root; nothing from other branches, drafts or research.
+    packet: ({ map, job, node }) => {
+      const question = node.questions.find(q => q.id === job.subjectId), ancestors = [];
+      for (let at = map.nodes.find(n => n.id === node.parentId); at && ancestors.length < map.nodes.length; at = map.nodes.find(n => n.id === at.parentId)) ancestors.push({ title: clip(at.title, 100), summary: clip(at.summary, 400) });
+      const packet = { question: { id: job.subjectId, text: clip(question?.text ?? job.input?.question, 1600) },
+        node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 1200), summary: clip(node.summary, 600) },
+        ancestors, omittedAncestors: 0, instruction: explainInstruction };
+      // The farthest ancestors go first when the packet would be too long.
+      while (JSON.stringify(packet).length > 6000 && packet.ancestors.length) { packet.ancestors.pop(); packet.omittedAncestors++; }
+      return packet;
+    },
+    validate: result => {
+      need(Object.keys(result).length === 1 && typeof result.help === 'string' && result.help.trim(), 'Return {"help": "…"}: an explanation and an example, and nothing else.');
+      need(result.help.trim().length <= 3000, 'Help must be at most 3,000 characters.');
+      return { help: result.help.trim() };
+    },
+    // Help belongs to the question as it was asked; once it is answered, set aside or reworded, it is history.
+    isStale: ({ job, node }) => { const question = node?.questions.find(q => q.id === job.subjectId); return !question || !isOpen(question) || question.text !== job.input?.question; },
+  },
   [REGENERATE]: {
     label: 'Regenerate a question', target: 'node',
     packet: ({ map, job, node }) => {

@@ -1,10 +1,12 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
+try { state.helpSeen = new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { state.helpSeen = new Set(); }
+function markHelpSeen(id) { state.helpSeen.add(id); try { localStorage.setItem('explore-help-seen', JSON.stringify([...state.helpSeen].slice(-200))); } catch {} }
 const glyphs = { idea: '✳', research: '◇', question: '?', decision: '✓', risk: '△' };
 let toastTimer, gesture, suppressClick = false, openVersion = 0, actionTail = Promise.resolve();
 const accents = ['var(--teal)', 'var(--blue)', 'var(--orange)'];
@@ -142,6 +144,7 @@ function zoom(factor, cx = $('#canvas').clientWidth / 2, cy = $('#canvas').clien
   state.x = cx - (cx - state.x) * ratio; state.y = cy - (cy - state.y) * ratio; state.scale = next; transform();
 }
 function selectNode(nodeId) {
+  for (const shown of document.querySelectorAll('#detail details.question-help[open]')) markHelpSeen(shown.dataset.help);
   state.selected = visibleSelection(state.visibleMap, nodeId);
   showAddress();
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
@@ -541,7 +544,7 @@ function renderDetail(force = false) {
   };
   // Options with a suggested answer can start the user's draft; nothing is saved until they press Save.
   const suggestions = q => { const drafts = (n.options || []).filter(option => option.suggestedAnswer); return drafts.length ? `<div class="suggested-answers"><span>Start from a suggested answer:</span>${drafts.map(option => `<button type="button" class="text-button" data-suggest-answer="${esc(option.id)}" data-question-id="${q.id}">${esc(option.title)}</button>`).join('')}</div>` : ''; };
-  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${waiting ? '' : questionMenuHtml(q, { nodeId: n.id, kind: 'open', lastBlocking: blockingCount === 1, esc })}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
+  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${waiting ? '' : questionMenuHtml(q, { nodeId: n.id, kind: 'open', lastBlocking: blockingCount === 1, esc })}${questionHelpHtml({ question: q, jobs: state.visibleMap?.jobs || [], listening: agentListening(), seen: state.helpSeen, esc })}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
   // An answer being saved already counts as answered here, so the next question shows at once.
   const questions = state.pendingAnswers ? n.questions.map(q => !q.answer && state.pendingAnswers[q.id] !== undefined ? { ...q, answer: state.pendingAnswers[q.id], answerState: 'tentative' } : q) : n.questions;
   const live = !completed && !historic, blockingCount = questions.filter(isBlocking).length;
@@ -799,6 +802,8 @@ document.addEventListener('click', async event => {
     if (done) toast(row.dataset.action === 'regenerate' ? (agentListening() ? 'Your agent will write a better question.' : 'Queued. Connect your agent for a new question.') : 'Thanks. Your agent will ask fewer questions like this.');
     send.disabled = false; return;
   }
+  const help = event.target.closest('[data-q-help]');
+  if (help) { closeMenus(); if (await act(help.dataset.nodeId, 'request-help', { questionId: help.dataset.questionId })) toast(agentListening() ? 'Your agent will explain this question next.' : 'Queued. Connect your agent to get the explanation.'); return; }
   const dismiss = event.target.closest('[data-q-dismiss]');
   if (dismiss) { closeMenus(); if (await act(dismiss.dataset.nodeId, 'dismiss-question', { questionId: dismiss.dataset.questionId })) toast(state.map?.nodes.find(node => node.id === dismiss.dataset.nodeId)?.questions.some(isBlocking) ? 'Dismissed.' : 'Dismissed. The branch continues without it.'); return; }
   const restore = event.target.closest('[data-q-restore]');
