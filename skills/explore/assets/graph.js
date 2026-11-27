@@ -3,7 +3,7 @@ export const workLabels = { suggested: 'Unexplored', queued: 'Queued', running: 
 export function presentation(node) {
   const work = workLabels[node.status] || node.status;
   return {
-    label: [work, node.stale ? 'needs review' : node.reviewState === 'accepted' ? 'accepted' : ''].filter(Boolean).join(' · '),
+    label: [work, node.stale ? 'needs review' : node.reviewState === 'accepted' ? 'accepted' : node.reviewState === 'cleared' ? 'no longer relevant' : ''].filter(Boolean).join(' · '),
     lit: node.status === 'explored' && !node.stale,
   };
 }

@@ -24,7 +24,7 @@ export const INVESTIGATE = 'investigate';
 
 const builtInJobTypes = { [INVESTIGATE]: { label: 'Branch investigation', target: 'node' } };
 // Store.action handles these itself; a registry entry may not replace them.
-const builtInActions = new Set(['activate', 'answer', 'suggest', 'cancel', 'cancel-job', 'accept', 'revise', 'fork-revision', 'position', 'restore-version', 'name-version', 'unname-version', 'change-answer']);
+const builtInActions = new Set(['activate', 'answer', 'suggest', 'cancel', 'cancel-job', 'accept', 'revise', 'fork-revision', 'position', 'restore-version', 'name-version', 'unname-version', 'change-answer', 'reaffirm', 'clear-finding']);
 const targets = new Set(['node', 'map']);
 
 export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = {}) {

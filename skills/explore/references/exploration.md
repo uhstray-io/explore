@@ -46,6 +46,10 @@ Each saved answer says how sure the user is (`answerState`). Build on **Decided*
 
 When a branch is really a choice, return 2–4 substantively different, feasible options rather than burying the comparison in the body. Never pad the list; if only one option is realistic, give it with `optionsLimit` saying why. Recommend one option conditionally, with its main trade-off and what would change your mind, or use `optionId: null` and say what is missing. A recommendation is your judgement, not a decision. A `suggestedAnswer` is a draft the user may adopt, never their answer; when the choice is theirs, also ask one question so the suggestion has somewhere to go.
 
+## Flagged and cleared findings
+
+A finding the user marked "Still holds" (`reaffirmedAt`) was re-checked by the user against the change, not re-researched. A `cleared` finding is kept for history but is no longer relied on; do not build on it unless the user accepts it again.
+
 ## Preserve the status of each claim
 
 Keep four things distinguishable in concise prose:

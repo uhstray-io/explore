@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -554,4 +554,32 @@ test('a saved answer can be changed in place, and on a finished branch it explor
   markup = h.markup();
   assert.match(markup, /data-save-change="fork"[^>]*>Explore beside the original</);
   assert.doesNotMatch(markup, /data-save-wording/);
+});
+
+test('a flagged finding offers Review this, and reviewing shows the step at the top of the inspector', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'explored'; node.completed = true; node.stale = true;
+  node.reviewCauses = [{ sourceId: 'node-b', kind: 'premise-revised', at: '2026-11-27T10:00:00Z' }];
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /data-review-start="node-a"[^>]*>Review this</);
+  h.state.map = { ...h.state.visibleMap, rootId: 'node-a', history: [] }; h.state.reviewing = {};
+  h.render();
+  assert.match(h.markup(), /^<section class="review-step"/);
+  assert.match(h.markup(), /Item 1 of 1/); assert.match(h.markup(), /premise was revised/);
+  assert.doesNotMatch(h.markup(), />Review this</, 'no second entry point while reviewing');
+});
+
+test('resolving a flag re-renders without ending the review, so the next flagged finding can follow', () => {
+  const h = harness();
+  const [first, second] = h.state.visibleMap.nodes;
+  for (const node of [first, second]) { node.status = 'explored'; node.completed = true; node.stale = true; }
+  h.state.map = { ...h.state.visibleMap, rootId: 'node-a', edges: [{ from: 'node-a', to: 'node-b' }], history: [] };
+  h.state.reviewing = {}; h.document.activeElement = null;
+  h.render();
+  assert.match(h.markup(), /Item 1 of 2/);
+  // The save re-renders the selected node after its flag is gone, before the walk-through moves on.
+  first.stale = false; h.render();
+  assert.ok(h.state.reviewing, 'review mode survives the re-render of a resolved finding');
+  assert.doesNotMatch(h.markup(), /review-step/);
 });

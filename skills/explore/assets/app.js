@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
@@ -78,7 +78,7 @@ async function openMap(id) {
   try {
     const map = await api(`/maps/${id}`); if (version !== openVersion) return;
     state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
-    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; navigation(false);
+    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); location.hash = id;
     renderMap(true); renderRail();
@@ -213,7 +213,9 @@ function renderOverview() {
   $('#overview-title').textContent = `${group.label} (${group.nodes.length})`;
   $('#overview-explanation').textContent = state.historyStep === null ? 'Choose an idea to inspect it. Opening this list never starts work.' : 'Today’s state of ideas visible at this growth step.';
   const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}</small>${node.summary ? `<span>${esc(node.summary)}</span>` : ''}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
-  if ($('#overview-list').innerHTML !== list) $('#overview-list').innerHTML = list;
+  // Flagged findings can be reviewed one at a time from here.
+  const reviewAll = group.id === 'stale' && group.nodes.length && state.historyStep === null ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
+  if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $(`[data-filter="${state.filter}"]`))?.focus({ preventScroll: true });
 }
 $('#overview-filters').addEventListener('click', event => {
@@ -364,6 +366,14 @@ $('#tools-dialog').addEventListener('click', async event => {
   else if (button.dataset.reviewItem) { if (await act(null, 'review-proposal', { proposalId: button.dataset.proposal, itemId: button.dataset.reviewItem, decision: button.dataset.decision })) renderTools(); }
   else if (button.dataset.select) $('#tools-dialog').close(); // The page's own handler then focuses that idea.
 });
+// After a flag is resolved, move to the next flagged finding, or finish when none are left.
+function advanceReview(nodeId, position, message) {
+  toast(message);
+  if (!state.reviewing) return;
+  const queue = reviewQueue(state.map).filter(id => id !== nodeId);
+  if (!queue.length) { state.reviewing = null; renderDetail(true); toast('All flagged findings are reviewed.'); return; }
+  focusNode(queue[Math.min(Math.max(0, position), queue.length - 1)]); renderDetail(true);
+}
 // The question menu opens on its button, moves with the arrow keys, and closes with Escape back to its button.
 function openQuestionMenu(toggle) {
   const menu = document.getElementById(toggle.getAttribute('aria-controls')); if (!menu) return;
@@ -514,9 +524,16 @@ function renderDetail(force = false) {
       + (sequence && !sequence.current && sequence.total > 1 && ['queued', 'running'].includes(n.status) ? '<p class="state-note">That’s all for now. Your agent will continue this branch.</p>' : ''))
     + (waiting.length ? `<details class="saved-for-later"><summary>Saved for later (${waiting.length})</summary>${waiting.map(q => questionForm(q, true)).join('')}</details>` : '')
     + (dismissed.length ? `<details class="saved-for-later dismissed-questions"><summary>Dismissed (${dismissed.length})</summary>${dismissed.map(q => `<div class="answer"><strong>${esc(q.text)}</strong>${q.ratingReason ? `<small class="certainty-label">${esc(q.ratingReason)}</small>` : ''}${q.replacedBy ? '<small class="certainty-label">Replaced by a new question.</small>' : ''}${canRestore(q) ? `<button type="button" class="text-button" data-q-restore data-question-id="${q.id}" data-node-id="${n.id}">Restore</button>` : ''}</div>`).join('')}</details>` : '');
-  $('#detail').innerHTML = `<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span></div><h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
+  // Reviewing flagged findings: one step at a time, at the top of the inspector.
+  let reviewHtml = '';
+  if (state.reviewing && !historic) {
+    const queue = reviewQueue(state.map), index = queue.indexOf(n.id);
+    // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
+    if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
+  }
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span></div><h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
-    ${n.stale ? '<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.</p>' : ''}
+    ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
     ${completed && !historic ? '<p class="state-note">This branch is complete. Add a new direction to keep exploring; these findings stay here.</p>' : ''}
     ${n.status === 'suggested' && !historic ? '<p class="state-note">A possible direction. Nothing runs until you choose to explore it.</p>' : ''}
     ${n.status === 'queued' && !historic ? `<p class="state-note">${agentListening() ? 'Your agent will pick up this branch next.' : 'Saved in the queue. Connect your agent to start this investigation.'}</p>` : ''}
@@ -574,7 +591,7 @@ function showCreate() {
   $('#create-dialog').showModal(); $('#idea').focus();
 }
 function showWelcome() {
-  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.versionsOpen = false; localStorage.removeItem('explore-map'); navigation(false);
+  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.versionsOpen = false; state.reviewing = null; localStorage.removeItem('explore-map'); navigation(false);
   $('#welcome').classList.remove('hidden'); $('#workspace').classList.add('hidden'); $('#map-title').textContent = 'A place to think'; renderRail();
 }
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
@@ -644,6 +661,39 @@ document.addEventListener('click', async event => {
       : await act(changeSave.dataset.nodeId, 'change-answer', { questionId, answer, ...('saveWording' in changeSave.dataset ? { rerun: false } : {}) });
     if (done) { delete state.drafts[`change-${questionId}`]; toast(fork ? (agentListening() ? 'A new branch is exploring your changed answer.' : 'A new branch is queued for your changed answer. Connect your agent to explore it.') : 'saveWording' in changeSave.dataset ? 'Wording saved.' : 'Answer changed. Findings that relied on it are flagged for review.'); }
     changeSave.disabled = false; return;
+  }
+  // Review flagged findings.
+  const reviewStart = event.target.closest('[data-review-start]');
+  if (reviewStart) {
+    const queue = reviewQueue(state.map), id = reviewStart.dataset.reviewStart || queue[0]; if (!id) return;
+    state.reviewing = {}; state.filter = null; renderOverview(); focusNode(id); renderDetail(true); return;
+  }
+  const reviewMove = event.target.closest('[data-review-prev], [data-review-next]');
+  if (reviewMove && state.reviewing) {
+    const queue = reviewQueue(state.map), index = Math.max(0, Math.min(queue.length - 1, queue.indexOf(state.selected) + ('reviewNext' in reviewMove.dataset ? 1 : -1)));
+    focusNode(queue[index]); renderDetail(true); return;
+  }
+  if (event.target.closest('[data-review-exit]')) { state.reviewing = null; renderDetail(true); return; }
+  const resolve = event.target.closest('[data-resolve]');
+  if (resolve) {
+    const nodeId = resolve.dataset.nodeId, kind = resolve.dataset.resolve;
+    if (kind === 'reexplore') { const box = document.querySelector(`[data-reexplore-for="${nodeId}"]`); if (box) { box.hidden = false; box.querySelector('textarea').focus(); } return; }
+    const position = reviewQueue(state.map).indexOf(nodeId);
+    if (await act(nodeId, kind === 'reaffirm' ? 'reaffirm' : 'clear-finding')) advanceReview(nodeId, position, kind === 'reaffirm' ? 'Marked as still holding.' : 'Marked as no longer relevant.');
+    return;
+  }
+  const confirmReexplore = event.target.closest('[data-reexplore-confirm]');
+  if (confirmReexplore) {
+    const nodeId = confirmReexplore.dataset.reexploreConfirm, node = state.map.nodes.find(item => item.id === nodeId);
+    const premise = node.prompt || node.body, body = document.querySelector(`#reexplore-${nodeId}`)?.value.trim() || premise;
+    const position = reviewQueue(state.map).indexOf(nodeId);
+    confirmReexplore.disabled = true;
+    let done;
+    if (node.completed) done = await act(nodeId, 'fork-revision', { body, resolveReview: true, start: true });
+    else { done = body === premise ? true : await act(nodeId, 'revise', { body }); if (done) done = await act(nodeId, 'activate'); }
+    confirmReexplore.disabled = false;
+    if (done) advanceReview(nodeId, position, agentListening() ? 'Re-exploring. Your agent will pick it up next.' : 'Queued to re-explore. Connect your agent to run it.');
+    return;
   }
   // The question ⋯ menu.
   const menuToggle = event.target.closest('[data-question-menu]');
