@@ -22,11 +22,13 @@
 import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
 import { questionJobTypes, questionActions } from './question-actions.mjs';
 import { restartActions } from './restart.mjs';
-import { listenChoices, defaultListenMinutes } from '../assets/listening.js';
+import { listenSetting } from '../assets/listening.js';
 
 export const INVESTIGATE = 'investigate';
 
 const builtInJobTypes = { [INVESTIGATE]: { label: 'Branch investigation', target: 'node' } };
+// How long an agent keeps listening for work (K1): every server reports it, so every registry has it.
+const builtInSettings = { listenMinutes: listenSetting };
 // Store.action handles these itself; a registry entry may not replace them.
 const builtInActions = new Set(['activate', 'answer', 'suggest', 'cancel', 'cancel-job', 'accept', 'revise', 'fork-revision', 'position', 'restore-version', 'name-version', 'unname-version', 'change-answer', 'reaffirm', 'clear-finding']);
 const targets = new Set(['node', 'map']);
@@ -45,16 +47,11 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
     if (['version', 'revision', 'expectedRevision', 'unreadable'].includes(key) || typeof field.validate !== 'function' || !('default' in field))
       throw new Error(`Setting ${key} needs a default and a validate function, and may not reuse a reserved name.`);
   }
-  return { jobTypes: { ...builtInJobTypes, ...jobTypes }, actions: { ...actions }, settings: { ...settings } };
+  return { jobTypes: { ...builtInJobTypes, ...jobTypes }, actions: { ...actions }, settings: { ...builtInSettings, ...settings } };
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-// How long an agent keeps listening for work (K1), shared by everyone who opens the repo.
-const listenMinutes = { default: defaultListenMinutes, validate: value => {
-  if (!listenChoices.includes(value)) throw Object.assign(new Error(`Keep listening for ${listenChoices.slice(0, -1).join(', ')} or ${listenChoices.at(-1)} minutes.`), { status: 400 });
-  return value;
-} };
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions }, settings: { listenMinutes } });
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }

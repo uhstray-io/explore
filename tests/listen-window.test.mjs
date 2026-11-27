@@ -6,14 +6,17 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { listenStatus, listenChoices } from '../skills/explore/assets/listening.js';
+import { createListeners } from '../skills/explore/scripts/listeners.mjs';
+import { createRegistry } from '../skills/explore/scripts/job-types.mjs';
+import { agentPrompt } from '../skills/explore/assets/agent-dialog.js';
 
 // How long the agent keeps listening (K1, #49). Illustrative fixtures under .test-output, never ideas/.
 const exec = promisify(execFile);
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
-async function fixture() {
+async function fixture(options = {}) {
   const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
   const workspace = await mkdtemp(path.join(root, 'listen-'));
-  const app = await startServer({ workspace, port: 0 });
+  const app = await startServer({ workspace, port: 0, ...options });
   const { token } = await (await fetch(`${app.address}/api/session`)).json();
   const call = async (route, body) => {
     const response = await fetch(`${app.address}/api${route}`, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -84,4 +87,36 @@ test('handing out a job resets the listener, packets carry no listening window, 
     const cli = JSON.parse((await exec(process.execPath, [path.resolve('skills/explore/scripts/cli.mjs'), 'next', '--wait', '0', '--map', map.id, '--worker', 'agent', '--workspace', workspace])).stdout);
     assert.equal(cli.listen.windowMinutes, 2); assert.ok(JSON.stringify(cli).length < 200);
   } finally { await app.close(); }
+});
+
+test('a slow poll never restarts the window, and it closes after a full window without activity', () => {
+  const listeners = createListeners();
+  const a = listeners.seen('map-a', 'one', 0);
+  listeners.seen('map-a', 'one', 39_000); listeners.seen('map-a', 'one', 80_000); // A 41-second gap between polls.
+  assert.equal(listeners.status(80_000).listening, true);
+  assert.equal(listeners.listen(a, 2, 80_000).idleSeconds, 80, 'counted from the start, not from the late poll');
+  assert.equal(listeners.listen(listeners.seen('map-a', 'one', 120_000), 2, 120_000).keepListening, false);
+  assert.equal(listeners.status(200_000).listening, false, 'presence ends 40 seconds after the last poll');
+  listeners.noteActivity('map-b', 200_000);
+  assert.equal(listeners.listen(a, 2, 200_000).idleSeconds, 200, 'activity on another map does not count');
+  listeners.noteActivity('map-a', 200_000);
+  assert.equal(listeners.listen(listeners.seen('map-a', 'one', 201_000), 2, 201_000).idleSeconds, 1);
+});
+
+test('a server with its own registry still reports the window, and importing a map counts as activity', async () => {
+  const { app, call, quietMap } = await fixture({ registry: createRegistry({}) });
+  try {
+    const map = await quietMap('Field notebook');
+    assert.deepEqual((await call('/next?worker=all')).body.listen, { windowMinutes: 2, idleSeconds: 0, keepListening: true });
+    await pause(1100);
+    const exported = (await call(`/maps/${map.id}/export`)).body;
+    assert.equal((await call('/import', { data: exported, asCopy: true })).status, 200);
+    assert.equal((await call('/next?worker=all')).body.listen.idleSeconds, 0);
+  } finally { await app.close(); }
+});
+
+test('the agent prompt names the open map, or asks which one', () => {
+  const session = { skillPath: 'skills/explore/SKILL.md', workspacePath: '/work' };
+  assert.match(agentPrompt(session, { id: 'map-1', title: 'Field notebook' }), /Continue only map map-1 \(Field notebook\)/);
+  assert.match(agentPrompt(session, null), /Ask me which saved map to continue/);
 });

@@ -1,16 +1,24 @@
 import { listenChoices } from './listening.js';
 
-// The agent dialog, opened from the bridge status: the prompt to paste into a coding agent, and how long that
-// agent keeps listening for work (K1), a setting shared by everyone who opens the repo. Nothing here runs or
-// wakes an agent; the window only applies while the agent's session stays open.
-export function agentDialog({ $, api, toast, session, map }) {
+// The prompt to paste into a coding agent: continue this workspace, and this map when one is open.
+export function agentPrompt(session, map) {
+  const target = map ? `Continue only map ${map.id} (${map.title}). Pick up activated branches for this map only.` : 'Ask me which saved map to continue, then pick up its activated branches.';
+  return `Use the Explore skill at ${session.skillPath || 'skills/explore/SKILL.md'} to continue the workspace ${session.workspacePath || session.workspace || ''}. The local app is running. ${target} Use the command bridge, keep context focused, and send findings and questions back to the map.`;
+}
+
+// The agent dialog, opened from the bridge status: the prompt, and how long that agent keeps listening for work
+// (K1), a setting shared by everyone who opens the repo. Nothing here runs or wakes an agent; the window only
+// applies while the agent's session stays open.
+export function agentDialog({ api, toast, session, map }) {
+  const $ = selector => document.querySelector(selector), select = $('#listen-minutes'), status = $('#agent-copy-status');
   let revision = null;
-  const select = $('#listen-minutes'), status = $('#agent-copy-status');
   select.innerHTML = listenChoices.map(minutes => `<option value="${minutes}">${minutes} minutes</option>`).join('');
   async function loadSetting() {
+    select.disabled = true; // Until the current value is known, so a change never carries a stale revision.
     const settings = await api('/settings').catch(() => null);
-    select.disabled = !settings || !!settings.newer; // A newer Explore's settings are left alone.
-    if (settings) { select.value = String(settings.listenMinutes); revision = settings.revision; }
+    if (!settings) { status.textContent = 'The listening setting could not be loaded. Close and reopen this dialog to try again.'; return; }
+    select.value = String(settings.listenMinutes); revision = settings.revision;
+    select.disabled = !!settings.newer; // A newer Explore's settings are left alone.
   }
   select.addEventListener('change', async () => {
     try {
@@ -24,9 +32,7 @@ export function agentDialog({ $, api, toast, session, map }) {
     catch { $('#agent-prompt').focus(); $('#agent-prompt').select(); status.textContent = 'Copy the selected prompt above.'; }
   });
   return function show() {
-    const where = session(), open = map();
-    const target = open ? `Continue only map ${open.id} (${open.title}). Pick up activated branches for this map only.` : 'Ask me which saved map to continue, then pick up its activated branches.';
-    $('#agent-prompt').value = `Use the Explore skill at ${where.skillPath || 'skills/explore/SKILL.md'} to continue the workspace ${where.workspacePath || where.workspace || ''}. The local app is running. ${target} Use the command bridge, keep context focused, and send findings and questions back to the map.`;
+    $('#agent-prompt').value = agentPrompt(session(), map());
     status.textContent = ''; loadSetting(); $('#help-dialog').showModal();
   };
 }

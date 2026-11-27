@@ -708,7 +708,7 @@ function showWelcome() {
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
 $('#new-map').addEventListener('click', showCreate); $('#start-exploration').addEventListener('click', showCreate);
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
-const showHelp = agentDialog({ $, api, toast, session: () => state.session || {}, map: () => state.map });
+const showHelp = agentDialog({ api, toast, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
 $('#create-form').addEventListener('submit', async event => {
   event.preventDefault();

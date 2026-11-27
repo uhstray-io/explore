@@ -8,7 +8,8 @@ import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
 import { exportMap } from './transfer.mjs';
-import { listenStatus } from '../assets/listening.js';
+import { createListeners } from './listeners.mjs';
+import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
@@ -31,18 +32,11 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
   await lock.writeFile(JSON.stringify({ pid: process.pid })); await lock.close();
   const connectionPath = path.join(runtime, 'connection.json');
   const token = randomBytes(32).toString('hex');
-  const store = new Store(dataDirectory || path.join(workspace, 'ideas'), registry ? { registry } : {});
+  const listeners = createListeners();
+  const store = new Store(dataDirectory || path.join(workspace, 'ideas'), { ...(registry ? { registry } : {}), onSaved: map => listeners.noteActivity(map.id) });
   const contributor = gitContributor(workspace), version = await packageVersion();
   let address, worker = '', closing = false;
-  // Listeners by [mapId, worker]. Each records when it last polled (presence) and its last activity: the last
-  // job handed to it, or the last saved change to a map it covers, from which its listening window counts (K1).
-  const listeners = new Map();
-  const touch = mapId => { const at = Date.now(); for (const listener of listeners.values()) if (!listener.mapId || listener.mapId === mapId) listener.lastActivity = at; };
-  const bridgeStatus = () => {
-    for (const [key, listener] of listeners) if (Date.now() - listener.lastSeen >= 40000) listeners.delete(key);
-    return { listening: listeners.size > 0, worker,
-      scopes: [...listeners.values()].map(({ mapId, worker }) => ({ mapId, worker, listening: true })) };
-  };
+  const bridgeStatus = () => ({ ...listeners.status(), worker });
   try { await store.recover(); } catch (error) { await unlink(lockPath); throw error; }
   const send = (res, status, data) => {
     if (!res.writableEnded) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
@@ -97,21 +91,20 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const mapId = url.searchParams.get('map') || null;
           const wait = Math.max(0, Math.min(25, Number(url.searchParams.get('wait')) || 0));
           const deadline = Date.now() + wait * 1000;
+          // Claiming a job saves the map, which restarts this listener's window like any other saved change.
+          const listener = listeners.seen(mapId, workerName);
           do {
             if (res.destroyed || closing) return;
             const packet = await store.claim(workerName, mapId || undefined);
-            worker = workerName;
-            const key = JSON.stringify([mapId, workerName]), listener = listeners.get(key) ?? { mapId, worker: workerName, lastActivity: Date.now() };
-            listener.lastSeen = Date.now(); listeners.set(key, listener);
-            bridgeStatus();
-            if (packet) { listener.lastActivity = Date.now(); return send(res, 200, packet); }
+            worker = workerName; listeners.seen(mapId, workerName);
+            if (packet) return send(res, 200, packet);
             if (Date.now() >= deadline) break;
             await new Promise(resolve => setTimeout(resolve, 500));
           } while (!closing);
-          // The window is read on every idle response, so a change in the browser applies at the next poll.
-          const listener = listeners.get(JSON.stringify([mapId, workerName])), { listenMinutes } = await store.getSettings();
-          return send(res, 200, { idle: true, message: 'No activated branches. Do not analyze the map again while waiting.',
-            listen: listenStatus({ windowMinutes: listenMinutes, lastActivity: listener?.lastActivity ?? Date.now(), now: Date.now() }) });
+          // Read on every idle response, so a change in the browser applies at the next poll. An unreadable
+          // settings file falls back to the default rather than failing the poll.
+          const windowMinutes = await store.getSettings().then(settings => settings.listenMinutes, () => defaultListenMinutes);
+          return send(res, 200, { idle: true, message: 'No activated branches. Do not analyze the map again while waiting.', listen: listeners.listen(listener, windowMinutes) });
         }
         if (req.method !== 'POST') throw new Problem('Route not found.', 404);
         if (!req.headers['content-type']?.startsWith('application/json')) throw new Problem('Use application/json.', 415);
@@ -121,18 +114,17 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         for await (const chunk of req) { bytes += chunk.length; if (bytes > limit) throw new Problem('Request is too large.', 413); chunks.push(chunk); }
         const raw = Buffer.concat(chunks).toString('utf8');
         let body; try { body = JSON.parse(raw); } catch { throw new Problem('Invalid JSON.'); }
-        if (url.pathname === '/api/maps') { const map = await store.create(body); touch(map.id); return send(res, 201, store.view(map)); }
+        if (url.pathname === '/api/maps') return send(res, 201, store.view(await store.create(body)));
         if (url.pathname === '/api/demo') return send(res, 201, store.view(await store.demo()));
         if (url.pathname === '/api/settings') return send(res, 200, await store.updateSettings(body));
         if (url.pathname === '/api/import') return send(res, 200, await store.importMap(body.data, { asCopy: body.asCopy === true }));
-        // A saved change restarts the listening window of agents covering that map, including an agent's own result.
-        if (match?.[2] === 'action') { const map = await store.action(match[1], body, { actor: await contributor() }); touch(match[1]); return send(res, 200, store.view(map)); }
+        if (match?.[2] === 'action') return send(res, 200, store.view(await store.action(match[1], body, { actor: await contributor() })));
         if (match?.[2] === 'result') {
           if (body.check === true) return send(res, 200, await store.checkResult(match[1], body.jobId, body.claimKey, body.result));
-          const { map, warnings } = await store.deliver(match[1], body.jobId, body.claimKey, body.result); touch(match[1]);
+          const { map, warnings } = await store.deliver(match[1], body.jobId, body.claimKey, body.result);
           return send(res, 200, { ...store.view(map), warnings });
         }
-        if (match?.[2] === 'fail') { const map = await store.fail(match[1], body.jobId, body.claimKey, body.reason); touch(match[1]); return send(res, 200, store.view(map)); }
+        if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
       const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
