@@ -7,6 +7,7 @@ import { Store, Problem, atomicJson, publicMap } from './store.mjs';
 import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
+import { exportMap, importMap } from './transfer.mjs';
 import { previewRestart } from './restart.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
@@ -78,6 +79,8 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const q = url.searchParams;
           return send(res, 200, await previewRestart(store, restartRoute[1], { nodeId: q.get('node'), questionId: q.get('question'), offset: q.get('offset'), limit: q.get('limit') }));
         }
+        const exportRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/export$/);
+        if (req.method === 'GET' && exportRoute) return send(res, 200, await exportMap(store, exportRoute[1]));
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
         if (req.method === 'GET' && contextRoute) return send(res, 200, contextExcerpt(await store.get(contextRoute[1]), url.searchParams.get('node'), Object.fromEntries(url.searchParams)));
         const match = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)(?:\/(action|result|fail))?$/);
@@ -102,12 +105,15 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (req.method !== 'POST') throw new Problem('Route not found.', 404);
         if (!req.headers['content-type']?.startsWith('application/json')) throw new Problem('Use application/json.', 415);
         const chunks = []; let bytes = 0;
-        for await (const chunk of req) { bytes += chunk.length; if (bytes > 180000) throw new Problem('Request is too large.', 413); chunks.push(chunk); }
+        // A whole map may be imported; every other request stays small.
+        const limit = url.pathname === '/api/import' ? 8 * 1024 * 1024 : 180000;
+        for await (const chunk of req) { bytes += chunk.length; if (bytes > limit) throw new Problem('Request is too large.', 413); chunks.push(chunk); }
         const raw = Buffer.concat(chunks).toString('utf8');
         let body; try { body = JSON.parse(raw); } catch { throw new Problem('Invalid JSON.'); }
         if (url.pathname === '/api/maps') return send(res, 201, store.view(await store.create(body)));
         if (url.pathname === '/api/demo') return send(res, 201, store.view(await store.demo()));
         if (url.pathname === '/api/settings') return send(res, 200, await store.updateSettings(body));
+        if (url.pathname === '/api/import') return send(res, 200, await importMap(store, body.data, { asCopy: body.asCopy === true }));
         if (match?.[2] === 'action') return send(res, 200, store.view(await store.action(match[1], body, { actor: await contributor() })));
         if (match?.[2] === 'result') return send(res, 200, store.view(await store.complete(match[1], body.jobId, body.claimKey, body.result)));
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));

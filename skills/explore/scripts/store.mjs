@@ -152,6 +152,8 @@ export class Store {
     }
     await rm(dir, { recursive: true, force: true });
   }
+  // A map that has never been saved here (an import): its versions record only what happens from now on.
+  adoptNew(map) { this.eventsAtLoad.set(map, map.history.length); }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
   async list() {
     await mkdir(this.directory, { recursive: true });

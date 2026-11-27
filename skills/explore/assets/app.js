@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
@@ -397,6 +397,10 @@ $('#tools-dialog').addEventListener('click', async event => {
   } else if (button.dataset.cancelJob) { if (await act(null, 'cancel-job', { jobId: button.dataset.cancelJob })) toast('Check stopped.'); renderTools(); }
   else if (button.dataset.reviewItem) { if (await act(null, 'review-proposal', { proposalId: button.dataset.proposal, itemId: button.dataset.reviewItem, decision: button.dataset.decision })) renderTools(); }
   else if (button.dataset.select) $('#tools-dialog').close(); // The page's own handler then focuses that idea.
+  else if ('exportMap' in button.dataset) {
+    try { download(JSON.stringify(await api(`/maps/${state.map.id}/export`), null, 2) + '\n', 'application/json', downloadName(state.map.title, '-map.json')); toast('Map exported as JSON.'); }
+    catch (error) { toast(error.message); }
+  }
 });
 // Loads the restart preview, or its next page of ideas to delete. If the branch changed meanwhile, the
 // preview starts again from the first page so it always matches what would be deleted.
@@ -496,11 +500,34 @@ $('#copy-brief').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(state.brief.markdown); $('#brief-status').textContent = 'Brief copied. Paste it into a document or your agent.'; }
   catch { const field = $('#brief-copy-fallback'); field.value = state.brief.markdown; field.hidden = false; field.focus(); field.select(); $('#brief-status').textContent = 'Copy the selected brief text below.'; }
 });
+function download(text, type, name) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement('a'); link.href = url; link.download = name; document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 $('#download-brief').addEventListener('click', () => {
   if (!state.brief) return;
-  const url = URL.createObjectURL(new Blob([state.brief.markdown], { type: 'text/markdown;charset=utf-8' }));
-  const link = document.createElement('a'); link.href = url; link.download = briefFilename(state.brief.title); document.body.append(link); link.click(); link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000); $('#brief-status').textContent = 'Brief downloaded as Markdown.';
+  download(state.brief.markdown, 'text/markdown;charset=utf-8', briefFilename(state.brief.title)); $('#brief-status').textContent = 'Brief downloaded as Markdown.';
+});
+// Import a map (I2): an identical map opens the existing one; a different one with the same ID asks first.
+async function importMapFile(data, asCopy = false) {
+  try {
+    const result = await api('/import', { data, asCopy });
+    if (result.conflict) { state.importPending = { data, mapId: result.conflict.mapId }; $('#import-body').innerHTML = importConflictHtml(result.conflict, { esc }); $('#import-dialog').showModal(); return; }
+    await refresh({ force: true }); await openMap(result.imported ?? result.existing);
+    toast(result.existing ? 'This map is already here, so it is open now.' : 'Map imported. Nothing in it runs until you choose to explore.');
+  } catch (error) { toast(error.message); }
+}
+$('#import-map').addEventListener('click', () => $('#import-file').click());
+$('#import-file').addEventListener('change', async () => {
+  const file = $('#import-file').files[0]; $('#import-file').value = ''; if (!file) return;
+  let data; try { data = JSON.parse(await file.text()); } catch { toast('This file is not valid JSON, so it cannot be imported.'); return; }
+  await importMapFile(data);
+});
+$('#import-dialog').addEventListener('click', async event => {
+  const button = event.target.closest('[data-import-keep], [data-import-copy]'), pending = state.importPending; if (!button || !pending) return;
+  $('#import-dialog').close(); state.importPending = null;
+  if ('importCopy' in button.dataset) await importMapFile(pending.data, true); else await openMap(pending.mapId);
 });
 
 function detailFocusKey(element) {
