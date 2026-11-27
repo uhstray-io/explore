@@ -10,14 +10,11 @@ import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, 
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { questionFeedback } from './question-actions.mjs';
-import { nodeKinds, semanticRelations, hasConflictMarkers } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, decodeMap, readProblem, generatedFrom } from './map-validation.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
-const kinds = new Set(nodeKinds);
-const relations = new Set(semanticRelations);
-const active = job => ['queued', 'running'].includes(job.status);
 // Packet fields for an answer's certainty; older answers say theirs was not recorded.
 const certaintyFields = q => { const certainty = effectiveAnswerState(q); return certainty ? { answerState: certainty.state, ...(certainty.recorded ? {} : { certaintyRecorded: false }) } : {}; };
 // Built-in actions that cover the whole map rather than one idea.
@@ -37,13 +34,6 @@ export class Problem extends Error {
   constructor(message, status = 400, code) { super(message); this.status = status; if (code) this.code = code; }
 }
 function need(condition, message, status, code) { if (!condition) throw new Problem(message, status, code); }
-// Explanations never quote the file: it can hold private ideas, and parser text is not actionable.
-const unreadable = {
-  'conflict-markers': 'This map has unresolved Git conflict markers. Resolve them in its map.json, then open it again.',
-  'invalid-json': 'This map file is not valid JSON. Restore it from Git or a preserved copy.',
-  'unsupported-version': 'This map uses an unsupported format version.',
-  'invalid-map': 'This map file is missing required parts or belongs to another folder. Restore it from Git or a preserved copy.',
-};
 const changedOutside = 'This map changed outside Explore, for example after a pull. Read the updated map, then try again; your text has been kept.';
 const fingerprintOf = bytes => createHash('sha256').update(bytes).digest('hex');
 // A claim key works only with this server's token, so shared map files keep just its one-way hash.
@@ -52,22 +42,12 @@ const claimHashOf = key => createHash('sha256').update(key).digest('hex');
 const holdsClaim = (job, key) => typeof key === 'string' && key !== '' && (job.claimHash ? job.claimHash === claimHashOf(key) : job.claimKey === key);
 // Contributor names come from Git; in generated Markdown they stay literal text, never markup.
 const literal = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const isRecord = value => value && typeof value === 'object' && !Array.isArray(value);
-// Enough structure that listing, recovery and the views can rely on it; anything less is unreadable, never a crash.
-function wellFormed(map, mapId) {
-  return map.id === mapId && typeof map.title === 'string' && typeof map.updatedAt === 'string' && Number.isSafeInteger(map.revision)
-    && Array.isArray(map.nodes) && map.nodes.length > 0 && map.nodes.every(n => isRecord(n) && typeof n.id === 'string' && Array.isArray(n.questions) && Array.isArray(n.sources))
-    && Array.isArray(map.edges) && map.edges.every(isRecord) && Array.isArray(map.jobs) && map.jobs.every(isRecord) && Array.isArray(map.history);
-}
+// Reading follows the validator's rules (H1): only the problems it marks unreadable stop a map from opening,
+// so listing, recovery and the views can rely on what they get. Explanations never quote the file.
 function parseMap(mapId, bytes) {
-  const raw = bytes.toString('utf8');
-  need(!hasConflictMarkers(raw), unreadable['conflict-markers'], 409, 'conflict-markers');
-  let map;
-  try { map = JSON.parse(raw); } catch { throw new Problem(unreadable['invalid-json'], 409, 'invalid-json'); }
-  need(map && typeof map === 'object' && !Array.isArray(map), unreadable['invalid-map'], 409, 'invalid-map');
-  need(map.schemaVersion === 1, unreadable['unsupported-version'], 409, 'unsupported-version');
-  need(wellFormed(map, mapId), unreadable['invalid-map'], 409, 'invalid-map');
-  return map;
+  const decoded = decodeMap(bytes), problem = decoded.problem ?? readProblem(decoded.map, mapId);
+  need(!problem, unreadableMessages[problem], 409, problem);
+  return decoded.map;
 }
 function object(value, field) {
   need(value && typeof value === 'object' && !Array.isArray(value), `${field} must be an object.`);
@@ -177,12 +157,12 @@ export class Store {
     await mkdir(this.directory, { recursive: true });
     const entries = await readdir(this.directory, { withFileTypes: true });
     const maps = [], readable = [];
-    for (const entry of entries.filter(e => e.isDirectory() && /^map-[a-f0-9]{8}$/.test(e.name))) {
+    for (const entry of entries.filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
       let m;
       try { m = await this.get(entry.name); }
       catch (error) {
         if (error instanceof Problem && error.code === 'not-found') continue; // A folder left behind by a branch switch is not a map.
-        if (error instanceof Problem && Object.hasOwn(unreadable, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; }
+        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; }
         throw error;
       }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
@@ -228,13 +208,13 @@ export class Store {
   async project(map) {
     const dir = path.dirname(this.file(map.id));
     await mkdir(path.join(dir, 'nodes'), { recursive: true });
-    const overview = [`# ${map.title}`, '', `Generated view of map revision ${map.revision}. Canonical source: [map.json](map.json).`,
+    const overview = [`# ${map.title}`, '', `${generatedFrom(map.revision)} Canonical source: [map.json](map.json).`,
       '', '> Read this overview, then only relevant node documents. Node files are generated; use the application or CLI to make changes.',
       '', '## Original idea', '', map.originalIdea || map.nodes[0].prompt || map.nodes[0].body, '', '## Exploration', ''];
     for (const n of map.nodes) {
       overview.push(`- [${n.title.replace(/[\[\]]/g, '')}](nodes/${n.id}.md): ${n.status}; ${n.reviewState}${n.stale ? '; needs review after a premise changed' : ''}. ${n.summary.replace(/\n/g, ' ')}`);
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
-        `Generated from map revision ${map.revision}. Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
+        `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
       if (n.options?.length) lines.push('', ...comparisonLines(n));
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
@@ -324,7 +304,7 @@ export class Store {
   }
   enqueue(map, node, reason) {
     need(!isCompleted(map, node), 'This branch is complete. Add a new direction instead.', 409);
-    const existing = map.jobs.find(j => j.nodeId === node.id && isInvestigation(j) && active(j));
+    const existing = map.jobs.find(j => j.nodeId === node.id && isInvestigation(j) && isOpenJob(j));
     if (existing) return existing;
     const job = { id: id('job'), nodeId: node.id, status: 'queued', reason, createdAt: now() };
     map.jobs.push(job); node.status = 'queued';
@@ -341,7 +321,7 @@ export class Store {
     need((definition.target === 'map') === (nodeId === null), definition.target === 'map' ? 'This work covers the whole map.' : 'Choose an idea for this work.');
     if (nodeId !== null) need(map.nodes.some(n => n.id === nodeId), 'Node not found.', 404);
     if (subjectId !== null) validId(subjectId);
-    const existing = map.jobs.find(j => j.type === type && j.nodeId === nodeId && (j.subjectId ?? null) === subjectId && active(j));
+    const existing = map.jobs.find(j => isOpenJob(j) && openJobKey(j) === openJobKey({ type, nodeId, subjectId }));
     if (existing) return existing;
     const job = { id: id('job'), type, nodeId, ...(subjectId !== null ? { subjectId } : {}), status: 'queued', reason: text(reason || definition.label, 'Reason', 2000), ...(input !== undefined ? { input } : {}), createdAt: now() };
     map.jobs.push(job);
@@ -412,11 +392,11 @@ export class Store {
           // active in that version comes back interrupted. Only work already running has to finish first.
           need(!map.jobs.some(job => job.status === 'running'), 'Wait until running work finishes, or stop it, before restoring a version.', 409);
           const { map: snapshot } = await this.versions.get(map.id, input.version);
-          need(isRecord(snapshot) && wellFormed(snapshot, map.id), 'This version is damaged and cannot be restored. Choose another version.', 409);
+          need(!readProblem(snapshot, map.id), 'This version is damaged and cannot be restored. Choose another version.', 409);
           need(restorableHash(snapshot) !== restorableHash(map), 'The map already matches this version.', 409);
           const positions = map.view?.positions || {};
           Object.assign(map, { title: snapshot.title, originalIdea: snapshot.originalIdea, rootId: snapshot.rootId, nodes: snapshot.nodes, edges: snapshot.edges,
-            jobs: snapshot.jobs.map(job => active(job) ? { ...job, status: 'interrupted', finishedAt: now(), error: 'Interrupted by restoring an earlier version. Retry to continue.' } : job) });
+            jobs: snapshot.jobs.map(job => isOpenJob(job) ? { ...job, status: 'interrupted', finishedAt: now(), error: 'Interrupted by restoring an earlier version. Retry to continue.' } : job) });
           for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
           // Today's layout wins for ideas that still exist; the event log and growth history only grow.
           map.view = { ...map.view, positions: Object.fromEntries(map.nodes.map(node => [node.id, positions[node.id] ?? snapshot.view?.positions?.[node.id]]).filter(([, point]) => point)) };
@@ -427,7 +407,7 @@ export class Store {
           const job = map.jobs.find(j => j.id === input.jobId);
           need(job, 'Job not found.', 404);
           need(!isInvestigation(job), 'Use Stop exploration to stop a branch investigation.', 409);
-          need(active(job), 'Only queued or running work can be stopped.', 409);
+          need(isOpenJob(job), 'Only queued or running work can be stopped.', 409);
           job.status = 'cancelled'; job.finishedAt = now();
           this.jobType(job.type)?.release?.({ map, job });
           this.event(map, 'job-cancelled', job.nodeId, job.type);
@@ -510,7 +490,7 @@ export class Store {
         case 'cancel':
           need(!isCompleted(map, n), 'This branch is complete and cannot be restarted.', 409);
           need(['queued', 'running'].includes(n.status), 'Only queued or running work can be stopped.', 409);
-          for (const j of map.jobs.filter(j => j.nodeId === n.id && isInvestigation(j) && active(j))) { j.status = 'cancelled'; j.finishedAt = now(); }
+          for (const j of map.jobs.filter(j => j.nodeId === n.id && isInvestigation(j) && isOpenJob(j))) { j.status = 'cancelled'; j.finishedAt = now(); }
           n.status = 'interrupted'; this.event(map, 'cancelled', n.id); break;
         case 'accept':
           need(n.status === 'explored' && !n.stale, 'Only current findings can be accepted.');
@@ -622,7 +602,7 @@ export class Store {
       for (const item of maps) {
         let map;
         try { map = await this.get(item.id); }
-        catch (error) { if (error instanceof Problem && Object.hasOwn(unreadable, error.code)) continue; throw error; }
+        catch (error) { if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) continue; throw error; }
         for (const job of map.jobs.filter(j => j.status === 'queued')) {
           if (job.status !== 'queued') continue; // A completed repeat below can cancel later jobs.
           const investigation = isInvestigation(job);
@@ -669,7 +649,7 @@ export class Store {
       questions: list(result.questions, 'Questions', 5).map(q => ({ id: id('q'), ...normalizeQuestion(q, message => { throw new Problem(message); }), answer: null })),
       suggestions: list(result.suggestions, 'Suggestions', 8).map(s => {
         object(s, 'Suggestion');
-        return { title: text(s.title, 'Suggestion title', 100), body: text(s.body || s.summary, 'Suggestion detail', 4000), kind: kinds.has(s.kind) ? s.kind : 'research' };
+        return { title: text(s.title, 'Suggestion title', 100), body: text(s.body || s.summary, 'Suggestion detail', 4000), kind: nodeKinds.has(s.kind) ? s.kind : 'research' };
       }),
       sources: list(result.sources, 'Sources', 20).map(s => {
         object(s, 'Source');
@@ -678,7 +658,7 @@ export class Store {
       links: list(result.links, 'Links', 12).map(e => {
         object(e, 'Relationship');
         const exists = map.nodes.some(n => n.id === e.to);
-        need(relations.has(e.type) && (exists || onceExisted(map, e.to)) && e.to !== node.id, 'Invalid relationship.');
+        need(semanticRelations.has(e.type) && (exists || onceExisted(map, e.to)) && e.to !== node.id, 'Invalid relationship.');
         return exists ? { from: node.id, to: e.to, type: e.type } : null;
       }).filter(Boolean) };
   }
@@ -823,7 +803,7 @@ export class Store {
     return Object.assign(clone, this.tracking(map.id));
   }
   stopCompletedRepeat(map, node) {
-    for (const job of map.jobs.filter(j => j.nodeId === node.id && isInvestigation(j) && active(j))) {
+    for (const job of map.jobs.filter(j => j.nodeId === node.id && isInvestigation(j) && isOpenJob(j))) {
       job.status = 'cancelled'; job.finishedAt = now(); job.error = 'Completed branches stay complete. Add a new direction.';
     }
     node.status = 'explored';

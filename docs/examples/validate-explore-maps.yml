@@ -8,6 +8,8 @@
 # It runs the validator from the pull request's own checkout. If your repository accepts pull requests
 # from people you do not trust, check out a reviewed copy of the skill at a fixed commit instead and run
 # that copy's validate.mjs against the pull request's files.
+# If you make this a required check, remove the paths filter: a filtered workflow never reports on
+# pull requests that leave ideas/ alone, so they would wait for it.
 name: Validate Explore maps
 on:
   pull_request:

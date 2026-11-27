@@ -69,7 +69,7 @@ test('each structural problem is reported with a code and where it is', async ()
     [map => { map.jobs.push({ id: 'job-extra001', nodeId: child.id, status: 'queued' }, { id: 'job-extra002', nodeId: child.id, status: 'running' }); }, 'duplicate-open-job jobs[3]'],
     [map => { map.nodes[0].sources[0].url = 'javascript:alert(1)'; }, 'source-url nodes[0].sources[0].url'],
     [map => { map.growth.version = 9; }, 'invalid-growth growth'],
-    [map => { map.growth.batches[0].nodeIds = 'all'; }, 'invalid-growth growth.batches[0]'],
+    [map => { map.growth.batches[0].nodeIds = 'all'; }, 'invalid-growth growth.batches[0].nodeIds'],
     [map => { map.view.positions[root.id] = { x: 'left', y: 3 }; }, `invalid-position view.positions.${root.id}`],
   ];
   for (const [change, expected] of cases) assert.ok(broken(change).includes(expected), `${expected}: got ${broken(change).join('; ')}`);
@@ -144,4 +144,53 @@ test('no maps is fine, and unknown options are usage errors', async () => {
   assert.equal(empty.code, 0); assert.match(empty.stdout, /0 maps checked/);
   const usage = await run(['--workspace', dir, '--fix'], dir);
   assert.equal(usage.code, 2); assert.match(usage.stderr, /Usage/);
+});
+
+test('the server opens exactly what the validator marks readable, including a byte-order mark', async () => {
+  const { store } = await workspace();
+  const good = await fullMap(store), file = store.file(good.id), raw = await readFile(file, 'utf8');
+  const { readProblem } = await import('../skills/explore/scripts/map-validation.mjs');
+  // A UTF-8 byte-order mark, as Windows PowerShell writes, is ignored by both.
+  await writeFile(file, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(raw)]));
+  assert.deepEqual(checkMapFile(await readFile(file), { folderId: good.id }).errors, []);
+  assert.equal((await new Store(store.directory).get(good.id)).id, good.id);
+  // Missing structure stops both; an unknown kind is reported but the map still opens.
+  for (const [change, unreadable] of [[map => { delete map.history; }, true], [map => { map.nodes[1].kind = 'wish'; }, false]]) {
+    const map = JSON.parse(raw); change(map);
+    await writeFile(file, JSON.stringify(map, null, 2));
+    const result = checkMapFile(await readFile(file), { folderId: good.id });
+    assert.equal(result.errors.some(error => error.unreadable), unreadable);
+    assert.equal(readProblem(map, good.id), unreadable ? 'invalid-map' : null);
+    const opened = new Store(store.directory).get(good.id);
+    if (unreadable) await assert.rejects(opened, error => error.code === 'invalid-map'); else assert.equal((await opened).id, good.id);
+  }
+});
+
+test('a crafted ID never reaches the output', async () => {
+  const { dir, store } = await workspace();
+  const map = await fullMap(store), file = store.file(map.id), saved = JSON.parse(await readFile(file, 'utf8'));
+  saved.rootId = 'x\n::error title=Spoofed::My private plan';
+  saved.view.positions['bad\n::stop-commands::x'] = { x: 1, y: 2 };
+  await writeFile(file, JSON.stringify(saved, null, 2));
+  const result = await run(['--workspace', dir], dir);
+  assert.equal(result.code, 1);
+  assert.match(result.stdout, /invalid-id at rootId/); assert.match(result.stdout, /invalid-id at view\.positions:/);
+  assert.doesNotMatch(result.stdout + result.stderr, /::error|::stop-commands|private plan/);
+});
+
+test('an out-of-date node view is a warning too', async () => {
+  const { dir, store } = await workspace();
+  const map = await fullMap(store), view = path.join(store.directory, map.id, 'nodes', `${map.rootId}.md`);
+  await writeFile(view, (await readFile(view, 'utf8')).replace(`map revision ${map.revision}.`, 'map revision 1.'));
+  const result = await run(['--workspace', dir, '--strict'], dir);
+  assert.equal(result.code, 1); assert.match(result.stdout, /warning stale-view at nodes[\/]node-[a-f0-9]{8}\.md: 1 generated view is from another revision/);
+});
+
+test('a missing workspace or option value is a usage error; -h shows help; ideas/ means every map', async () => {
+  const { dir, store } = await workspace();
+  await fullMap(store);
+  assert.equal((await run(['--workspace', path.join(dir, 'typo')], dir)).code, 2);
+  assert.equal((await run(['--workspace'], dir)).code, 2);
+  const help = await run(['-h'], dir); assert.equal(help.code, 0); assert.match(help.stdout, /Usage/);
+  const all = await run(['--workspace', dir, 'ideas'], dir); assert.equal(all.code, 0); assert.match(all.stdout, /1 map checked/);
 });

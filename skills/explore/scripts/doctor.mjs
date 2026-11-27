@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { mapFolderPattern } from './map-validation.mjs';
 import { fileURLToPath } from 'node:url';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 
@@ -49,7 +50,7 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
   for (const file of files) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
   add('package', missing.length ? 'error' : 'ok', missing.length ? `Restore the complete skill package; missing: ${missing.join(', ')}.` : 'Skill scripts, references, and browser assets are accessible.');
   let savedMaps = 0;
-  try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && /^map-[a-f0-9]{8}$/.test(entry.name)).length; }
+  try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && mapFolderPattern.test(entry.name)).length; }
   catch (error) { if (error.code !== 'ENOENT') add('maps', 'warning', 'Saved-map directory could not be inspected.'); }
   const lock = await inspectLock(workspace);
   const result = { ready: false, state: 'not-started', workspace, skillDirectory, savedMaps, lock, checks,

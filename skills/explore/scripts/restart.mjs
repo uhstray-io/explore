@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { answerStates, hasCurrentAnswer, isBlocking, laterQuestions, replaceAnswer } from '../assets/questions.js';
+import { isOpenJob } from './map-validation.mjs';
 
 // Restart a finished branch from a changed answer (Z2). The user previews what would be deleted; the
 // action recomputes the same plan, refuses if anything changed since, and saves a named checkpoint
@@ -7,7 +8,6 @@ import { answerStates, hasCurrentAnswer, isBlocking, laterQuestions, replaceAnsw
 
 class RestartProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new RestartProblem(message, status); };
-const active = job => ['queued', 'running'].includes(job.status);
 
 // What restarting `node` from its answer to `questionId` would do. The hash covers every idea in the
 // branch, so the action can refuse a plan the user did not see.
@@ -23,7 +23,7 @@ function restartPlan(store, map, node, questionId) {
     for (const other of map.nodes) if (other.parentId && below.has(other.parentId) && !below.has(other.id)) { below.add(other.id); grew = true; }
   }
   below.delete(node.id); below.delete(map.rootId);
-  need(!map.jobs.some(job => active(job) && (job.nodeId === node.id || below.has(job.nodeId))), 'Wait until queued or running work in this branch finishes, or stop it, before restarting.', 409);
+  need(!map.jobs.some(job => isOpenJob(job) && (job.nodeId === node.id || below.has(job.nodeId))), 'Wait until queued or running work in this branch finishes, or stop it, before restarting.', 409);
   const superseded = laterQuestions(map, node, question);
   const reached = store.affectedBy(map, [node.id, ...below]);
   const flagged = map.nodes.filter(other => other.id !== node.id && !below.has(other.id) && reached.has(other.id) && store.hasConclusions(map, other));

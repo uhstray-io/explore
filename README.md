@@ -76,7 +76,7 @@ It checks every `ideas/map-*/map.json`, or only the folders and files you name. 
 - Git conflict markers, broken JSON, missing or mistyped fields, duplicate IDs, links and jobs pointing at ideas that no longer exist, and parent loops. These are errors.
 - Generated views that are out of date. These are warnings; `--strict` makes them fail too.
 
-Each problem names a code and where it is, never the map's content. `--json` prints one JSON document. It exits 0 when everything is valid, 1 when a map is invalid, and 2 for a usage mistake. It writes nothing. To run it on every pull request, copy [`docs/examples/validate-explore-maps.yml`](docs/examples/validate-explore-maps.yml) to `.github/workflows/`.
+It uses the same rules the server uses to open a map, plus checks the server does not need. Each problem names a code and where it is, never a value from the map. `--json` prints one JSON document. It exits 0 when everything is valid, 1 when a map is invalid, and 2 for a usage mistake. It writes nothing. To run it on every pull request, copy [`docs/examples/validate-explore-maps.yml`](docs/examples/validate-explore-maps.yml) to `.github/workflows/`.
 
 ## Check the build
 

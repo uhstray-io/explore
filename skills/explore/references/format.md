@@ -36,7 +36,7 @@ Maps are shared through Git, so `map.json` can change underneath a running serve
 
 An edit made from the replaced version is refused with code `changed-outside` and writes nothing, even when the revision numbers match. The browser sends the `expectedFingerprint` of the version it shows. Every save also checks that the file is still the version the change was based on.
 
-A map that cannot be read is listed as `{ id, unreadable: true, problem }`, where `problem` is `conflict-markers`, `invalid-json`, `unsupported-version` or `invalid-map` (missing parts, or a file copied from another map's folder). It is never rewritten, the other maps still open, and errors never quote its contents. Fix the file, for example by resolving the Git conflict, and it opens again.
+The rules for a readable map live in `scripts/map-validation.mjs`: the server and `validate.mjs` share them, so CI and the server agree. Map files are strict UTF-8; a leading byte-order mark is ignored. A map that cannot be read is listed as `{ id, unreadable: true, problem }`, where `problem` is `invalid-utf8`, `conflict-markers`, `invalid-json`, `unsupported-version` or `invalid-map` (missing parts, or a file copied from another map's folder). It is never rewritten, the other maps still open, and errors never quote its contents. Fix the file, for example by resolving the Git conflict, and it opens again.
 
 ## Growth history
 

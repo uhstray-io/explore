@@ -1,117 +1,163 @@
-// Map validation (H1): what a well-formed map.json looks like, checked without a server. Pure and
-// dependency-free, so the Store, the validate command and later merge tools share one set of rules.
-// Problems name a code, a location such as `nodes[3].parentId` and a message; they never quote map content.
+// Map validation (H1): the one place that decides what a map.json may contain. The Store reads every map
+// through decodeMap and readProblem, so it refuses exactly the problems marked `unreadable`; the validate
+// command reports all of them. Pure and dependency-free. Each problem has a code, a location such as
+// `nodes[3].parentId` and a fixed message, never a value from the file, which may be private or crafted.
 
-export const nodeKinds = ['idea', 'question', 'research', 'decision', 'risk'];
-export const semanticRelations = ['depends_on', 'supports', 'contradicts', 'related_to'];
+export const mapFolderPattern = /^map-[a-f0-9]{8}$/;
+export const validId = value => typeof value === 'string' && /^[a-z0-9-]{1,64}$/.test(value);
+export const nodeKinds = new Set(['idea', 'question', 'research', 'decision', 'risk']);
+export const semanticRelations = new Set(['depends_on', 'supports', 'contradicts', 'related_to']);
 const edgeTypes = new Set(['contains', ...semanticRelations]);
 const workStates = new Set(['suggested', 'queued', 'running', 'awaiting-answer', 'explored', 'interrupted']);
 const reviewStates = new Set(['unreviewed', 'accepted', 'cleared']);
 const jobStates = new Set(['queued', 'running', 'completed', 'failed', 'cancelled', 'interrupted']);
-const openJob = job => job.status === 'queued' || job.status === 'running';
+export const isOpenJob = job => job.status === 'queued' || job.status === 'running';
+// At most one open job of a kind per idea (or the whole map) and subject.
+export const openJobKey = job => JSON.stringify([job.type ?? 'investigate', job.nodeId ?? null, job.subjectId ?? null]);
 
+// Why the server will not open a map, in plain words.
+export const unreadableMessages = {
+  'invalid-utf8': 'This map file is not valid UTF-8 text. Restore it from Git or a preserved copy.',
+  'conflict-markers': 'This map has unresolved Git conflict markers. Resolve them in its map.json, then open it again.',
+  'invalid-json': 'This map file is not valid JSON. Restore it from Git or a preserved copy.',
+  'unsupported-version': 'This map uses an unsupported format version.',
+  'invalid-map': 'This map file is missing required parts or belongs to another folder. Restore it from Git or a preserved copy.',
+};
 // JSON strings cannot contain raw line breaks, so a line starting with a marker is never map content.
 export const hasConflictMarkers = raw => /^(<{7}|={7}|>{7})(\s|$)/m.test(raw);
+// Bytes to a parsed map, with one policy for everyone: strict UTF-8, and a leading byte-order mark is ignored.
+export function decodeMap(bytes) {
+  let raw;
+  try { raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return { problem: 'invalid-utf8' }; }
+  if (hasConflictMarkers(raw)) return { problem: 'conflict-markers' };
+  try { return { map: JSON.parse(raw) }; } catch { return { problem: 'invalid-json' }; }
+}
+// The reason, if any, that the server cannot open this parsed map.
+export function readProblem(map, folderId) {
+  const blocking = validateMap(map, { folderId }).errors.find(error => error.unreadable);
+  return !blocking ? null : blocking.code === 'unsupported-version' ? 'unsupported-version' : 'invalid-map';
+}
+
+// Generated Markdown names the revision it was made from, so an out-of-date view can be found.
+export const generatedFrom = revision => `Generated from map revision ${revision}.`;
+export function generatedRevision(text) { const match = String(text).match(/Generated (?:from|view of) map revision (\d+)\./); return match ? Number(match[1]) : null; }
+
+const messages = {
+  'invalid-field': 'This field is missing or has the wrong type.',
+  'invalid-id': 'This is not a valid Explore ID (lowercase letters, digits and hyphens).',
+  'unknown-value': 'This is not one of the values Explore knows.',
+  'unsupported-version': 'Only schema version 1 is supported.',
+  'id-mismatch': 'The map ID does not match its folder.',
+  'duplicate-id': 'This ID is used more than once.',
+  'missing-node': 'This points at an idea that does not exist.',
+  'parent-cycle': 'The parents of this idea form a loop.',
+  'duplicate-open-job': 'Another open job of the same kind is already waiting on this idea.',
+  'source-url': 'Sources must link with HTTP or HTTPS.',
+  'invalid-growth': 'Growth history is malformed.',
+  'invalid-position': 'A saved position must be a pair of numbers.',
+  'contains-parent': "A containment link disagrees with the idea's parent.",
+};
 
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isText = value => typeof value === 'string';
 const httpUrl = value => { try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; } };
+const isGrowth = value => isRecord(value) && value.version === 1 && Array.isArray(value.batches);
+// A field rule: `test` accepts good values and `code` names a failure. `optional` lets the field be absent
+// and `nullable` lets it be null. `unreadable` marks failures the server cannot open a map with; it can
+// be a test of the value, as for IDs, where anything but text is unreadable but an unusual string is not.
+const rule = (test, options = {}) => ({ test, code: 'invalid-field', optional: false, nullable: false, unreadable: false, ...options });
+const text = options => rule(isText, options);
+const list = options => rule(Array.isArray, options);
+const oneOf = (values, options) => rule(value => values.has(value), { code: 'unknown-value', ...options });
+const anId = ({ unreadable = false, ...options } = {}) => rule(validId, { code: 'invalid-id', ...options, unreadable: unreadable ? value => !isText(value) : false });
+const shapes = {
+  map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
+    rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
+    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
+  node: { id: anId({ unreadable: true }), title: text(), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
+    prompt: text({ optional: true }), summary: text({ optional: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
+    stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }) },
+  question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }) },
+  source: { url: rule(httpUrl, { code: 'source-url' }) },
+  edge: { from: anId(), to: anId(), type: oneOf(edgeTypes) },
+  job: { id: anId(), status: oneOf(jobStates), nodeId: anId({ optional: true, nullable: true }) },
+  batch: { sequence: rule(Number.isSafeInteger, { code: 'invalid-growth' }), at: text({ code: 'invalid-growth' }), nodeIds: list({ code: 'invalid-growth' }), edges: list({ code: 'invalid-growth' }) },
+};
 
 export function validateMap(map, { folderId } = {}) {
   const errors = [], warnings = [];
-  const error = (code, at, message) => errors.push({ code, at, message });
-  // A field of the wrong shape is reported once, and the checks that depend on it are skipped.
-  const field = (record, key, at, test, required = true) => {
-    if (record[key] === undefined && !required) return false;
-    if (test(record[key])) return true;
-    error('invalid-field', at, `${at} is missing or has the wrong type.`); return false;
+  const report = (code, at, unreadable = false) => errors.push({ code, at, message: messages[code], ...(unreadable ? { unreadable: true } : {}) });
+  // Each field of a record against its table; false when the record itself is missing.
+  const check = (value, shape, at, { unreadable = false } = {}) => {
+    if (!isRecord(value)) { report('invalid-field', at || 'map', unreadable); return false; }
+    for (const [key, field] of Object.entries(shape)) {
+      const item = value[key];
+      if ((item === undefined && field.optional) || (item === null && field.nullable) || field.test(item)) continue;
+      report(field.code, at ? `${at}.${key}` : key, typeof field.unreadable === 'function' ? field.unreadable(item) : field.unreadable);
+    }
+    return true;
   };
-  if (!isRecord(map)) { error('invalid-field', 'map', 'The file is not a JSON object.'); return { errors, warnings }; }
-  if (map.schemaVersion !== 1) { error('unsupported-version', 'schemaVersion', 'Only schema version 1 is supported.'); return { errors, warnings }; }
-  if (field(map, 'id', 'id', isText) && folderId && map.id !== folderId) error('id-mismatch', 'id', `The map id does not match its folder (${folderId}).`);
-  field(map, 'title', 'title', isText);
-  field(map, 'revision', 'revision', Number.isSafeInteger);
-  field(map, 'updatedAt', 'updatedAt', isText);
-  field(map, 'history', 'history', Array.isArray);
-  const nodes = field(map, 'nodes', 'nodes', value => Array.isArray(value) && value.length > 0) ? map.nodes : [];
-  const edges = field(map, 'edges', 'edges', Array.isArray) ? map.edges : [];
-  const jobs = field(map, 'jobs', 'jobs', Array.isArray) ? map.jobs : [];
+  if (!isRecord(map)) { report('invalid-field', 'map', true); return { errors, warnings }; }
+  if (map.schemaVersion !== 1) { report('unsupported-version', 'schemaVersion', true); return { errors, warnings }; }
 
-  const ids = new Map(), questionIds = new Set();
+  // Shapes.
+  check(map, shapes.map, '');
+  if (folderId && isText(map.id) && map.id !== folderId) report('id-mismatch', 'id', true);
+  const nodes = Array.isArray(map.nodes) ? map.nodes : [], edges = Array.isArray(map.edges) ? map.edges : [], jobs = Array.isArray(map.jobs) ? map.jobs : [];
   nodes.forEach((node, i) => {
-    const at = `nodes[${i}]`;
-    if (!isRecord(node)) { error('invalid-field', at, `${at} is not an object.`); return; }
-    if (field(node, 'id', `${at}.id`, isText)) { if (ids.has(node.id)) error('duplicate-id', `${at}.id`, `Idea ${node.id} appears more than once.`); else ids.set(node.id, node); }
-    field(node, 'title', `${at}.title`, isText);
-    for (const key of ['prompt', 'summary', 'body']) field(node, key, `${at}.${key}`, isText, false);
-    if (field(node, 'kind', `${at}.kind`, isText) && !nodeKinds.includes(node.kind)) error('unknown-value', `${at}.kind`, `${at}.kind is not a known kind.`);
-    if (field(node, 'status', `${at}.status`, isText) && !workStates.has(node.status)) error('unknown-value', `${at}.status`, `${at}.status is not a known work state.`);
-    if (field(node, 'reviewState', `${at}.reviewState`, isText) && !reviewStates.has(node.reviewState)) error('unknown-value', `${at}.reviewState`, `${at}.reviewState is not a known review state.`);
-    field(node, 'parentId', `${at}.parentId`, value => value === null || isText(value), false);
-    field(node, 'stale', `${at}.stale`, value => typeof value === 'boolean', false);
-    if (field(node, 'questions', `${at}.questions`, Array.isArray)) node.questions.forEach((question, j) => {
-      const qat = `${at}.questions[${j}]`;
-      if (!isRecord(question)) { error('invalid-field', qat, `${qat} is not an object.`); return; }
-      if (field(question, 'id', `${qat}.id`, isText)) { if (questionIds.has(question.id)) error('duplicate-id', `${qat}.id`, `Question ${question.id} appears more than once.`); questionIds.add(question.id); }
-      field(question, 'text', `${qat}.text`, isText);
-      field(question, 'answer', `${qat}.answer`, value => value === null || isText(value), false);
-    });
-    if (field(node, 'sources', `${at}.sources`, Array.isArray)) node.sources.forEach((source, j) => {
-      if (!isRecord(source) || !isText(source.url) || !httpUrl(source.url)) error('source-url', `${at}.sources[${j}].url`, 'Sources must link with HTTP or HTTPS.');
+    if (!check(node, shapes.node, `nodes[${i}]`, { unreadable: true })) return;
+    if (Array.isArray(node.questions)) node.questions.forEach((question, j) => check(question, shapes.question, `nodes[${i}].questions[${j}]`));
+    if (Array.isArray(node.sources)) node.sources.forEach((source, j) => check(source, shapes.source, `nodes[${i}].sources[${j}]`));
+  });
+  edges.forEach((edge, i) => check(edge, shapes.edge, `edges[${i}]`, { unreadable: true }));
+  jobs.forEach((job, i) => check(job, shapes.job, `jobs[${i}]`, { unreadable: true }));
+  if (isGrowth(map.growth)) map.growth.batches.forEach((batch, i) => check(batch, shapes.batch, `growth.batches[${i}]`));
+
+  // References.
+  const ids = new Map(), questionIds = new Set(), jobIds = new Set(), open = new Set();
+  nodes.forEach((node, i) => {
+    if (!isRecord(node) || !isText(node.id)) return;
+    if (ids.has(node.id)) report('duplicate-id', `nodes[${i}].id`); else ids.set(node.id, node);
+    if (Array.isArray(node.questions)) node.questions.forEach((question, j) => {
+      if (!isRecord(question) || !isText(question.id)) return;
+      if (questionIds.has(question.id)) report('duplicate-id', `nodes[${i}].questions[${j}].id`); else questionIds.add(question.id);
     });
   });
-  const exists = id => ids.has(id);
-  if (field(map, 'rootId', 'rootId', isText) && nodes.length && !exists(map.rootId)) error('missing-node', 'rootId', `The root idea ${map.rootId} does not exist.`);
+  const missing = id => isText(id) && !ids.has(id);
+  if (nodes.length && missing(map.rootId)) report('missing-node', 'rootId');
   nodes.forEach((node, i) => {
     if (!isRecord(node) || !isText(node.parentId)) return;
-    if (!exists(node.parentId)) { error('missing-node', `nodes[${i}].parentId`, `The parent ${node.parentId} does not exist.`); return; }
+    if (missing(node.parentId)) { report('missing-node', `nodes[${i}].parentId`); return; }
     // Walking up must reach the top; meeting this idea again means its parents form a loop.
     for (let at = ids.get(node.parentId), steps = 0; at; at = isText(at.parentId) ? ids.get(at.parentId) : null) {
-      if (at === node || ++steps > nodes.length) { error('parent-cycle', `nodes[${i}].parentId`, `The parents of ${node.id} form a loop.`); break; }
+      if (at === node || ++steps > nodes.length) { report('parent-cycle', `nodes[${i}].parentId`); break; }
     }
   });
-
   edges.forEach((edge, i) => {
-    const at = `edges[${i}]`;
-    if (!isRecord(edge)) { error('invalid-field', at, `${at} is not an object.`); return; }
-    if (field(edge, 'type', `${at}.type`, isText) && !edgeTypes.has(edge.type)) error('unknown-value', `${at}.type`, `${at}.type is not a known link type.`);
-    for (const end of ['from', 'to']) if (field(edge, end, `${at}.${end}`, isText) && !exists(edge[end])) error('missing-node', `${at}.${end}`, `The linked idea ${edge[end]} does not exist.`);
-    if (edge.type === 'contains' && exists(edge.to) && ids.get(edge.to).parentId !== edge.from) warnings.push({ code: 'contains-parent', at, message: `${edge.to} is contained by ${edge.from} but has a different parent.` });
+    if (!isRecord(edge)) return;
+    for (const end of ['from', 'to']) if (missing(edge[end])) report('missing-node', `edges[${i}].${end}`);
+    if (edge.type === 'contains' && ids.has(edge.to) && ids.get(edge.to).parentId !== edge.from) warnings.push({ code: 'contains-parent', at: `edges[${i}]`, message: messages['contains-parent'] });
   });
-
-  const jobIds = new Set(), open = new Set();
   jobs.forEach((job, i) => {
-    const at = `jobs[${i}]`;
-    if (!isRecord(job)) { error('invalid-field', at, `${at} is not an object.`); return; }
-    if (field(job, 'id', `${at}.id`, isText)) { if (jobIds.has(job.id)) error('duplicate-id', `${at}.id`, `Job ${job.id} appears more than once.`); jobIds.add(job.id); }
-    if (field(job, 'status', `${at}.status`, isText) && !jobStates.has(job.status)) error('unknown-value', `${at}.status`, `${at}.status is not a known job state.`);
+    if (!isRecord(job)) return;
+    if (isText(job.id)) { if (jobIds.has(job.id)) report('duplicate-id', `jobs[${i}].id`); jobIds.add(job.id); }
     // Work covering the whole map has no idea; unknown job types belong to newer versions and are kept.
-    if (field(job, 'nodeId', `${at}.nodeId`, value => value === null || isText(value), false) && isText(job.nodeId) && !exists(job.nodeId)) error('missing-node', `${at}.nodeId`, `The job's idea ${job.nodeId} does not exist.`);
-    if (openJob(job)) {
-      const key = JSON.stringify([job.type ?? 'investigate', job.nodeId ?? null, job.subjectId ?? null]);
-      if (open.has(key)) error('duplicate-open-job', at, 'Two open jobs of one kind are waiting on the same idea.');
-      open.add(key);
-    }
+    if (missing(job.nodeId)) report('missing-node', `jobs[${i}].nodeId`);
+    if (isOpenJob(job)) { const key = openJobKey(job); if (open.has(key)) report('duplicate-open-job', `jobs[${i}]`); open.add(key); }
   });
-
-  if (map.growth !== undefined && !(isRecord(map.growth) && map.growth.version === 1 && Array.isArray(map.growth.batches))) error('invalid-growth', 'growth', 'Growth history must be { version: 1, batches: [...] }.');
-  else (map.growth?.batches || []).forEach((batch, i) => {
-    if (!isRecord(batch) || !Number.isSafeInteger(batch.sequence) || !isText(batch.at) || !Array.isArray(batch.nodeIds) || !Array.isArray(batch.edges)) error('invalid-growth', `growth.batches[${i}]`, `growth.batches[${i}] is malformed.`);
-  });
-  for (const [id, point] of Object.entries(isRecord(map.view?.positions) ? map.view.positions : {})) {
-    if (!isRecord(point) || !Number.isFinite(point.x) || !Number.isFinite(point.y)) error('invalid-position', `view.positions.${id}`, `The saved position of ${id} is not a pair of numbers.`);
+  const positions = map.view?.positions;
+  if (isRecord(map.view) && positions !== undefined && !isRecord(positions)) report('invalid-field', 'view.positions');
+  for (const [key, point] of Object.entries(isRecord(positions) ? positions : {})) {
+    if (!validId(key)) report('invalid-id', 'view.positions');
+    else if (!isRecord(point) || !Number.isFinite(point.x) || !Number.isFinite(point.y)) report('invalid-position', `view.positions.${key}`);
   }
   return { errors, warnings };
 }
 
-// Checks the bytes of a map.json: encoding, size, Git conflict markers and JSON first, then the map itself.
+// Checks the bytes of a map.json: size and readability first, then the map itself.
 export function checkMapFile(bytes, { folderId, maxBytes = 64 * 1024 * 1024 } = {}) {
-  const fail = (code, message) => ({ map: null, errors: [{ code, at: 'map.json', message }], warnings: [] });
-  if (bytes.length > maxBytes) return fail('too-large', `The file is larger than ${maxBytes} bytes.`);
-  let raw;
-  try { raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return fail('invalid-utf8', 'The file is not valid UTF-8 text.'); }
-  if (hasConflictMarkers(raw)) return fail('conflict-markers', 'This map has unresolved Git conflict markers. Resolve them, then validate again.');
-  let map;
-  try { map = JSON.parse(raw); } catch { return fail('invalid-json', 'The file is not valid JSON.'); }
+  if (bytes.length > maxBytes) return { map: null, errors: [{ code: 'too-large', at: 'map.json', message: `The file is larger than ${maxBytes} bytes.` }], warnings: [] };
+  const { map, problem } = decodeMap(bytes);
+  if (problem) return { map: null, errors: [{ code: problem, at: 'map.json', message: unreadableMessages[problem], unreadable: true }], warnings: [] };
   return { map, ...validateMap(map, { folderId }) };
 }

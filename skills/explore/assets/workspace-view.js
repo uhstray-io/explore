@@ -56,6 +56,7 @@ export function openMapChange(listed, shown) {
 
 // Plain words for a map Explore cannot open. They never quote the file.
 const unreadableLabels = {
+  'invalid-utf8': "Can't open: the file is damaged",
   'conflict-markers': "Can't open: unresolved Git conflict",
   'invalid-json': "Can't open: the file is damaged",
   'unsupported-version': "Can't open: saved by a newer Explore",
