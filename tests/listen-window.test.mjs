@@ -145,5 +145,5 @@ test('an agent polling for 25 seconds with 16-second turns is told to finish aft
     assert.equal(listeners.status(reply + 16_000).listening, true, 'the browser still sees the agent between polls');
     start = reply + 16_000; // The agent's turn before it polls again.
   }
-  assert.equal(keepListening, false); assert.ok(start - 16_000 >= 120_000 && start - 16_000 <= 145_000, 'finished within one window of the start');
+  assert.equal(keepListening, false); assert.ok(start - 16_000 >= 120_000 && start - 16_000 <= 120_000 + 25_000 + 16_000, 'told at the first reply after the window closes, at most one poll and one turn late');
 });
