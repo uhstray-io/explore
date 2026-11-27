@@ -19,6 +19,7 @@
 // Settings fields: { default, validate(value) } stored in the shared `ideas/settings.json`.
 import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
 import { questionJobTypes, questionActions } from './question-actions.mjs';
+import { restartActions } from './restart.mjs';
 
 export const INVESTIGATE = 'investigate';
 
@@ -45,7 +46,7 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions } });
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }

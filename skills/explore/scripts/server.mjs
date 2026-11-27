@@ -7,6 +7,7 @@ import { Store, Problem, atomicJson, publicMap } from './store.mjs';
 import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
+import { previewRestart } from './restart.mjs';
 
 const assets = fileURLToPath(new URL('../assets/', import.meta.url));
 export async function startServer({ workspace = process.cwd(), port = 4317, dataDirectory, registry } = {}) {
@@ -72,6 +73,12 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (req.method === 'GET' && versionsRoute) {
           const preview = await store.versions.preview(versionsRoute[1], versionsRoute[2]);
           return send(res, 200, { ...preview, map: publicMap(preview.map) });
+        }
+        // Restart preview (Z2): what restarting a finished branch would delete and flag. It writes nothing.
+        const restartRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/restart-preview$/);
+        if (req.method === 'GET' && restartRoute) {
+          const q = url.searchParams;
+          return send(res, 200, await previewRestart(store, restartRoute[1], { nodeId: q.get('node'), questionId: q.get('question'), offset: q.get('offset'), limit: q.get('limit') }));
         }
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
         if (req.method === 'GET' && contextRoute) return send(res, 200, contextExcerpt(await store.get(contextRoute[1]), url.searchParams.get('node'), Object.fromEntries(url.searchParams)));
