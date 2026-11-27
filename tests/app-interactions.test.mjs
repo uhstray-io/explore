@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
-const app = await readFile(new URL('../skills/grill-my-mind/assets/app.js', import.meta.url), 'utf8');
+const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 function between(start, end) {
   const from = app.indexOf(start), to = app.indexOf(end, from);
   assert.ok(from >= 0 && to > from, 'The actual UI callback boundaries must remain available.');

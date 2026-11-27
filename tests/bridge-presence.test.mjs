@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { startServer } from '../skills/grill-my-mind/scripts/server.mjs';
-import { diagnose } from '../skills/grill-my-mind/scripts/doctor.mjs';
+import { startServer } from '../skills/explore/scripts/server.mjs';
+import { diagnose } from '../skills/explore/scripts/doctor.mjs';
 
 async function fixture() {
   const root = path.resolve('.test-output');

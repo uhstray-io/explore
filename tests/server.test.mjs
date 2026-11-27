@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import http from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
-import { startServer } from '../skills/grill-my-mind/scripts/server.mjs';
+import { startServer } from '../skills/explore/scripts/server.mjs';
 
 test('HTTP workspace runs the complete queue/question/result/restart loop', async () => {
   const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });

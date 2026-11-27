@@ -1,10 +1,10 @@
-# Grill My Mind: find the architecture and build a resumable exploration skill
+# Explore: find the architecture and build a resumable exploration skill
 
 Type: wayfinder:map
 
 ## Destination
 
-Determine a buildable design for Grill My Mind: an installable skill with a localhost mind-map interface, user-activated agent exploration, portable repository persistence, and support for Codex, Claude Code, and GitHub Copilot. The overall user request includes building the skill after the design is understood; this discovery phase resolves the decisions needed for that build.
+Determine a buildable design for Explore: an installable skill with a localhost mind-map interface, user-activated agent exploration, portable repository persistence, and support for Codex, Claude Code, and GitHub Copilot. The overall user request includes building the skill after the design is understood; this discovery phase resolves the decisions needed for that build.
 
 ## Notes
 

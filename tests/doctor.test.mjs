@@ -5,18 +5,18 @@ import path from 'node:path';
 import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { startServer } from '../skills/grill-my-mind/scripts/server.mjs';
+import { startServer } from '../skills/explore/scripts/server.mjs';
 
 const exec = promisify(execFile);
-const cli = path.resolve('skills/grill-my-mind/scripts/cli.mjs');
+const cli = path.resolve('skills/explore/scripts/cli.mjs');
 const run = (workspace, args = ['doctor']) => exec(process.execPath, [cli, ...args, '--workspace', workspace]);
 const temporary = async prefix => {
   const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
   return mkdtemp(path.join(root, prefix));
 };
 const saveConnection = async (workspace, connection) => {
-  await mkdir(path.join(workspace, '.grill-my-mind'), { recursive: true });
-  await writeFile(path.join(workspace, '.grill-my-mind/connection.json'), JSON.stringify(connection));
+  await mkdir(path.join(workspace, '.explore'), { recursive: true });
+  await writeFile(path.join(workspace, '.explore/connection.json'), JSON.stringify(connection));
 };
 
 test('doctor and usage work in a fresh path with spaces without creating runtime files', async () => {
@@ -35,17 +35,17 @@ test('doctor reconnects to a live bridge and diagnoses a stopped bridge without 
   const app = await startServer({ workspace, port: 0 });
   let connection;
   try {
-    connection = JSON.parse(await readFile(path.join(workspace, '.grill-my-mind/connection.json'), 'utf8'));
+    connection = JSON.parse(await readFile(path.join(workspace, '.explore/connection.json'), 'utf8'));
     const response = await run(workspace);
     const result = JSON.parse(response.stdout);
     assert.equal(result.ready, true); assert.equal(result.state, 'ready'); assert.equal(result.bridge.listening, false);
     assert.ok(!response.stdout.includes(connection.token)); assert.ok(!response.stdout.includes('"token"'));
-    assert.deepEqual((await readdir(path.join(workspace, '.grill-my-mind'))).sort(), ['connection.json', 'server.lock']);
+    assert.deepEqual((await readdir(path.join(workspace, '.explore'))).sort(), ['connection.json', 'server.lock']);
   } finally { await app.close(); }
   await saveConnection(workspace, connection);
   const result = JSON.parse((await run(workspace)).stdout);
   assert.equal(result.ready, false); assert.equal(result.state, 'unreachable');
-  assert.ok((await readFile(path.join(workspace, '.grill-my-mind/connection.json'), 'utf8')).includes(connection.token));
+  assert.ok((await readFile(path.join(workspace, '.explore/connection.json'), 'utf8')).includes(connection.token));
   assert.equal(JSON.parse((await run(workspace, ['usage'])).stdout).commands, 0);
 });
 

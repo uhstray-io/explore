@@ -11,12 +11,12 @@ try {
     const host = option('host'), project = option('project');
     if (!hosts[host] || !project) throw new Error('Provide --host codex|claude|copilot and --project PATH.');
     const source = fileURLToPath(new URL('../', import.meta.url));
-    const target = path.resolve(project, hosts[host], 'grill-my-mind');
+    const target = path.resolve(project, hosts[host], 'explore');
     if (target === path.resolve(source) || target.startsWith(path.resolve(source) + path.sep)) throw new Error('The installation destination cannot be inside the source skill.');
     try { await access(target); throw new Error(`An installation already exists at ${target}. Review it before updating.`); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     await mkdir(path.dirname(target), { recursive: true });
     await cp(source, target, { recursive: true, errorOnExist: true, force: false });
-    console.log(`Installed Grill My Mind for ${host}: ${target}\nReload your agent's skill discovery if necessary. Requires Node.js 20+.`);
+    console.log(`Installed Explore for ${host}: ${target}\nReload your agent's skill discovery if necessary. Requires Node.js 20+.`);
   }
 } catch (error) { console.error(error.message); process.exitCode = 1; }

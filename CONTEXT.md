@@ -1,6 +1,6 @@
-# Grill My Mind
+# Explore
 
-Grill My Mind supports systematic exploration of an idea through a persistent visual mind map, questions, and agent research. A map can be reopened and continued across sessions and understood by other agents.
+Explore supports systematic exploration of an idea through a persistent visual mind map, questions, and agent research. A map can be reopened and continued across sessions and understood by other agents.
 
 ## Language
 

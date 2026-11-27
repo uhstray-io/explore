@@ -4,11 +4,11 @@ import { mkdtemp, mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { startServer } from '../skills/grill-my-mind/scripts/server.mjs';
-import { mapBrief } from '../skills/grill-my-mind/scripts/brief.mjs';
+import { startServer } from '../skills/explore/scripts/server.mjs';
+import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 
 const exec = promisify(execFile);
-const skill = path.resolve('skills/grill-my-mind');
+const skill = path.resolve('skills/explore');
 test('the public CLI claims work, delivers results, and gives compact idle output', async () => {
   const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
   const workspace = await mkdtemp(path.join(root, 'cli-'));
@@ -33,7 +33,7 @@ test('the public CLI claims work, delivers results, and gives compact idle outpu
     const branches = await cli(['read', '--map', created.mapId]);
     assert.equal(branches.nodes[0].summary, 'Scope clarified.'); assert.equal(branches.nodes[1].status, 'suggested');
     const usage = await cli(['usage', '--map', created.mapId]);
-    const records = (await readFile(path.join(workspace, '.grill-my-mind/context-usage.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse).filter(e => e.mapId === created.mapId);
+    const records = (await readFile(path.join(workspace, '.explore/context-usage.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse).filter(e => e.mapId === created.mapId);
     assert.equal(usage.characters, records.reduce((n,e) => n + e.characters, 0));
     assert.equal(usage.commands, records.length); assert.equal(usage.byCommand.read.calls, 3);
     assert.ok(records.every(e => !('claimKey' in e) && !('excerpt' in e)));
@@ -45,7 +45,7 @@ test('all three project installation paths receive a complete portable package',
   const project = await mkdtemp(path.join(root, 'install-'));
   for (const [host, folder] of [['codex', '.agents'], ['claude', '.claude'], ['copilot', '.github']]) {
     await exec(process.execPath, [path.join(skill, 'scripts/install.mjs'), '--host', host, '--project', project]);
-    const installed = path.join(project, folder, 'skills/grill-my-mind');
+    const installed = path.join(project, folder, 'skills/explore');
     assert.equal(await readFile(path.join(installed, 'SKILL.md'), 'utf8'), await readFile(path.join(skill, 'SKILL.md'), 'utf8'));
     await access(path.join(installed, 'assets/app.js')); await access(path.join(installed, 'scripts/server.mjs'));
     await access(path.join(installed, 'references/exploration.md'));
@@ -84,7 +84,7 @@ test('CLI resumes a nontechnical exploration from a real saved answer without ac
     const rendered = (await run(['brief', '--map', map.mapId, '--format', 'markdown'])).stdout;
     assert.equal(brief.markdown, undefined, 'JSON output does not duplicate itself in Markdown');
     assert.equal(rendered, mapBrief(await app.store.get(map.mapId)).markdown + '\n');
-    const records = (await readFile(path.join(workspace, '.grill-my-mind/context-usage.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
+    const records = (await readFile(path.join(workspace, '.explore/context-usage.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
     assert.equal(records.at(-1).characters, rendered.length); assert.equal(records.at(-1).utf8Bytes, Buffer.byteLength(rendered));
     const finalMap = await app.store.get(map.mapId);
     assert.equal(finalMap.nodes[1].status, 'suggested'); assert.equal(finalMap.nodes[0].reviewState, 'unreviewed');

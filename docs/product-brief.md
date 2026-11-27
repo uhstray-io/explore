@@ -1,10 +1,10 @@
-# Grill My Mind: product brief
+# Explore: product brief
 
 Status: first MVP implemented after the user approved the execution, editing, and activation recommendations. See [MVP agreement](mvp.md) and [verification](verification.md) for the current build; the original research remains linked for context.
 
 ## Confirmed by the user
 
-- Build an installable skill named **Grill My Mind**, inspired by Grill Me's questioning workflow.
+- Build an installable skill, originally named **Grill My Mind** and renamed **Explore** on 2026-11-27, inspired by Grill Me's questioning workflow.
 - Support Codex, Claude Code, and GitHub Copilot. Ultimately keep the design portable to additional agent environments. Rollout order and the specific Copilot surfaces are not yet settled.
 - Launch a visually appealing localhost interface where a user describes an idea and explores a map resembling a technology tree.
 - Agents identify potential branches. The user activates branches through the UI before agents explore them.
@@ -40,4 +40,4 @@ Status: first MVP implemented after the user approved the execution, editing, an
 - Whether maps are private to one user/repository at first or expected to merge changes from multiple collaborators.
 - How the UI represents accepted decisions, unanswered questions, alternatives, and stale findings.
 
-The local planning index is [the Wayfinder map](../.scratch/grill-my-mind/map.md).
+The local planning index is [the Wayfinder map](../.scratch/explore/map.md).

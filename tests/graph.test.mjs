@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from '../skills/grill-my-mind/assets/graph.js';
+import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from '../skills/explore/assets/graph.js';
 
 test('saved maps lay out deterministically without moving saved nodes or modifying research', () => {
   const map = { rootId: 'root', nodes: [{ id: 'root', status: 'explored' }, { id: 'a', parentId: 'root', status: 'suggested' }, { id: 'b', parentId: 'root', status: 'queued' }], view: { positions: { a: { x: -123.5, y: 410 } } }, jobs: [{ nodeId: 'b', status: 'queued' }] };

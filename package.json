@@ -1,11 +1,11 @@
 {
-  "name": "grill-my-mind",
+  "name": "explore",
   "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
   "scripts": {
-    "start": "node skills/grill-my-mind/scripts/server.mjs",
+    "start": "node skills/explore/scripts/server.mjs",
     "test": "node scripts/test.mjs",
     "check": "node scripts/check.mjs",
     "demo": "node scripts/review-demo.mjs --serve"

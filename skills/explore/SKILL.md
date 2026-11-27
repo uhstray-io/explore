@@ -1,9 +1,9 @@
 ---
-name: grill-my-mind
+name: explore
 description: Explore or resume an idea in a persistent local mind map, using focused questions, evidence, and research directions the user chooses. Applies to technical and nontechnical exploration when the user wants to think through an idea or decision; do not launch a map for an ordinary factual answer or implementation request.
 ---
 
-# Grill My Mind
+# Explore
 
 Turn an open idea into a clearer goal, useful distinctions, and evidence the user can revisit. The browser is the exploration interface; the local map preserves premises, answers, findings, and unfinished directions across sessions. Opening a map does not authorize investigating every branch.
 

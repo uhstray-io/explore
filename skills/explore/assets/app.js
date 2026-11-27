@@ -14,8 +14,8 @@ document.addEventListener('keydown', event => {
   if (event.key === '/' && state.map && !event.ctrlKey && !event.metaKey && !event.altKey && !document.querySelector('dialog[open]') && !['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) { event.preventDefault(); $('#find-node').focus(); }
 });
 const themeQuery = new URL(location.href).searchParams.get('theme');
-let dark = (themeQuery || localStorage.getItem('grill-my-mind-theme') || 'light') === 'dark';
-function theme() { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; $('#theme-toggle').setAttribute('aria-pressed', String(dark)); localStorage.setItem('grill-my-mind-theme', dark ? 'dark' : 'light'); }
+let dark = (themeQuery || localStorage.getItem('explore-theme') || 'light') === 'dark';
+function theme() { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; $('#theme-toggle').setAttribute('aria-pressed', String(dark)); localStorage.setItem('explore-theme', dark ? 'dark' : 'light'); }
 $('#theme-toggle').onclick = () => { dark = !dark; theme(); }; theme();
 // Legacy prototype links now open the real workspace; theme is a preference, not a route.
 const currentUrl = new URL(location.href); currentUrl.searchParams.delete('variant'); currentUrl.searchParams.delete('theme'); history.replaceState(null, '', currentUrl);
@@ -67,7 +67,7 @@ async function openMap(id) {
     const map = await api(`/maps/${id}`); if (version !== openVersion) return;
     state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
-    localStorage.setItem('grill-my-mind-map', id); location.hash = id;
+    localStorage.setItem('explore-map', id); location.hash = id;
     renderMap(true); renderRail();
   } catch (error) { toast(error.message); }
 }
@@ -373,7 +373,7 @@ function showCreate() {
   $('#create-dialog').showModal(); $('#idea').focus();
 }
 function showWelcome() {
-  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; localStorage.removeItem('grill-my-mind-map'); navigation(false);
+  openVersion++; state.map = null; state.visibleMap = null; state.selected = null; state.historyStep = null; state.historySource = null; state.filter = null; localStorage.removeItem('explore-map'); navigation(false);
   $('#welcome').classList.remove('hidden'); $('#workspace').classList.add('hidden'); $('#map-title').textContent = 'A place to think'; renderRail();
 }
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
@@ -382,7 +382,7 @@ for (const button of document.querySelectorAll('.close-dialog')) button.addEvent
 function showHelp() {
   const session = state.session || {};
   const target = state.map ? `Continue only map ${state.map.id} (${state.map.title}). Pick up activated branches for this map only.` : 'Ask me which saved map to continue, then pick up its activated branches.';
-  $('#agent-prompt').value = `Use the Grill My Mind skill at ${session.skillPath || 'skills/grill-my-mind/SKILL.md'} to continue the workspace ${session.workspacePath || session.workspace || ''}. The local app is running. ${target} Use the command bridge, keep context focused, and send findings and questions back to the map.`;
+  $('#agent-prompt').value = `Use the Explore skill at ${session.skillPath || 'skills/explore/SKILL.md'} to continue the workspace ${session.workspacePath || session.workspace || ''}. The local app is running. ${target} Use the command bridge, keep context focused, and send findings and questions back to the map.`;
   $('#agent-copy-status').textContent = ''; $('#help-dialog').showModal();
 }
 $('#bridge-status').addEventListener('click', showHelp);
@@ -512,7 +512,7 @@ try {
   const session = await (await fetch('/api/session')).json(); state.token = session.token; state.session = session;
   $('#workspace-name').textContent = session.workspace;
   await refresh();
-  const saved = location.hash.slice(1) || localStorage.getItem('grill-my-mind-map');
+  const saved = location.hash.slice(1) || localStorage.getItem('explore-map');
   if (saved && state.maps.some(m => m.id === saved)) await openMap(saved);
   setInterval(refresh, 2500);
 } catch (error) { toast(`Cannot connect to the workspace: ${error.message}`); connectionView(true); }

@@ -1,6 +1,6 @@
 # Larger-map and continuation baseline
 
-Issue: [09 — Validate larger maps and longer exploration sessions](../.scratch/grill-my-mind/issues/09-large-map-trial.md), resolved after owner review and the navigation refinements recorded below. Longer real-session context measurement continues in issue 11.
+Issue: [09 — Validate larger maps and longer exploration sessions](../.scratch/explore/issues/09-large-map-trial.md), resolved after owner review and the navigation refinements recorded below. Longer real-session context measurement continues in issue 11.
 
 Measured 2026-09-23 with Node v24.15.0 using `node scripts/measure-exploration.mjs`. The harness creates new isolated directories under `.test-output/issue09-*` and emits a credential-free `report.json`. It makes no provider calls and never opens the user's working maps. All findings, questions, and answers in these fixtures are simulated QA content.
 
@@ -80,7 +80,7 @@ The remaining acceptance item is an owner-led trial with a real idea: whether fi
 
 ## Owner review and compact navigation
 
-The owner reported that everything generally worked and accepted continuing, with specific feedback: the layout should be less symmetric, neighboring directions should be close enough to navigate at a useful zoom, and clicking a node should center it. The owner also clarified that explored branches should remain complete; further work should grow new branches. That lifecycle change is tracked in [issue 10](../.scratch/grill-my-mind/issues/10-completed-branches.md), not claimed as delivered here.
+The owner reported that everything generally worked and accepted continuing, with specific feedback: the layout should be less symmetric, neighboring directions should be close enough to navigate at a useful zoom, and clicking a node should center it. The owner also clarified that explored branches should remain complete; further work should grow new branches. That lifecycle change is tracked in [issue 10](../.scratch/explore/issues/10-completed-branches.md), not claimed as delivered here.
 
 Replaced leaf-count-dependent radial spacing with deterministic local placement, short-edge relaxation, and circle separation. The browser caches automatic geometry until topology changes; moving one node uses its saved override without recalculating the others. Manual coordinates remain authoritative, so earlier manually positioned outliers can still lie far away. No saved arrangement was reset.
 
@@ -96,4 +96,4 @@ Browser verification on the existing 500-node QA map:
 - At the settled 390×844 mobile breakpoint, direction 5's parent and all four children fit in the canvas at 36%, with no horizontal page overflow. Restored the viewport afterward.
 - All 21 automated tests, syntax checks, and static prototype verification passed. The standalone snapshot hashes remain unchanged.
 
-Issue 09 is resolved on the basis of these checks and the owner's review. A long owner-led real-idea conversation and host token/context usage remain unmeasured; [issue 11](../.scratch/grill-my-mind/issues/11-context-growth.md) explicitly retains those tasks. The review is not substituted for those measurements.
+Issue 09 is resolved on the basis of these checks and the owner's review. A long owner-led real-idea conversation and host token/context usage remain unmeasured; [issue 11](../.scratch/explore/issues/11-context-growth.md) explicitly retains those tasks. The review is not substituted for those measurements.

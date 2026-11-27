@@ -31,7 +31,7 @@ The browser's shared `history.js` provides pure `growthTimeline(map)` and `mapAt
 
 Older maps are readable without migration or writes. Their available `createdAt` dates form deterministic date groups before recorded batches; equal dates form one group. Missing or invalid dates remain unknown. An undated connection is never assigned its endpoints' dates. Unknown additions appear in a final explicitly undated step, which does not assert when they happened. Connections with dates inconsistent with their endpoints also appear in that step; no connection appears before both endpoints. `incomplete`, `unknownNodeCount`, and `unknownEdgeCount` expose these limits. This is a view of known additions, not a claim to exact historical snapshots. First recording a new batch leaves legacy timestamps and connections untouched.
 
-Machine-local connection tokens, process locks, result drafts, and claim-delivery files live under `.grill-my-mind/`, which should be ignored by Git. No model API key is part of a map. A provider's original chat history or conversation ID is not necessary to read/continue the map. Share saved maps deliberately: they contain the user's actual ideas and answers.
+Machine-local connection tokens, process locks, result drafts, and claim-delivery files live under `.explore/`, which should be ignored by Git. No model API key is part of a map. A provider's original chat history or conversation ID is not necessary to read/continue the map. Share saved maps deliberately: they contain the user's actual ideas and answers.
 
 ## Reading procedure
 

@@ -1,3 +1,5 @@
+.explore/
+# Runtime folder name used before the rename to Explore
 .grill-my-mind/
 .test-output/
 node_modules/

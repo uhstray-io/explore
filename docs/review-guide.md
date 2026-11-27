@@ -2,7 +2,7 @@
 
 Branch: `codex/exploration-workspace` · Started: 2026-10-29
 
-The goal is to make Grill My Mind useful across a longer exploration: start with an idea, see which decisions need attention, investigate only chosen branches, and carry the resulting understanding into another work session. The selected Constellation design remains the main interface.
+The goal is to make Explore useful across a longer exploration: start with an idea, see which decisions need attention, investigate only chosen branches, and carry the resulting understanding into another work session. The selected Constellation design remains the main interface.
 
 ## Try it without changing your saved maps
 
@@ -16,7 +16,7 @@ Open the URL printed by the command in Brave. Each run creates a new isolated wo
 
 The demo explores offline field notes. It includes a question awaiting an answer, a queued investigation, a current accepted pilot, an earlier accepted conclusion made stale by a changed premise, and inactive directions. This variety makes the difference between knowledge, uncertainty, and work state visible.
 
-For your real workspace, use `node skills/grill-my-mind/scripts/server.mjs --workspace <repo>`. If a server already owns it, use `node skills/grill-my-mind/scripts/cli.mjs doctor --workspace <repo>` to inspect the connection before starting another one.
+For your real workspace, use `node skills/explore/scripts/server.mjs --workspace <repo>`. If a server already owns it, use `node skills/explore/scripts/cli.mjs doctor --workspace <repo>` to inspect the connection before starting another one.
 
 ## What to review
 

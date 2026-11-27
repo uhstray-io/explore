@@ -88,7 +88,7 @@ export class Store {
     for (const n of map.nodes) {
       overview.push(`- [${n.title.replace(/[\[\]]/g, '')}](nodes/${n.id}.md): ${n.status}; ${n.reviewState}${n.stale ? '; needs review after a premise changed' : ''}. ${n.summary.replace(/\n/g, ' ')}`);
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
-        `Generated from map revision ${map.revision}. Edit through Grill My Mind.`, '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
+        `Generated from map revision ${map.revision}. Edit through Explore.`, '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.');
       if (n.questions.length) lines.push('', '## Questions and answers', ...n.questions.flatMap(q => ['', `### ${q.text}`, '', ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : '_Awaiting the user._')]));
       if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`]));

@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 
 const skillDirectory = fileURLToPath(new URL('../', import.meta.url));
-const runtimePath = workspace => path.join(workspace, '.grill-my-mind');
+const runtimePath = workspace => path.join(workspace, '.explore');
 
 // Never send the local bearer token to an address supplied by an unchecked file.
 export async function readConnection(workspace) {

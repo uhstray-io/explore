@@ -1,8 +1,8 @@
 import { mkdir, mkdtemp } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store } from '../skills/grill-my-mind/scripts/store.mjs';
-import { startServer } from '../skills/grill-my-mind/scripts/server.mjs';
+import { Store } from '../skills/explore/scripts/store.mjs';
+import { startServer } from '../skills/explore/scripts/server.mjs';
 
 // Deliberately illustrative: never read or change the owner's maps or preferences.
 const root = fileURLToPath(new URL('../', import.meta.url));

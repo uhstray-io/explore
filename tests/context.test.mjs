@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { contextExcerpt } from '../skills/grill-my-mind/scripts/context.mjs';
+import { contextExcerpt } from '../skills/explore/scripts/context.mjs';
 
 function fixture() {
   return { id: 'map-test', revision: 17, jobs: [], edges: [], nodes: [{ id: 'node-test', title: 'Context fixture', status: 'explored', reviewState: 'unreviewed', prompt: 'Offline notes.', summary: 'A concise finding.', body: 'Long findings. '.repeat(2000), sources: [],

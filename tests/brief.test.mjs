@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mapBrief } from '../skills/grill-my-mind/scripts/brief.mjs';
+import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 
 const node = (id, extras = {}) => ({ id, title: id, parentId: null, prompt: 'Consider a choice.', summary: 'A provisional observation.',
   body: 'Detailed evidence.', status: 'explored', reviewState: 'unreviewed', questions: [], sources: [], ...extras });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { growthTimeline, mapAtGrowthStep } from '../skills/grill-my-mind/assets/history.js';
+import { growthTimeline, mapAtGrowthStep } from '../skills/explore/assets/history.js';
 
 const first = '2026-10-01T12:00:00.000Z', later = '2026-10-02T12:00:00.000Z';
 const edge = (from, to, type = 'contains', extra = {}) => ({ from, to, type, ...extra });

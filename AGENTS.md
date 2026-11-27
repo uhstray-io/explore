@@ -1,6 +1,6 @@
-# Grill My Mind
+# Explore
 
-This repository contains a portable agent skill plus its dependency-free local web application. The canonical skill package is `skills/grill-my-mind/`. Keep improvements usable when that folder is copied into another repository.
+This repository contains a portable agent skill plus its dependency-free local web application. The canonical skill package is `skills/explore/`. Keep improvements usable when that folder is copied into another repository.
 
 ## Product invariants
 
@@ -21,10 +21,10 @@ This repository contains a portable agent skill plus its dependency-free local w
 - `tests/` uses Node's built-in test runner. Run `node scripts/test.mjs`, `node scripts/check.mjs`, and `node scripts/verify-prototypes.mjs` from the repository root. HTTP tests need local loopback connections.
 - `node scripts/review-demo.mjs --serve` creates an isolated illustrative map under `.test-output/` and serves it on a free port.
 
-Do not use the owner's `ideas/` for tests. `.grill-my-mind/` contains runtime credentials and claims: never commit it or print its token fields. Standalone `prototypes/` snapshots are preserved comparisons, not the live app.
+Do not use the owner's `ideas/` for tests. `.explore/` (or `.grill-my-mind/` in workspaces from before the rename) contains runtime credentials and claims: never commit it or print its token fields. Standalone `prototypes/` snapshots are preserved comparisons, not the live app.
 
 ## Review context
 
-Read `docs/review-guide.md` for the improvement branch and its limits, and `.scratch/grill-my-mind/map.md` for the local issue tracker. Record decisions with reasons and verification, not hidden reasoning. A copied skill package or simulated worker test does not prove live Claude Code/Copilot compatibility.
+Read `docs/review-guide.md` for the improvement branch and its limits, and `.scratch/explore/map.md` for the local issue tracker. Record decisions with reasons and verification, not hidden reasoning. A copied skill package or simulated worker test does not prove live Claude Code/Copilot compatibility.
 
 The owner requested review on `codex/exploration-workspace`. Do not merge or push main as part of this initiative. Keep pre-existing owner map edits out of implementation commits.

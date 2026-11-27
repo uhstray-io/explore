@@ -10,7 +10,7 @@ import { mapBrief } from './brief.mjs';
 const assets = fileURLToPath(new URL('../assets/', import.meta.url));
 export async function startServer({ workspace = process.cwd(), port = 4317, dataDirectory } = {}) {
   workspace = path.resolve(workspace);
-  const runtime = path.join(workspace, '.grill-my-mind');
+  const runtime = path.join(workspace, '.explore');
   await mkdir(runtime, { recursive: true });
   const lockPath = path.join(runtime, 'server.lock');
   let lock;
@@ -18,7 +18,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
     const existing = JSON.parse(await readFile(lockPath, 'utf8'));
-    if (!Number.isInteger(existing.pid) || existing.pid <= 0) throw new Error('Invalid server lock. Inspect .grill-my-mind/server.lock before starting another server.');
+    if (!Number.isInteger(existing.pid) || existing.pid <= 0) throw new Error('Invalid server lock. Inspect .explore/server.lock before starting another server.');
     try { process.kill(existing.pid, 0); throw new Error('A server already owns this workspace. Use the existing URL shown by the CLI status command.'); }
     catch (probe) {
       if (probe.code !== 'ESRCH') throw probe;
@@ -121,7 +121,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   } else {
     try {
       const app = await startServer({ workspace: option('--workspace', process.cwd()), port: Number(option('--port', 4317)) });
-      console.log(`Grill My Mind is ready at ${app.address}\nSaved maps: ${app.store.directory}\nAgent bridge: waiting for the invoking agent. No model runs automatically.`);
+      console.log(`Explore is ready at ${app.address}\nSaved maps: ${app.store.directory}\nAgent bridge: waiting for the invoking agent. No model runs automatically.`);
       for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => app.close().then(() => process.exit(0)).catch(error => { console.error(error.message); process.exit(1); }));
     } catch (error) { console.error(error.message); process.exitCode = 1; }
   }

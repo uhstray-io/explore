@@ -2,8 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Store } from '../skills/grill-my-mind/scripts/store.mjs';
-import { growthTimeline, mapAtGrowthStep } from '../skills/grill-my-mind/assets/history.js';
+import { Store } from '../skills/explore/scripts/store.mjs';
+import { growthTimeline, mapAtGrowthStep } from '../skills/explore/assets/history.js';
 
 async function fixture() {
   const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });

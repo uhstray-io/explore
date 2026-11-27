@@ -1,10 +1,10 @@
-// Synthetic QA only. Never opens or changes the user's .grill-my-mind workspace.
+// Synthetic QA only. Never opens or changes the user's .explore workspace.
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, writeFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
-import { Store } from '../skills/grill-my-mind/scripts/store.mjs';
-import { constellationLayout, overviewView } from '../skills/grill-my-mind/assets/graph.js';
+import { Store } from '../skills/explore/scripts/store.mjs';
+import { constellationLayout, overviewView } from '../skills/explore/assets/graph.js';
 
 await mkdir('.test-output', { recursive: true });
 const directory = await mkdtemp(path.resolve('.test-output/issue09-'));

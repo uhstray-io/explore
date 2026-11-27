@@ -60,7 +60,7 @@ export function mapBrief(map, nodeId = null) {
       if (section.omitted) lines.push(`_${section.omitted} more records omitted. Use paged map reads and targeted node sections._`);
     }
     lines.push('', '## Continue from here', '',
-      `Use the Grill My Mind skill with this workspace. Run \`brief --map ${map.id}\` to refresh this index; use \`read --map ${map.id} --node NODE --section questions|sources|findings\` for detail. These are CLI arguments; resolve the installed scripts/cli.mjs first.`,
+      `Use the Explore skill with this workspace. Run \`brief --map ${map.id}\` to refresh this index; use \`read --map ${map.id} --node NODE --section questions|sources|findings\` for detail. These are CLI arguments; resolve the installed scripts/cli.mjs first.`,
       'Answer pending questions using the user’s actual preferences, review stale findings, or choose an unexplored branch. Suggestions are not permission to investigate. Do not accept conclusions for the user.',
       'Node links are relative to this map’s folder. If this brief is copied elsewhere, use its stable map/node IDs to retrieve details.');
     brief.markdown = lines.join('\n') + '\n';
