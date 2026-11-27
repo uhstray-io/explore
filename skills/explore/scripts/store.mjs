@@ -8,6 +8,7 @@ import { atomicWrite, atomicJson } from './files.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
+import { includedKey, proposalOutdated } from './map-jobs.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -287,7 +288,7 @@ export class Store {
   jobType(type) { return Object.hasOwn(this.registry.jobTypes, type) ? this.registry.jobTypes[type] : null; }
   // Queues work of a registered type other than investigate. It never changes the idea's status.
   // At most one open job per type, idea (or the whole map) and optional subject such as a question.
-  enqueueJob(map, { type, nodeId = null, subjectId = null, reason }) {
+  enqueueJob(map, { type, nodeId = null, subjectId = null, reason, input }) {
     const definition = this.jobType(type);
     need(definition && type !== INVESTIGATE, 'Unknown kind of work.');
     need((definition.target === 'map') === (nodeId === null), definition.target === 'map' ? 'This work covers the whole map.' : 'Choose an idea for this work.');
@@ -295,7 +296,7 @@ export class Store {
     if (subjectId !== null) validId(subjectId);
     const existing = map.jobs.find(j => j.type === type && j.nodeId === nodeId && (j.subjectId ?? null) === subjectId && active(j));
     if (existing) return existing;
-    const job = { id: id('job'), type, nodeId, ...(subjectId !== null ? { subjectId } : {}), status: 'queued', reason: text(reason || definition.label, 'Reason', 2000), createdAt: now() };
+    const job = { id: id('job'), type, nodeId, ...(subjectId !== null ? { subjectId } : {}), status: 'queued', reason: text(reason || definition.label, 'Reason', 2000), ...(input !== undefined ? { input } : {}), createdAt: now() };
     map.jobs.push(job);
     this.event(map, 'job-queued', nodeId, `${definition.label}. ${job.reason}`);
     return job;
@@ -545,6 +546,7 @@ export class Store {
             this.event(map, 'failed', job.nodeId, job.error); await this.save(map); continue;
           }
           if (investigation) n.status = 'running';
+          if (packet[includedKey]) job.included = packet[includedKey]; // What a map job read, for checking its result.
           job.contextCharacters = packet.contextCharacters;
           this.event(map, 'started', job.nodeId, `${worker}; ${investigation ? '' : `${definition.label}; `}context packet ${packet.contextCharacters} characters`);
           await this.save(map);
@@ -593,8 +595,10 @@ export class Store {
         // The result stays on the job record: only investigations change an idea.
         const normalized = await definition.validate(object(result, 'Result'), { map, job, node });
         // Like an investigation, work whose idea changed while it ran is kept but marked stale.
-        const stale = !!(job.inputSignature && node && job.inputSignature !== this.signature(map, node));
+        const stale = definition.isStale ? !!definition.isStale({ map, job, node }) : !!(job.inputSignature && node && job.inputSignature !== this.signature(map, node));
         Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
+        // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
+        if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });
         this.event(map, 'job-result', job.nodeId, `${definition.label}; ${job.id}`);
         return this.save(map);
       }
@@ -700,6 +704,15 @@ export class Store {
       return this.getSettings();
     });
   }
+  // Exactly what a map job would send the agent, without starting it or any claim data.
+  async previewMapJob(mapId, type, selection) {
+    const map = await this.get(mapId), definition = this.jobType(type);
+    need(definition && definition.target === 'map' && typeof definition.prepare === 'function', 'This kind of review cannot be previewed.');
+    const job = { id: null, type, input: definition.prepare({ map, input: { selection } }), reason: definition.reason };
+    const packet = await this.typedPacket(map, job, definition, null);
+    delete packet.claimKey; delete packet.jobId;
+    return packet;
+  }
   // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
   view(map) {
     const clone = publicMap(map);
@@ -719,5 +732,6 @@ export function publicMap(map) {
   const clone = structuredClone(map);
   for (const node of clone.nodes) node.completed = isCompleted(map, node);
   for (const job of clone.jobs) { delete job.claimKey; delete job.inputSignature; }
+  for (const proposal of clone.proposals || []) proposal.stale = !!proposal.stale || proposalOutdated(map, proposal);
   return clone;
 }

@@ -17,6 +17,8 @@
 //   needs `expectedRevision` and runs through the Store's serial queue.
 //
 // Settings fields: { default, validate(value) } stored in the shared `ideas/settings.json`.
+import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
+
 export const INVESTIGATE = 'investigate';
 
 const builtInJobTypes = { [INVESTIGATE]: { label: 'Branch investigation', target: 'node' } };
@@ -41,7 +43,8 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
   return { jobTypes: { ...builtInJobTypes, ...jobTypes }, actions: { ...actions }, settings: { ...settings } };
 }
 
-export const defaultRegistry = createRegistry();
+// Map-wide reviews such as Check answers are part of every default registry.
+export const defaultRegistry = createRegistry({ jobTypes: mapJobTypes, actions: mapJobActions });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }
