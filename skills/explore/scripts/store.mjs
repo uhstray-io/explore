@@ -10,12 +10,13 @@ import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, 
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { questionFeedback } from './question-actions.mjs';
+import { nodeKinds, semanticRelations, hasConflictMarkers } from './map-validation.mjs';
 
 const run = promisify(execFile);
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
-const kinds = new Set(['idea', 'question', 'research', 'decision', 'risk']);
-const relations = new Set(['depends_on', 'supports', 'contradicts', 'related_to']);
+const kinds = new Set(nodeKinds);
+const relations = new Set(semanticRelations);
 const active = job => ['queued', 'running'].includes(job.status);
 // Packet fields for an answer's certainty; older answers say theirs was not recorded.
 const certaintyFields = q => { const certainty = effectiveAnswerState(q); return certainty ? { answerState: certainty.state, ...(certainty.recorded ? {} : { certaintyRecorded: false }) } : {}; };
@@ -60,8 +61,7 @@ function wellFormed(map, mapId) {
 }
 function parseMap(mapId, bytes) {
   const raw = bytes.toString('utf8');
-  // JSON strings cannot contain raw line breaks, so a line starting with a marker is never map content.
-  need(!/^(<{7}|={7}|>{7})(\s|$)/m.test(raw), unreadable['conflict-markers'], 409, 'conflict-markers');
+  need(!hasConflictMarkers(raw), unreadable['conflict-markers'], 409, 'conflict-markers');
   let map;
   try { map = JSON.parse(raw); } catch { throw new Problem(unreadable['invalid-json'], 409, 'invalid-json'); }
   need(map && typeof map === 'object' && !Array.isArray(map), unreadable['invalid-map'], 409, 'invalid-map');
