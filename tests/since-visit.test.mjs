@@ -94,3 +94,13 @@ test('a return to the tab counts only what happened before the return', () => {
   const summary = sinceLastVisit(map, cursor, at(10));
   assert.deepEqual(summary.newFindings.items.map(n => n.id), ['sync']); assert.equal(summary.newDirections, 0);
 });
+
+test('an event without a readable time never breaks the summary', () => {
+  for (const at of [undefined, 'unknown']) {
+    const { map, cursor } = fixture();
+    map.nodes.push(node('sync'));
+    map.history.push({ type: 'result', nodeId: 'sync', detail: 'job-x', ...(at === undefined ? {} : { at }) });
+    assert.doesNotThrow(() => sinceLastVisit(map, cursor));
+    assert.deepEqual(sinceLastVisit(map, cursor).newFindings.items.map(n => n.id), ['sync']);
+  }
+});

@@ -25,7 +25,8 @@ export function sinceLastVisit(map, cursor, until = null) {
   // Flags and new directions carry their own times. A collaborator's work pulled later can be older than this visit,
   // so the threshold is the earlier of the visit and the first new event (less a millisecond: a flag is stamped just
   // before its event).
-  const firstNew = aligned && events.length ? new Date(Date.parse(events[0].at) - 1).toISOString() : cursor.at;
+  // An event without a readable time (older or hand-edited data) falls back to the visit's time.
+  const first = aligned ? Date.parse(events[0]?.at) : NaN, firstNew = Number.isFinite(first) ? new Date(first - 1).toISOString() : cursor.at;
   const since = firstNew < cursor.at ? firstNew : cursor.at;
   const nodeOf = id => map.nodes.find(node => node.id === id);
   // A "result" event is an applied result (a stale one is recorded as stale-result); its detail is the job.
@@ -72,7 +73,9 @@ export function sinceVisitPanel({ esc, openFilter, focusAfterDismiss }) {
     const filter = event.target.closest('[data-since-filter]'); if (filter) openFilter(filter.dataset.sinceFilter);
   });
   const summarise = (map, until = null) => {
-    summary = sinceLastVisit(map, read(map.id), until); dismissed = false; away = null;
+    const next = sinceLastVisit(map, read(map.id), until);
+    if (next || until === null) { summary = next; dismissed = false; } // A quiet return keeps the card the user has not used yet.
+    away = document.hidden ? true : null; // A map opened in a background tab is summarised again when first shown.
     box.innerHTML = summary ? sinceVisitHtml(summary, { esc, when: new Date(summary.since).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) }) : '';
   };
   return {

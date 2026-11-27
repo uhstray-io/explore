@@ -284,7 +284,8 @@ function renderOverview() {
 function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
 // Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
 const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $('#overview-filters button')?.focus() });
-// Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else.
+// Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else. The
+// render runs even when nothing changed, only to finish that summary.
 document.addEventListener('visibilitychange', async () => { if (document.hidden) return; await refresh({ force: true }); if (state.map) renderMap(); });
 $('#overview-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]'); if (!button) return;
