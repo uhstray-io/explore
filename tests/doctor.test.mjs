@@ -94,3 +94,20 @@ test('doctor never follows an authenticated redirect or echoes a rejected creden
     assert.equal(destinationRequests, 0);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
+
+test('the app and doctor name the package version, and doctor warns about a server from another version', async () => {
+  const workspace = await temporary('doctor-version-');
+  const app = await startServer({ workspace, port: 0 });
+  try {
+    const { version } = JSON.parse(await readFile(path.resolve('skills/explore/version.json'), 'utf8'));
+    assert.equal((await (await fetch(app.address + '/api/session')).json()).version, version);
+    let result = JSON.parse((await run(workspace)).stdout);
+    assert.equal(result.version, version); assert.equal(result.serverVersion, version);
+    assert.ok(!result.checks.some(check => check.name === 'version'));
+    const file = path.join(workspace, '.explore/connection.json'), connection = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...connection, version: '0.0.1' }));
+    result = JSON.parse((await run(workspace)).stdout);
+    assert.equal(result.serverVersion, '0.0.1');
+    assert.match(result.checks.find(check => check.name === 'version').message, /different Explore version\. Restart it/);
+  } finally { await app.close(); }
+});

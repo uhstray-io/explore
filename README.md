@@ -58,7 +58,15 @@ node skills/explore/scripts/install.mjs --host claude --project /path/to/project
 node skills/explore/scripts/install.mjs --host copilot --project /path/to/project
 ```
 
-Choose the host you use. These copy to `.agents/skills`, `.claude/skills`, or `.github/skills` respectively and refuse to overwrite an existing installation. Quote paths containing spaces. Reload the host's skill discovery if necessary. The host must support local shell commands and a persistent server process; a cloud agent's localhost is not your workstation.
+Choose the host you use. These copy to `.agents/skills`, `.claude/skills`, or `.github/skills` respectively and refuse to overwrite an existing installation.
+
+To update an installation, run the same command from a newer copy with `--update`. It does the following:
+- **Checks before it starts.** It refuses while that project's Explore server is running, and refuses to install an older version unless you add `--allow-downgrade`. If the copy is already identical, it changes nothing.
+- **Swaps safely.** It stages the new copy, moves the old one to `.explore/skill-backups/<host>-<version>-<time>/`, then moves the new one into place. If that last move fails, the old copy goes back. Nothing is ever placed inside a discovery folder, so your agent never sees two copies.
+- **Reports what changed.** It prints both versions, the backup's location, and any files that only the old copy had.
+- **Leaves your maps alone.** It never touches `ideas/`.
+
+To go back, stop the server and move the backup folder back to `explore/` in the discovery folder. The installed version is in `explore/version.json`. `doctor` and the app's sidebar show it, and `doctor` warns when the running server is from a different version. Quote paths containing spaces. Reload the host's skill discovery if necessary. The host must support local shell commands and a persistent server process; a cloud agent's localhost is not your workstation.
 
 Maps in `ideas/` are meant to be committed. Anyone who clones or pulls the repo can open a finished or half-finished map and continue it. Maps may contain private ideas and answers, so decide what the repo should share before pushing it.
 

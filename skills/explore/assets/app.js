@@ -859,7 +859,7 @@ window.addEventListener('resize', () => { if (state.map && state.historyStep ===
 window.addEventListener('hashchange', () => { const id = location.hash.slice(1); if (id && id !== state.map?.id) openMap(id); else if (!id) showWelcome(); });
 try {
   const session = await (await fetch('/api/session')).json(); state.token = session.token; state.session = session;
-  $('#workspace-name').textContent = session.workspace;
+  $('#workspace-name').textContent = session.version ? `${session.workspace} · Explore ${session.version}` : session.workspace;
   // Contributions are attributed by Git name; say plainly when there is none.
   api('/contributor').then(person => { state.contributor = person.name; $('#contributor').textContent = person.name ? `You: ${person.name} (from Git)` : 'Answers aren’t attributed: Git has no user name.'; }).catch(() => {});
   await refresh();
