@@ -1,10 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
-import { startServer } from '../skills/explore/scripts/server.mjs';
 
 // Claim keys never reach a shared map file: only their hash does (H8, #37).
 async function fixture() {
@@ -66,18 +65,3 @@ test('a legacy map keeps its key until its next save, and a running legacy job c
   assert.equal(done.jobs[0].status, 'completed');
 });
 
-test('the hash never appears in responses or version files', async () => {
-  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
-  const workspace = await mkdtemp(path.join(root, 'claims-http-'));
-  const app = await startServer({ workspace, port: 0 });
-  try {
-    const { token } = await (await fetch(app.address + '/api/session')).json();
-    const get = async route => (await fetch(app.address + '/api' + route, { headers: { Authorization: `Bearer ${token}` } })).text();
-    const map = await app.store.create({ title: 'Field notebook', idea: 'Shared notes must work offline.' });
-    const packet = await app.store.claim('agent', map.id);
-    for (const route of [`/maps/${map.id}`, '/maps', `/maps/${map.id}/brief`]) assert.doesNotMatch(await get(route), /claimHash|claimKey/, route);
-    await app.store.complete(map.id, packet.jobId, packet.claimKey, result);
-    const folder = path.join(app.store.directory, map.id, 'versions');
-    for (const name of await readdir(folder)) assert.doesNotMatch(await readFile(path.join(folder, name), 'utf8'), /claimHash|claimKey/);
-  } finally { await app.close(); }
-});

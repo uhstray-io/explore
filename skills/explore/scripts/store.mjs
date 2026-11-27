@@ -190,6 +190,8 @@ export class Store {
   // Each content change is recorded as a version just before map.json is replaced; moving ideas and the
   // queue's own bookkeeping are not. `actor` is the contributor who made the change, if known.
   async save(map, { actor = null } = {}) {
+    // Converted on every write, not on read: a restore copies jobs from version files that never pass
+    // parseMap, so only this keeps a raw key out of map.json.
     for (const job of map.jobs) if (job.claimKey) { job.claimHash = claimHashOf(job.claimKey); delete job.claimKey; }
     map.revision += 1;
     map.updatedAt = now();
@@ -563,7 +565,7 @@ export class Store {
   signature(map, node) {
     return createHash('sha256').update(JSON.stringify(this.contextNodes(map, node).map(n => [n.id, n.contentRevision]))).digest('hex');
   }
-  packet(map, job, claimKey, budget = 15500) {
+  packet(map, job, { claimKey, budget = 15500 } = {}) {
     const node = map.nodes.find(n => n.id === job.nodeId);
     const clip = (s, length) => s.length > length ? s.slice(0, length) + '\n[Shortened; read the linked node for detail.]' : s;
     const selected = { id: node.id, title: node.title, kind: node.kind, stale: !!node.stale, premise: clip(node.prompt || node.body, 2400), summary: node.summary === node.prompt || node.summary === node.body ? '' : clip(node.summary, 700), body: node.body === node.prompt ? '' : clip(node.body, 4000),
@@ -594,7 +596,7 @@ export class Store {
     return packet;
   }
   // Packet for a registered job type: shared identifying fields plus the type's own fields.
-  async typedPacket(map, job, definition, node, claimKey, budget = 15500) {
+  async typedPacket(map, job, definition, node, { claimKey, budget = 15500 } = {}) {
     const packet = { ...await definition.packet({ map, job, node, budget }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
       jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
     need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);
@@ -627,7 +629,7 @@ export class Store {
           const claimKey = randomUUID(); // Returned once in the packet; the map keeps only its hash.
           Object.assign(job, { status: 'running', worker, claimHash: claimHashOf(claimKey), startedAt: now(), ...(n ? { inputSignature: this.signature(map, n) } : {}) });
           let packet;
-          try { packet = investigation ? this.packet(map, job, claimKey) : await this.typedPacket(map, job, definition, n, claimKey); }
+          try { packet = investigation ? this.packet(map, job, { claimKey }) : await this.typedPacket(map, job, definition, n, { claimKey }); }
           catch (error) {
             Object.assign(job, { status: 'failed', finishedAt: now(), error: error.message }); delete job.claimHash;
             if (investigation) n.status = 'interrupted';
@@ -799,8 +801,8 @@ export class Store {
     const map = await this.get(mapId), definition = this.jobType(type);
     need(definition && definition.target === 'map' && typeof definition.prepare === 'function', 'This kind of review cannot be previewed.');
     const job = { id: null, type, input: definition.prepare({ map, input: { selection } }), reason: definition.reason };
-    const packet = await this.typedPacket(map, job, definition, null);
-    delete packet.claimKey; delete packet.jobId; // A preview is never a claim.
+    const packet = await this.typedPacket(map, job, definition, null); // A preview is never a claim: no key.
+    delete packet.jobId;
     return packet;
   }
   // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
