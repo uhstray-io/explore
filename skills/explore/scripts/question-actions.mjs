@@ -22,6 +22,17 @@ function findQuestion(node, questionId) {
   return question;
 }
 const by = actor => actor?.name ? { name: actor.name } : undefined;
+// An open question on an unfinished branch: the only kind that can be explained, dismissed or regenerated.
+function openQuestion(map, node, questionId, store, verb) {
+  need(!store.isComplete(map, node), 'This branch is complete. Add a new direction instead.', 409);
+  const question = findQuestion(node, questionId);
+  need(isOpen(question), `Only an open question can be ${verb}.`, 409);
+  return question;
+}
+// The question a job is about, if its idea still has it.
+const subjectOf = (job, node) => node?.questions.find(q => q.id === job.subjectId);
+// An idea as a packet shows it, clipped to the given lengths.
+const nodeBrief = (node, { premise, summary }) => ({ id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, premise), summary: clip(node.summary, summary) });
 
 // The map's most recent question feedback, newest first: what the user rated, dismissed or replaced.
 export function questionFeedback(map, limit = 10) {
@@ -54,9 +65,7 @@ export const questionActions = {
     store.event(map, 'question-rated', node.id, `${question.id}: ${input.rating ?? 'cleared'}`);
   } },
   'dismiss-question': { target: 'node', apply: ({ map, node, input, store, actor }) => {
-    need(!store.isComplete(map, node), 'This branch is complete. Add a new direction instead.', 409);
-    const question = findQuestion(node, input.questionId);
-    need(isOpen(question), 'Only an open question can be dismissed.', 409);
+    const question = openQuestion(map, node, input.questionId, store, 'dismissed');
     Object.assign(question, { dismissedAt: now(), ...(by(actor) ? { dismissedBy: by(actor) } : {}) });
     store.event(map, 'question-dismissed', node.id, question.id);
     if (!node.questions.some(isBlocking)) store.enqueue(map, node, 'The user dismissed the remaining questions. Continue without them and do not ask them again.');
@@ -70,16 +79,12 @@ export const questionActions = {
   } },
   // Explain an open question. The help stays on its job; the branch keeps waiting for the user's answer.
   'request-help': { target: 'node', apply: ({ map, node, input, store }) => {
-    need(!store.isComplete(map, node), 'This branch is complete. Add a new direction instead.', 409);
-    const question = findQuestion(node, input.questionId);
-    need(isOpen(question), 'Only an open question can be explained.', 409);
+    const question = openQuestion(map, node, input.questionId, store, 'explained');
     store.enqueueJob(map, { type: EXPLAIN, nodeId: node.id, subjectId: question.id, reason: 'The user asked what this question means.', input: { question: question.text } });
   } },
   // Replace an unhelpful question: the original is set aside and the branch waits for the new one.
   'regenerate-question': { target: 'node', apply: ({ map, node, input, store, actor }) => {
-    need(!store.isComplete(map, node), 'This branch is complete. Add a new direction instead.', 409);
-    const question = findQuestion(node, input.questionId);
-    need(isOpen(question), 'Only an open question can be regenerated.', 409);
+    const question = openQuestion(map, node, input.questionId, store, 'regenerated');
     const reason = reasonText(input.reason);
     Object.assign(question, { dismissedAt: now(), ...(by(actor) ? { dismissedBy: by(actor) } : {}), replacedBy: 'pending',
       ...(reason ? { rating: 'bad', ratingReason: reason, ratedAt: now(), ...(by(actor) ? { ratedBy: by(actor) } : {}) } : {}) });
@@ -95,14 +100,15 @@ export const questionJobTypes = {
   [EXPLAIN]: {
     label: 'Explain a question', target: 'node',
     // The question, its idea and the path up to the root; nothing from other branches, drafts or research.
-    packet: ({ map, job, node }) => {
-      const question = node.questions.find(q => q.id === job.subjectId), ancestors = [];
-      for (let at = map.nodes.find(n => n.id === node.parentId); at && ancestors.length < map.nodes.length; at = map.nodes.find(n => n.id === at.parentId)) ancestors.push({ title: clip(at.title, 100), summary: clip(at.summary, 400) });
+    packet: ({ map, job, node, budget }) => {
+      const question = subjectOf(job, node), ancestors = [];
+      // Parent loops are refused when a map is read, so this walk ends at the root.
+      for (let at = map.nodes.find(n => n.id === node.parentId); at; at = map.nodes.find(n => n.id === at.parentId)) ancestors.push({ title: clip(at.title, 100), summary: clip(at.summary, 400) });
       const packet = { question: { id: job.subjectId, text: clip(question?.text ?? job.input?.question, 1600) },
-        node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 1200), summary: clip(node.summary, 600) },
-        ancestors, omittedAncestors: 0, instruction: explainInstruction };
-      // The farthest ancestors go first when the packet would be too long.
-      while (JSON.stringify(packet).length > 6000 && packet.ancestors.length) { packet.ancestors.pop(); packet.omittedAncestors++; }
+        node: nodeBrief(node, { premise: 1200, summary: 600 }), ancestors, omittedAncestors: 0, instruction: explainInstruction };
+      // The farthest ancestors go first; 800 characters stay free for the fields every packet carries.
+      const limit = Math.min(budget, 6000) - 800;
+      while (JSON.stringify(packet).length > limit && packet.ancestors.length) { packet.ancestors.pop(); packet.omittedAncestors++; }
       return packet;
     },
     validate: result => {
@@ -111,15 +117,15 @@ export const questionJobTypes = {
       return { help: result.help.trim() };
     },
     // Help belongs to the question as it was asked; once it is answered, set aside or reworded, it is history.
-    isStale: ({ job, node }) => { const question = node?.questions.find(q => q.id === job.subjectId); return !question || !isOpen(question) || question.text !== job.input?.question; },
+    isStale: ({ job, node }) => { const question = subjectOf(job, node); return !question || !isOpen(question) || question.text !== job.input?.question; },
   },
   [REGENERATE]: {
     label: 'Regenerate a question', target: 'node',
     packet: ({ map, job, node }) => {
-      const original = node.questions.find(q => q.id === job.subjectId);
+      const original = subjectOf(job, node);
       return {
         question: { id: original?.id, text: clip(original?.text, 600), ...(original?.why ? { why: clip(original.why, 600) } : {}) }, userReason: job.input?.reason ?? null,
-        node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 600), summary: clip(node.summary, 400) },
+        node: nodeBrief(node, { premise: 600, summary: 400 }),
         answeredQuestions: node.questions.filter(q => q.answer && !q.supersededAt).slice(-6).map(q => ({ question: clip(q.text, 200), answer: clip(q.answer, 300) })),
         openQuestions: node.questions.filter(isOpen).map(q => clip(q.text, 200)),
         questionFeedback: questionFeedback(map, 10).items, instruction: regenerateInstruction,
@@ -129,9 +135,9 @@ export const questionJobTypes = {
       return { question: normalizeQuestion(result.question, message => need(false, message)) };
     },
     // A replacement only makes sense while the original is still waiting to be replaced.
-    isStale: ({ job, node }) => { const original = node?.questions.find(q => q.id === job.subjectId); return !original || original.replacedBy !== 'pending' || !!original.supersededAt; },
+    isStale: ({ job, node }) => { const original = subjectOf(job, node); return !original || original.replacedBy !== 'pending' || !!original.supersededAt; },
     store: ({ job, result, stale, makeId, at, map }) => {
-      const node = map.nodes.find(n => n.id === job.nodeId), original = node?.questions.find(q => q.id === job.subjectId);
+      const node = map.nodes.find(n => n.id === job.nodeId), original = subjectOf(job, node);
       if (stale) { if (original?.replacedBy === 'pending') delete original.replacedBy; return; }
       const fresh = { id: makeId('q'), ...result.question, answer: null, askedAt: at, jobId: job.id, replaces: original.id };
       node.questions.push(fresh); original.replacedBy = fresh.id; node.contentRevision++;

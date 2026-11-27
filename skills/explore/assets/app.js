@@ -4,9 +4,11 @@ import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerSta
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
-try { state.helpSeen = new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { state.helpSeen = new Set(); }
-function markHelpSeen(id) { state.helpSeen.add(id); try { localStorage.setItem('explore-help-seen', JSON.stringify([...state.helpSeen].slice(-200))); } catch {} }
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, helpSeen: readSeenHelp() };
+// Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
+// browser only, as a convenience.
+function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
+function rememberHelp(id) { if (state.helpSeen.has(id)) return; state.helpSeen.add(id); try { localStorage.setItem('explore-help-seen', JSON.stringify([...state.helpSeen].slice(-200))); } catch {} }
 const glyphs = { idea: '✳', research: '◇', question: '?', decision: '✓', risk: '△' };
 let toastTimer, gesture, suppressClick = false, openVersion = 0, actionTail = Promise.resolve();
 const accents = ['var(--teal)', 'var(--blue)', 'var(--orange)'];
@@ -144,8 +146,6 @@ function zoom(factor, cx = $('#canvas').clientWidth / 2, cy = $('#canvas').clien
   state.x = cx - (cx - state.x) * ratio; state.y = cy - (cy - state.y) * ratio; state.scale = next; transform();
 }
 function selectNode(nodeId) {
-  // Help that was open while its idea was shown counts as seen once the selection moves elsewhere.
-  if (nodeId !== state.selected) for (const shown of document.querySelectorAll('#detail details.question-help[open]')) markHelpSeen(shown.dataset.help);
   state.selected = visibleSelection(state.visibleMap, nodeId);
   showAddress();
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
@@ -603,7 +603,9 @@ function renderDetail(force = false) {
     ${!historic ? `<details data-editor="suggest"><summary>Add a direction</summary><form id="suggest-form" data-node-id="${n.id}"><label for="branch-title">What's worth exploring?</label><input id="branch-title" name="title" maxlength="100" data-draft="${n.id}-title" value="${esc(state.drafts[`${n.id}-title`] ?? '')}" required><label for="branch-body">A little context</label><textarea id="branch-body" name="body" rows="3" maxlength="4000" data-draft="${n.id}-branch">${esc(state.drafts[`${n.id}-branch`] ?? '')}</textarea><button type="submit" class="secondary">Add suggested branch</button></form></details>
     <details data-editor="revise"><summary>${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new branch and starts exploring it. Affected findings are flagged for review; the original is preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
     ${job?.contextCharacters ? `<p class="run-note">Last investigation used ${job.contextCharacters.toLocaleString()} characters of map context. Only relevant context is sent.</p>` : ''}`;
-  for (const editor of detail.querySelectorAll('details[data-editor]')) editor.open = Boolean(state.editors[`${n.id}:${editor.dataset.editor}`]);
+  // The user's open or closed choice wins; otherwise a disclosure stays as rendered (closed, or new help open).
+  for (const editor of detail.querySelectorAll('details[data-editor]')) editor.open = state.editors[`${n.id}:${editor.dataset.editor}`] ?? editor.open;
+  for (const help of detail.querySelectorAll('details.question-help[open]')) rememberHelp(help.dataset.help);
   if (focus && previousNode === n.id) {
     const control = focus.key ? [...detail.querySelectorAll('[data-draft]')].find(item => item.dataset.draft === focus.key)
       : [...detail.querySelectorAll('button, a[href], summary')].find(item => !item.disabled && detailFocusKey(item) === focus.control);

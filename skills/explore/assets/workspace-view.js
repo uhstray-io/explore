@@ -212,7 +212,7 @@ export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
   const mine = jobs.filter(job => job.type === 'question-help' && job.subjectId === question.id);
   if (mine.some(job => job.status === 'queued' || job.status === 'running')) return `<p class="question-help-status">${listening ? 'Your agent is working on it.' : 'Queued for your agent.'}</p>`;
   const help = mine.filter(job => job.status === 'completed' && !job.stale && job.result?.help).at(-1);
-  return help ? `<details class="question-help" data-help="${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer</summary><p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
+  return help ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer</summary><p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
 }
 // The idea ⋯ menu (H2): Copy link.
 export function nodeMenuHtml(node, { esc }) {

@@ -41,7 +41,7 @@ test('the agent gets the question, its idea and the path to the root, under the 
   assert.deepEqual(packet.question, { id: question.id, text: 'What counts as offline?' });
   assert.equal(packet.node.id, map.rootId);
   assert.match(packet.instruction, /Do not answer it or recommend an answer/);
-  assert.ok(JSON.stringify(packet).length <= 6500);
+  assert.ok(JSON.stringify(packet).length <= 6000);
 });
 
 test('delivered help stays on the job and never completes the branch', async () => {
@@ -102,7 +102,7 @@ test('the menu offers Explain this question first, and help shows under the ques
   const html = (jobs, options = {}) => questionHelpHtml({ question, jobs, listening: false, seen: new Set(), esc: value => String(value).replace(/</g, '&lt;'), ...options });
   assert.match(html([job('queued')]), /Queued for your agent/);
   assert.match(html([job('queued')], { listening: true }), /Your agent is working on it/);
-  assert.match(html([job('completed')]), /<details class="question-help" data-help="job-completed" open><summary>Help from your agent, not an answer<\/summary><p class="question-help-text">It means &lt;no signal>\.<\/p><\/details>/);
+  assert.match(html([job('completed')]), /<details class="question-help" data-help="job-completed" data-editor="help-job-completed" open><summary>Help from your agent, not an answer<\/summary><p class="question-help-text">It means &lt;no signal>\.<\/p><\/details>/);
   assert.doesNotMatch(html([job('completed')], { seen: new Set(['job-completed']) }), / open>/, 'collapsed after it was seen');
   assert.equal(html([{ ...job('completed'), stale: true }]), '', 'stale help is not shown as current');
   assert.equal(html([{ ...job('completed'), subjectId: 'q-2' }]), '');
