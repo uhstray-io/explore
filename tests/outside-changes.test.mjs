@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -56,8 +56,8 @@ test('the next read adopts an outside change, keeps the previous version and say
   const adopted = await store.get(map.id);
   assert.equal(adopted.title, 'Renamed by a teammate');
   const change = store.tracking(map.id).outsideChange;
-  assert.ok(change.at); assert.match(change.preserved, /^preserved\/.+\.json$/);
-  assert.equal(await readFile(path.join(store.directory, map.id, change.preserved), 'utf8'), original);
+  assert.ok(change.at); assert.ok(change.preserved, 'the replaced version is kept in version history');
+  assert.deepEqual((await store.versions.get(map.id, change.preserved)).map, JSON.parse(original));
   const saved = await store.action(map.id, { expectedRevision: adopted.revision, nodeId: map.rootId, type: 'suggest', title: 'After the pull', body: 'Continues the teammate version.' });
   assert.equal(saved.title, 'Renamed by a teammate'); assert.equal(saved.nodes.length, 2);
 });
@@ -133,19 +133,23 @@ test('each previous version is preserved once', async () => {
   await store.get(map.id);
   await writeFile(store.file(map.id), first); await store.get(map.id);
   await writeFile(store.file(map.id), second); await store.get(map.id);
-  assert.equal((await preserved(store, map.id)).length, 2);
+  // The first version was recorded when Explore saved it; the second only once, when it was replaced.
+  assert.equal((await store.versions.list(map.id)).versions.length, 2);
+  assert.deepEqual(await preserved(store, map.id), []);
 });
 
 test('a previous version Git already has is not copied again', async t => {
   const { dir, store, map } = await fixture();
   try { await exec('git', ['init', '-q', dir]); } catch { t.skip('Git is not available.'); return; }
   await store.get(map.id);
-  await exec('git', ['-C', dir, 'hash-object', '-w', store.file(map.id)]);
   await replaceOutside(store, map.id, m => { m.title = 'Pulled from a teammate'; });
+  await store.get(map.id); // Explore's own version was already in version history.
+  await exec('git', ['-C', dir, 'hash-object', '-w', store.file(map.id)]);
+  await replaceOutside(store, map.id, m => { m.title = 'Pulled again'; });
   await store.get(map.id);
-  assert.equal(store.tracking(map.id).outsideChange.preserved, null, 'the previous version is safe in Git');
+  assert.equal(store.tracking(map.id).outsideChange.preserved, null, 'the teammate version is safe in Git');
   assert.equal(store.tracking(map.id).outsideChange.inGit, true);
-  assert.deepEqual(await preserved(store, map.id), []);
+  assert.equal((await store.versions.list(map.id)).versions.length, 1);
 });
 
 test('the agent receives work from a pulled map and can deliver into a merged one', async () => {
@@ -221,15 +225,17 @@ test('a checkout with Windows line endings is recognised as already in Git', asy
   try { await exec('git', ['init', '-q', dir]); } catch { t.skip('Git is not available.'); return; }
   await git('config', 'core.autocrlf', 'true'); await git('config', 'user.name', 'Test'); await git('config', 'user.email', 'test@example.invalid');
   await git('add', 'ideas'); await git('commit', '-q', '-m', 'Map');
-  // What a checkout produces when Git converts line endings: the same content with CRLF.
+  // What a checkout produces when Git converts line endings: the same content with CRLF. Without the
+  // version folder (for example a clone that never had it), only the Git check can recognise it.
   const lf = await readFile(store.file(map.id), 'utf8');
   await writeFile(store.file(map.id), lf.replace(/\n/g, '\r\n'));
+  await rm(path.join(store.directory, map.id, 'versions'), { recursive: true });
   const restarted = new Store(store.directory);
   await restarted.get(map.id);
   await replaceOutside(restarted, map.id, m => { m.title = 'Pulled from a teammate'; });
   await restarted.get(map.id);
   assert.equal(restarted.tracking(map.id).outsideChange.inGit, true);
-  assert.deepEqual(await preserved(restarted, map.id), []);
+  assert.deepEqual((await restarted.versions.list(map.id)).versions, []);
 });
 
 test('an edit made right after a reset keeps the replaced, uncommitted version', async () => {
@@ -243,7 +249,9 @@ test('an edit made right after a reset keeps the replaced, uncommitted version',
   await store.action(map.id, { expectedRevision: shown.revision, expectedFingerprint: fingerprint, nodeId: map.rootId, type: 'suggest', title: 'After the reset', body: 'Built on the shown version.' });
   const change = store.tracking(map.id).outsideChange;
   assert.ok(change, 'the reset counts as an outside change');
-  assert.equal(await readFile(path.join(store.directory, map.id, change.preserved), 'utf8'), withResult);
+  const kept = (await store.versions.get(map.id, change.preserved)).map;
+  assert.equal(kept.nodes[0].summary, 'Agent result, not yet committed.');
+  assert.equal(kept.revision, JSON.parse(withResult).revision);
 });
 
 test('a view one step behind Explore’s own save is told to refresh, not that the map changed outside', async () => {

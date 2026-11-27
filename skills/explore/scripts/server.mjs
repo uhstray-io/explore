@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile, mkdir, open, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { Store, Problem, atomicJson } from './store.mjs';
+import { Store, Problem, atomicJson, publicMap } from './store.mjs';
 import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
@@ -60,6 +60,13 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (req.method === 'GET' && url.pathname === '/api/contributor') { const actor = await contributor(); return send(res, 200, actor ? { name: actor.name, source: 'git' } : { name: null }); }
         const briefRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/brief$/);
         if (req.method === 'GET' && briefRoute) return send(res, 200, mapBrief(await store.get(briefRoute[1]), url.searchParams.get('node')));
+        // Version history: listing and previewing never write anything.
+        const versionsRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions(?:\/([A-Za-z0-9-]+))?$/);
+        if (req.method === 'GET' && versionsRoute && !versionsRoute[2]) { await store.get(versionsRoute[1]); return send(res, 200, await store.versions.list(versionsRoute[1])); }
+        if (req.method === 'GET' && versionsRoute) {
+          const preview = await store.versions.preview(versionsRoute[1], versionsRoute[2]);
+          return send(res, 200, { ...preview, map: publicMap(preview.map) });
+        }
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
         if (req.method === 'GET' && contextRoute) return send(res, 200, contextExcerpt(await store.get(contextRoute[1]), url.searchParams.get('node'), Object.fromEntries(url.searchParams)));
         const match = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)(?:\/(action|result|fail))?$/);
