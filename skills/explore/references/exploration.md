@@ -36,6 +36,8 @@ Example: “For the first workshop, which matters more: reaching many neighbors 
 
 Put required questions in the result's `questions` array so the browser can save and resume them. Optional curiosities belong in inactive suggestions or the uncertainty notes. Do not add a question merely to avoid completing a branch. Record an answer only when the user supplied it; an inferred preference must remain an inference.
 
+The packet's `questionFeedback` is the user's view of earlier questions on this map. Ask more like those rated good. Treat those rated bad, dismissed or replaced, and their reasons, as what not to ask; never repeat a dismissed question or a close variant. If one was essential, proceed on a stated assumption instead.
+
 Each saved answer says how sure the user is (`answerState`). Build on **Decided** answers; if evidence contradicts one, report the conflict instead of overriding it. Treat **Tentative** answers, the default and the reading of older answers marked `certaintyRecorded: false`, as usable but provisional, and say what depends on them. Treat an **Assumption** as an unverified premise: check it when it matters and say what would disprove it. A question marked `deferred` was saved for later: do not rely or wait on it and do not ask it again; proceed on a stated assumption, or propose an inactive direction if it is essential.
 
 ## Offer options only for real choices

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -494,4 +494,24 @@ test('an open question offers each option’s suggested answer as a starting poi
   assert.match(h.markup(), /data-suggest-answer="hands-on" data-question-id="q-format"/);
   assert.doesNotMatch(h.markup(), /data-suggest-answer="talk"/, 'only options with a draft are offered');
   assert.match(h.markup(), /No recommendation yet/);
+});
+
+test('each question has one ⋯ menu; dismissed ones collapse and a regenerating one shows its placeholder', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'awaiting-answer';
+  node.questions = [
+    { id: 'q-open', text: 'Budget?', answer: null },
+    { id: 'q-done', text: 'Audience?', answer: 'Everyone.', answerState: 'decided', rating: 'good' },
+    { id: 'q-gone', text: 'Leading one?', answer: null, dismissedAt: 't', ratingReason: 'Leading.' },
+    { id: 'q-new', text: 'Vague one?', answer: null, dismissedAt: 't', replacedBy: 'pending' },
+  ];
+  h.document.activeElement = null; h.render();
+  const markup = h.markup();
+  assert.equal(markup.match(/data-question-menu=/g).length, 2, 'the open and the answered question each have one menu');
+  assert.match(markup, /data-question-menu="q-open"/); assert.match(markup, />Dismiss</, 'a regeneration is still pending, so dismissing does not continue the branch yet');
+  assert.doesNotMatch(markup, /class="text-button" data-answer-later/, 'Answer later lives in the menu now');
+  assert.match(markup, /You rated this a good question/);
+  assert.match(markup, /<summary>Dismissed \(1\)<\/summary>.*Leading one\?.*data-q-restore/s);
+  assert.match(markup, /Getting a new question…/); assert.match(markup, /Queued for your agent/);
 });

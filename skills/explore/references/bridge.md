@@ -79,6 +79,12 @@ Every packet from `next` carries `jobType`. `investigate` is the branch investig
 
 Some work covers the whole map rather than one idea. Its job has `nodeId: null`, and its packet names the map only. Work about one question of an idea records that question as `subjectId`. A repeat request for the same type, idea (or map) and subject reuses the open job. A job type this version of Explore does not know stays queued for a newer version. A job whose idea no longer exists fails with that reason.
 
+## Regenerating a question
+
+A `regenerate-question` packet carries the `question` to replace, the user's `userReason`, the idea (`node`), its `answeredQuestions` and `openQuestions`, and the map's `questionFeedback`. Return `{"question": {"text": "…"}}` (at most 1,600 characters): one question that serves the same purpose better, never the original or a dismissed one, and never its answer. It is added beside the original, linked by `replaces` and `replacedBy`. A replacement for a question that is no longer waiting is kept as stale and not added.
+
+Every investigation packet carries `questionFeedback`: up to 10 of the map's most recent questions the user rated, dismissed or replaced, with any reason (trimmed first when the packet is over budget), and `selected.dismissedQuestions`, which are never to be asked again.
+
 ## Map jobs: Check answers
 
 A map job reads across many saved answers instead of one branch. Only the user starts one, from the browser's Map tools; an agent never requests a map job, as it never activates a branch. `next` returns it with `jobType: "check-answers"`, `nodeId: null` and:
@@ -109,6 +115,9 @@ If someone pulled or switched branches since you last read the map, an action fa
 - `activate`: queue a suggested branch or retry unfinished work. Completed branches reject activation. Only on the user's explicit request, normally via the UI.
 - `answer`: `questionId`, `answer`, optional `answerState` (`tentative` by default, `decided` or `assumption`; all need text). Supply only an actual user answer. Questions superseded by a changed premise remain in history and reject new answers. Answering a question saved for later clears that.
 - `set-answer-state`: `questionId`, `answerState`. Changes how sure a saved, current answer is. It is an annotation: allowed on finished branches, and it never re-runs research, flags findings or changes content. User-only.
+- `rate-question`: `questionId`, `rating` (`good`, `bad` or `null` to clear), optional `reason` (600). Feedback, not content: allowed on answered questions and finished branches, never re-runs research. User-only; an agent never rates.
+- `dismiss-question`: `questionId`. Sets an open question aside on an unfinished branch; it then rejects answers. When nothing else blocks, the branch continues. `restore-question` brings it back while the branch is waiting for answers. User-only.
+- `regenerate-question`: `questionId`, optional `reason`. Sets the question aside and queues a `regenerate-question` job; the branch waits for the replacement. If that job fails, is stopped or is interrupted, the original question comes back. User-only.
 - `answer-later`: `questionId`. Saves an open question for later on an unfinished branch: it stays answerable but no longer pauses the branch, which continues once nothing else blocks it. User-only; never defer a question on the user's behalf.
 - `suggest`: `title`, `body`. Adds an inactive research direction.
 - `revise`: `body`. Revises unfinished work and marks dependent findings for review. Questions and actual answers from earlier premises are retained with `supersededAt`; unanswered earlier questions no longer block continuation. Retry explicitly to investigate the new premise. Completed branches reject direct revision.

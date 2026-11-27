@@ -153,6 +153,29 @@ export function checkAnswersHtml({ map, preview, listening, esc }) {
   return `<p>Your agent reads your saved answers and points out possible tensions, unresolved choices and untested assumptions. It never changes an answer, and every point waits for you to keep or dismiss it.</p>${reads}${progress}${results}`;
 }
 
+// The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
+// Help me answer, Explain this question, Tidy my wording (later issues), Answer later, Regenerate,
+// Dismiss, Good question / Bad question. Answered questions offer only the rating.
+export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false, esc }) {
+  const id = esc(question.id), node = esc(nodeId);
+  const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
+  const items = [
+    ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
+    item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
+  ];
+  const rated = question.rating ? `<p class="question-rated">You rated this ${question.rating === 'good' ? 'a good question' : 'a bad question'}${question.ratingReason ? `: ${esc(question.ratingReason)}` : ''} · <button type="button" class="text-button" data-q-rate="" data-question-id="${id}" data-node-id="${node}">Undo</button></p>` : '';
+  return `<div class="question-more-wrap"><button type="button" class="question-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-${id}" data-question-menu="${id}" aria-label="More for this question">⋯</button><div class="question-menu" role="menu" id="menu-${id}" aria-label="More for this question" hidden>${items.join('')}</div></div>`
+    + `<div class="question-reason" data-reason-for="${id}" hidden><label class="visually-hidden" for="reason-${id}">What was wrong? (optional)</label><input id="reason-${id}" maxlength="600" placeholder="What was wrong? (optional)"><button type="button" class="secondary" data-send-reason="${id}" data-node-id="${node}">Send</button></div>${rated}`;
+}
+// Arrow keys move through a menu and wrap around; Home and End jump to its ends.
+export function menuFocusIndex(index, key, count) {
+  if (key === 'ArrowDown') return (index + 1) % count;
+  if (key === 'ArrowUp') return (index - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return index;
+}
+
 export function briefFilename(title) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}-brief.md`;

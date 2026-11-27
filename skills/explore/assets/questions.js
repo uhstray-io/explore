@@ -7,7 +7,8 @@ export const answerStateLabels = { tentative: 'Tentative', decided: 'Decided', a
 // Open: still waiting for an answer and not set aside by a changed premise or a dismissal.
 export function isOpen(question) { return !question.answer && !question.supersededAt && !question.dismissedAt; }
 // Blocking: open and not saved for later. Only blocking questions pause a branch.
-export function isBlocking(question) { return isOpen(question) && !question.deferredAt; }
+// A question being regenerated also blocks: the branch waits for its replacement.
+export function isBlocking(question) { return (isOpen(question) && !question.deferredAt) || (question.replacedBy === 'pending' && !question.supersededAt); }
 // Older answers have no recorded certainty; they count as Tentative and say so.
 export function effectiveAnswerState(question) {
   if (!question.answer) return null;
