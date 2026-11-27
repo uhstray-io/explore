@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readFile, mkdir, appendFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { atomicJson } from './store.mjs';
 import { runDoctor, readConnection } from './doctor.mjs';
@@ -14,7 +14,7 @@ const option = (name, fallback) => {
   return args[i + 1];
 };
 const required = name => { const value = option(name); if (!value) throw new Error(`--${name} is required.`); return value; };
-const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  doctor --support [--out FILE]          A redacted report to attach to a bug report; --out writes a new file\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  create --file idea.json                 {title, idea}\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?}\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
+const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  doctor --support [--out FILE]          A redacted report to attach to a bug report; --out writes a new file\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  create --file idea.json                 {title, idea}\n  export --map ID --out FILE               Complete map as JSON (no claim data); refuses to overwrite\n  import --file FILE [--as-copy]          Import an export or map.json; prints a conflict instead of choosing\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?}\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
 const secrets = [];
 const page = (items, revision, fields = ['title']) => {
   const integer = (name, fallback, min, max) => {
@@ -40,7 +40,7 @@ try {
     if (stdout) console.log(stdout);
     if (stderr) console.error(stderr);
   } else {
-    if (!['status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'usage', 'act'].includes(command)) throw new Error(usage);
+    if (!['status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'usage', 'act', 'export', 'import'].includes(command)) throw new Error(usage);
     const connection = command === 'usage' ? null : await readConnection(workspace);
     if (connection) secrets.push(connection.token);
     async function api(route, data) {
@@ -96,6 +96,14 @@ try {
         output = { mapId: m.id, title: m.title, ...paging, nodes: items.map(n => ({ id: n.id, title: n.title, status: n.status, reviewState: n.reviewState, stale: !!n.stale, summary: n.summary.slice(0, 200) })), omittedNodes: paging.matching - items.length };
         break;
       }
+      case 'export': {
+        const out = path.resolve(required('out'));
+        const exported = await api(`/api/maps/${required('map')}/export`);
+        try { await writeFile(out, JSON.stringify(exported, null, 2) + '\n', { flag: 'wx' }); }
+        catch (error) { if (error.code === 'EEXIST') throw new Error('That file already exists. Choose a new --out path.'); throw error; }
+        output = { exported: exported.map.id, file: out }; break;
+      }
+      case 'import': output = await api('/api/import', { data: await input(), asCopy: args.includes('--as-copy') }); break;
       case 'brief': {
         const format = option('format', 'json');
         if (!['json', 'markdown'].includes(format)) throw new Error('--format must be json or markdown.');
