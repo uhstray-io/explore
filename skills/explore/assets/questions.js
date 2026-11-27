@@ -78,4 +78,4 @@ export function questionJobs(jobs, type, questionId) {
   return { pending: mine.find(job => job.status === 'queued' || job.status === 'running') ?? null, latest: mine.filter(job => job.status === 'completed' && job.result).at(-1) ?? null };
 }
 // Help me answer is offered on a question still asked on an unfinished branch, answered or not.
-export function canResearch(question, { completed }) { return !completed && !question.supersededAt && !question.dismissedAt && !question.replacedBy; }
+export function canResearch(question, { completed = false } = {}) { return !completed && !question.supersededAt && !question.dismissedAt && !question.replacedBy; }

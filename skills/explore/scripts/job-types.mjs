@@ -10,8 +10,8 @@
 //     packet  returns the type-specific fields of the work packet, including `instruction`.
 //     validate returns the normalized result kept on the job record, or throws a Problem.
 //     context is { map, job, node } (node is null for map-level jobs).
-//     isStale(context), optional, decides whether a result is stale when it arrives; outdated({ map, job }),
-//     optional, is checked whenever the map is shown, so a result can become stale later.
+//     isStale(context), optional, decides whether a result is stale when it arrives. With `recheck: true` it is
+//     asked again whenever the map is shown, so a delivered result can become stale later.
 //     A map-level job has `nodeId: null`.
 //
 // Actions: { target: 'node' | 'map', apply({ map, node, input, store }) }

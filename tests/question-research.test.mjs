@@ -196,6 +196,14 @@ test('research is for current questions on unfinished branches, answered or save
   await assert.rejects(act({ type: 'request-research', questionId: other.id }), error => error.status === 409, 'superseded');
 });
 
+test('a question saved for later cannot be regenerated, so a running branch is never thrown back to waiting', async () => {
+  const { act, map } = await asked();
+  const [first, second] = map.nodes[0].questions;
+  await act({ type: 'answer-later', questionId: first.id });
+  await act({ type: 'answer', questionId: second.id, answer: 'Two of us.' });
+  await assert.rejects(act({ type: 'regenerate-question', questionId: first.id }), error => error.status === 409 && /saved for later/.test(error.message));
+});
+
 test('research is refused on a finished branch and on a dismissed question', async () => {
   const { store, act, question, map } = await asked();
   const other = map.nodes[0].questions[1];
@@ -214,7 +222,7 @@ test('the menu offers Help me answer first, also on answered questions of unfini
   assert.deepEqual(labels(questionMenuHtml({ id: 'q-1' }, { nodeId: 'node-1', kind: 'open', esc })).slice(0, 3), ['Help me answer', 'Explain this question', 'Answer later']);
   assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', esc })).slice(0, 2), ['Help me answer', 'Change answer']);
   assert.ok(!labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'node-1', kind: 'answered', completed: true, esc })).includes('Help me answer'), 'not on a finished branch');
-  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', deferredAt: 'x' }, { nodeId: 'node-1', kind: 'waiting', esc })), ['Help me answer', 'Explain this question', 'Regenerate', 'Dismiss', 'Good question', 'Bad question'], 'saved for later: no Answer later');
+  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1', deferredAt: 'x' }, { nodeId: 'node-1', kind: 'waiting', esc })), ['Help me answer', 'Explain this question', 'Good question', 'Bad question'], 'saved for later: nothing that disturbs a running branch');
   assert.ok(!labels(questionMenuHtml({ id: 'q-1', dismissedAt: 'x' }, { nodeId: 'node-1', kind: 'answered', esc })).includes('Help me answer'), 'not on a dismissed question');
 });
 

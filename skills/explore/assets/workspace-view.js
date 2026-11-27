@@ -198,13 +198,15 @@ function menuHtml(id, label, items) {
 // The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
 // Help me answer, Explain this question, Tidy my wording (a later issue), Answer later, Regenerate,
 // Dismiss, Good question / Bad question. `kind` is 'open', 'waiting' (saved for later) or 'answered';
-// `completed` says the branch is finished, where nothing but the rating and Change answer applies.
+// `completed` says the branch is finished, where nothing but the rating and Change answer applies. A question
+// saved for later offers only what leaves a queued or running branch alone: research, an explanation, a rating.
 export function questionMenuHtml(question, { nodeId, kind, completed = false, lastBlocking = false, esc }) {
   const id = esc(question.id), node = esc(nodeId);
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
   const items = [
     ...(canResearch(question, { completed }) ? [item('Help me answer', 'data-q-research')] : []),
-    ...(kind === 'answered' ? [] : [item('Explain this question', 'data-q-help'), ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`)] : []), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')]),
+    ...(kind === 'answered' ? [] : [item('Explain this question', 'data-q-help')]),
+    ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
     ...(kind === 'answered' ? [item('Change answer', 'data-q-change')] : []),
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
   ];

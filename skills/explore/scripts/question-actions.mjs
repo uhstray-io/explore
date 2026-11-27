@@ -96,6 +96,7 @@ export const questionActions = {
   // Replace an unhelpful question: the original is set aside and the branch waits for the new one.
   'regenerate-question': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const question = openQuestion(map, node, input.questionId, store, 'regenerated');
+    need(!question.deferredAt, 'A question saved for later cannot be regenerated while its branch carries on. Answer it, or dismiss it once the branch waits for you.', 409);
     const reason = reasonText(input.reason);
     Object.assign(question, { dismissedAt: now(), ...(by(actor) ? { dismissedBy: by(actor) } : {}), replacedBy: 'pending',
       ...(reason ? { rating: 'bad', ratingReason: reason, ratedAt: now(), ...(by(actor) ? { ratedBy: by(actor) } : {}) } : {}) });
@@ -113,7 +114,7 @@ const researchFields = new Set(['options', 'optionsLimit', 'recommendation', 'su
 // nearby, or a question set aside, makes it earlier research, whether that happened before or after it arrived.
 export function researchIsStale(map, job) {
   const node = map.nodes.find(n => n.id === job.nodeId), question = subjectOf(job, node);
-  return !question || !canResearch(question, { completed: false }) || job.inputSignature !== signature(map, node);
+  return !question || !canResearch(question) || job.inputSignature !== signature(map, node);
 }
 
 export const questionJobTypes = {
@@ -137,7 +138,7 @@ export const questionJobTypes = {
       const limit = budget - 800, size = () => JSON.stringify(packet).length;
       while (size() > limit && packet.context.length) { packet.context.pop(); packet.omittedContext++; }
       if (size() > limit) packet.node.findings = clip(findings, 1500);
-      while (size() > limit && packet.node.answers.length) packet.node.answers.shift(); // The oldest answers go last.
+      while (size() > limit && packet.node.answers.length) packet.node.answers.shift(); // The oldest answers are dropped first.
       return packet;
     },
     validate: result => {
@@ -148,8 +149,7 @@ export const questionJobTypes = {
       return { ...normalizeComparison(result, fail), ...(summary ? { summary } : {}), sources: sourceList(result.sources, fail) };
     },
     isStale: ({ map, job }) => researchIsStale(map, job),
-    // Checked again whenever the map is shown, so research reads as earlier as soon as its context changes.
-    outdated: ({ map, job }) => researchIsStale(map, job),
+    recheck: true, // Checked again whenever the map is shown, so research reads as earlier as soon as its context changes.
   },
   [EXPLAIN]: {
     label: 'Explain a question', target: 'node',

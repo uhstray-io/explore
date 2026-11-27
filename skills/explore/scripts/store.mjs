@@ -9,7 +9,7 @@ import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answ
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
-import { questionFeedback, researchIsStale } from './question-actions.mjs';
+import { questionFeedback } from './question-actions.mjs';
 import { sourceList } from './fields.mjs';
 import { signature, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
@@ -61,9 +61,9 @@ function text(value, field, max = 12000, optional = false) {
 }
 function validId(value) { need(typeof value === 'string' && /^[a-z0-9-]{1,64}$/.test(value), 'Invalid identifier.'); return value; }
 // Help me answer (B9) in a node's Markdown: the question's latest research, never presented as its answer.
-function researchLines(map, job) {
+function researchLines(job, stale) {
   if (!job) return [];
-  const { summary, sources } = job.result, stale = job.stale || researchIsStale(map, job);
+  const { summary, sources } = job.result;
   return ['', stale ? '_Earlier agent research, from before the question or its context changed. Not your answer._' : '_Agent research to help you answer, not your answer._',
     ...(summary ? ['', summary] : []), '', ...comparisonLines(job.result, { level: 4 }), ...(sources.length ? ['', 'Sources:', ...sources.flatMap(evidenceLine)] : [])];
 }
@@ -222,11 +222,12 @@ export class Store {
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
       else if (n.reaffirmedAt) lines.push('', `_Reaffirmed ${n.reaffirmedAt.slice(0, 10)}: the user re-checked it against the change; it was not re-researched._`);
       const dismissedQuestions = n.questions.filter(q => q.dismissedAt);
+      const research = q => questionJobs(map.jobs, RESEARCH, q.id).latest;
       if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.importance || q.why ? [`_Importance: ${importanceName(q.importance)}${q.why ? ` — ${q.why}` : ''}_`, ''] : []), ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
         ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []),
         ...(q.previousAnswers || []).map(p => `_Earlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}_`),
         ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : []),
-        ...researchLines(map, questionJobs(map.jobs, RESEARCH, q.id).latest)]));
+        ...researchLines(research(q), research(q) && this.resultIsStale(map, research(q)))]));
       if (dismissedQuestions.length) lines.push('', '## Dismissed questions', '', '_Set aside by the user; do not ask them again._', '',
         ...dismissedQuestions.map(q => `- ${q.text}${q.ratingReason ? ` — ${q.ratingReason}` : ''}${q.replacedBy === 'pending' ? ' (a replacement is on its way)' : q.replacedBy ? ' (replaced)' : ''}`));
       if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(evidenceLine));
@@ -836,14 +837,16 @@ export class Store {
   }
   // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
   view(map) {
-    const clone = publicMap(map);
-    clone.jobs.forEach((job, i) => {
-      const definition = this.jobType(jobTypeOf(job));
-      if (!definition) job.unsupported = true;
-      // A result whose context changed after it arrived reads as stale too (publicMap kept the jobs in order).
-      else if (job.status === 'completed' && !job.stale && definition.outdated?.({ map, job: map.jobs[i] })) job.stale = true;
-    });
+    const clone = publicMap(map, { resultIsStale: job => this.resultIsStale(map, job) });
+    for (const job of clone.jobs) if (!this.jobType(jobTypeOf(job))) job.unsupported = true;
     return Object.assign(clone, this.tracking(map.id));
+  }
+  // Whether a delivered result is stale: marked so when it arrived, or, for a type that asks to be rechecked,
+  // stale against the map as it is now. The view and the Markdown both use this.
+  resultIsStale(map, job) {
+    if (job.stale) return true;
+    const definition = this.jobType(jobTypeOf(job));
+    return !!(job.status === 'completed' && definition?.recheck && definition.isStale({ map, job, node: map.nodes.find(n => n.id === job.nodeId) ?? null }));
   }
   stopCompletedRepeat(map, node) {
     for (const job of map.jobs.filter(j => j.nodeId === node.id && isInvestigation(j) && isOpenJob(j))) {
@@ -854,10 +857,12 @@ export class Store {
   }
 }
 
-export function publicMap(map) {
+// `resultIsStale(job)` lets the Store mark results that became stale after they arrived, before the input
+// signature it needs is removed.
+export function publicMap(map, { resultIsStale = () => false } = {}) {
   const clone = structuredClone(map);
   for (const node of clone.nodes) node.completed = isCompleted(map, node);
-  for (const job of clone.jobs) { delete job.claimKey; delete job.claimHash; delete job.inputSignature; }
+  for (const job of clone.jobs) { if (resultIsStale(job)) job.stale = true; delete job.claimKey; delete job.claimHash; delete job.inputSignature; }
   for (const proposal of clone.proposals || []) proposal.stale = !!proposal.stale || proposalOutdated(map, proposal);
   return clone;
 }
