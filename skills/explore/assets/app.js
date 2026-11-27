@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, researchSuggestion } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, helpSeen: readSeenHelp() };
@@ -594,9 +594,11 @@ function renderDetail(force = false) {
     const current = effectiveAnswerState(q);
     return `<label class="certainty"><span class="visually-hidden">How sure is this answer?</span><select data-certainty="${q.id}" data-node-id="${n.id}"${current.recorded ? '' : ' title="Certainty not recorded"'}>${answerStates.map(value => `<option value="${value}"${value === current.state ? ' selected' : ''}>${answerStateLabels[value]}</option>`).join('')}</select></label>`;
   };
+  // What the agent did or is doing about one question: explanations and research, never an answer.
+  const agentWork = q => ({ question: q, jobs: state.visibleMap?.jobs || [], listening: agentListening(), seen: state.helpSeen, esc });
   // Options with a suggested answer can start the user's draft; nothing is saved until they press Save.
   const suggestions = q => { const drafts = (n.options || []).filter(option => option.suggestedAnswer); return drafts.length ? `<div class="suggested-answers"><span>Start from a suggested answer:</span>${drafts.map(option => `<button type="button" class="text-button" data-suggest-answer="${esc(option.id)}" data-question-id="${q.id}">${esc(option.title)}</button>`).join('')}</div>` : ''; };
-  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${waiting ? '' : questionMenuHtml(q, { nodeId: n.id, kind: 'open', lastBlocking: blockingCount === 1, esc })}${questionHelpHtml({ question: q, jobs: state.visibleMap?.jobs || [], listening: agentListening(), seen: state.helpSeen, esc })}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
+  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${questionMenuHtml(q, { nodeId: n.id, kind: waiting ? 'waiting' : 'open', lastBlocking: !waiting && blockingCount === 1, esc })}${questionHelpHtml(agentWork(q))}${questionResearchHtml(agentWork(q))}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
   // An answer being saved already counts as answered here, so the next question shows at once.
   const questions = state.pendingAnswers ? n.questions.map(q => !q.answer && state.pendingAnswers[q.id] !== undefined ? { ...q, answer: state.pendingAnswers[q.id], answerState: 'tentative' } : q) : n.questions;
   const live = !completed && !historic, blockingCount = questions.filter(isBlocking).length;
@@ -611,7 +613,7 @@ function renderDetail(force = false) {
   const dismissed = questions.filter(q => q.dismissedAt && q.replacedBy !== 'pending');
   const canRestore = q => live && n.status === 'awaiting-answer' && !q.replacedBy;
   const importance = q => importanceLabel(q.importance) ? `<small class="certainty-label">${importanceLabel(q.importance)}</small>` : '';
-  const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${importance(q)}${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}${(q.previousAnswers || []).map(p => `<small class="certainty-label">Earlier answer: ${esc(p.answer)}</small>`).join('')}${!historic && !q.supersededAt ? questionMenuHtml(q, { nodeId: n.id, kind: 'answered', esc }) + changeEditor(q) : ''}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
+  const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${importance(q)}${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}${(q.previousAnswers || []).map(p => `<small class="certainty-label">Earlier answer: ${esc(p.answer)}</small>`).join('')}${!historic && !q.supersededAt ? questionMenuHtml(q, { nodeId: n.id, kind: 'answered', completed, esc }) + (completed ? '' : questionResearchHtml(agentWork(q))) + changeEditor(q) : ''}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
   const waiting = live ? questions.filter(q => isOpen(q) && q.deferredAt) : [];
   const listHtml = questions.filter(q => !waiting.includes(q) && !dismissed.includes(q)).map(q => live && q.replacedBy === 'pending' && !q.supersededAt ? pendingBox(q) : live && isBlocking(q) ? questionForm(q, false) : record(q)).join('');
   // One question at a time: a counter, the current question, earlier answers collapsed, and Show all.
@@ -757,6 +759,17 @@ document.addEventListener('click', async event => {
     if (option?.suggestedAnswer && field) { field.value = appendSuggestion(field.value, option.suggestedAnswer); state.drafts[suggested.dataset.questionId] = field.value; field.focus(); }
     return;
   }
+  const copied = event.target.closest('[data-copy-answer]');
+  if (copied) {
+    const { questionId, researchJob, copyAnswer } = copied.dataset, suggestion = researchSuggestion(state.visibleMap?.jobs, researchJob, copyAnswer);
+    const editor = document.querySelector(`[data-change-for="${questionId}"]`), field = document.querySelector(`[data-draft="${questionId}"]`) || editor?.querySelector('textarea');
+    if (!suggestion || !field) return;
+    if (editor) editor.hidden = false;
+    field.value = appendSuggestion(field.value, suggestion); state.drafts[field.dataset.draft] = field.value; field.focus();
+    return;
+  }
+  const stopJob = event.target.closest('[data-stop-job]');
+  if (stopJob) { if (await act(null, 'cancel-job', { jobId: stopJob.dataset.stopJob })) toast('Stopped.'); return; }
   if (event.target.closest('[data-show-all-questions]')) { state.showAllQuestions = true; renderDetail(true); return; }
   if (event.target.closest('[data-show-one-question]')) { state.showAllQuestions = false; renderDetail(true); document.querySelector('#detail form.question-box textarea')?.focus(); return; }
   const changeOpen = event.target.closest('[data-q-change]');
@@ -859,6 +872,8 @@ document.addEventListener('click', async event => {
   }
   const help = event.target.closest('[data-q-help]');
   if (help) { closeMenus(); if (await act(help.dataset.nodeId, 'request-help', { questionId: help.dataset.questionId })) toast(agentListening() ? 'Your agent will explain this question next.' : 'Queued. Connect your agent to get the explanation.'); return; }
+  const research = event.target.closest('[data-q-research]');
+  if (research) { closeMenus(); if (await act(research.dataset.nodeId, 'request-research', { questionId: research.dataset.questionId })) toast(agentListening() ? 'Your agent will research this question next.' : 'Queued. Connect your agent to get the research.'); return; }
   const dismiss = event.target.closest('[data-q-dismiss]');
   if (dismiss) { closeMenus(); if (await act(dismiss.dataset.nodeId, 'dismiss-question', { questionId: dismiss.dataset.questionId })) toast(state.map?.nodes.find(node => node.id === dismiss.dataset.nodeId)?.questions.some(isBlocking) ? 'Dismissed.' : 'Dismissed. The branch continues without it.'); return; }
   const restore = event.target.closest('[data-q-restore]');

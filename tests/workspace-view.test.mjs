@@ -202,9 +202,9 @@ test('the question menu lists its items in the agreed order and is labelled for 
   assert.match(open, /<button[^>]*aria-haspopup="menu"[^>]*aria-expanded="false"[^>]*aria-label="More for this question"/);
   assert.match(open, /role="menu"[^>]*hidden/);
   const labels = [...open.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]);
-  assert.deepEqual(labels, ['Explain this question', 'Answer later', 'Regenerate', 'Dismiss', 'Good question', 'Bad question']);
+  assert.deepEqual(labels, ['Help me answer', 'Explain this question', 'Answer later', 'Regenerate', 'Dismiss', 'Good question', 'Bad question']);
   assert.match(questionMenuHtml({ id: 'q1', answer: null }, { nodeId: 'n1', kind: 'open', lastBlocking: true, esc }), />Dismiss and continue</);
-  const answered = questionMenuHtml({ id: 'q2', answer: 'Yes' }, { nodeId: 'n1', kind: 'answered', esc });
+  const answered = questionMenuHtml({ id: 'q2', answer: 'Yes' }, { nodeId: 'n1', kind: 'answered', completed: true, esc });
   assert.deepEqual([...answered.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]), ['Change answer', 'Good question', 'Bad question']);
   assert.match(open, /data-reason-for="q1"[^>]*hidden/); assert.match(open, /What was wrong\? \(optional\)/);
   const rated = questionMenuHtml({ id: 'q3', answer: 'Yes', rating: 'bad', ratingReason: 'Leading.' }, { nodeId: 'n1', kind: 'answered', esc });
