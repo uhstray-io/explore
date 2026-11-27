@@ -605,7 +605,8 @@ function renderDetail(force = false) {
     ${job?.contextCharacters ? `<p class="run-note">Last investigation used ${job.contextCharacters.toLocaleString()} characters of map context. Only relevant context is sent.</p>` : ''}`;
   // The user's open or closed choice wins; otherwise a disclosure stays as rendered (closed, or new help open).
   for (const editor of detail.querySelectorAll('details[data-editor]')) editor.open = state.editors[`${n.id}:${editor.dataset.editor}`] ?? editor.open;
-  for (const help of detail.querySelectorAll('details.question-help[open]')) rememberHelp(help.dataset.help);
+  // Only help the user can actually see counts as seen, not help inside a collapsed section.
+  for (const help of detail.querySelectorAll('details.question-help[open]')) if (!help.parentElement?.closest('details:not([open])')) rememberHelp(help.dataset.help);
   if (focus && previousNode === n.id) {
     const control = focus.key ? [...detail.querySelectorAll('[data-draft]')].find(item => item.dataset.draft === focus.key)
       : [...detail.querySelectorAll('button, a[href], summary')].find(item => !item.disabled && detailFocusKey(item) === focus.control);
