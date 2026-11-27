@@ -31,7 +31,7 @@ export function restorableHash(map) {
 }
 export function shouldRecord(labels) { return labels.some(label => !bookkeeping.has(label)); }
 const describe = (id, record, bytes) => ({ id, mapId: record.mapId, revision: record.revision, at: record.at, labels: record.labels,
-  ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), contentHash: record.contentHash, bytes });
+  ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
 
 export class Versions {
   constructor(directory, limits = {}) { this.directory = directory; this.limits = { ...versionLimits, ...limits }; this.headers = new Map(); }
@@ -72,23 +72,24 @@ export class Versions {
     try { record = JSON.parse(await readFile(this.file(mapId, id), 'utf8')); }
     catch (error) { if (error instanceof VersionProblem) throw error; throw new VersionProblem('Version not found.', 404); }
     need(record?.format === 'explore-version' && record.mapId === mapId && record.map, 'Version not found.', 404);
+    need(record.version === 1, 'This version was saved by a newer version of Explore. Update Explore to use it.', 409);
     return { version: describe(id, record, 0), map: record.map };
   }
   async findContent(mapId, map) { const target = contentHash(map); return (await this.scan(mapId)).find(version => version.contentHash === target) || null; }
   // Records the map as it is about to be saved. A snapshot identical to the newest version is not written again.
-  async record(map, { labels, author, at = new Date().toISOString() } = {}) {
+  async record(map, { labels, author, at = new Date().toISOString(), kept = false } = {}) {
     const content = contentHash(map), versions = await this.scan(map.id);
     if (versions[0]?.contentHash === content) return versions[0].id;
     const id = `${at.replace(/[-:.]/g, '')}-${randomBytes(3).toString('hex')}`;
     await atomicJson(this.file(map.id, id), { format: 'explore-version', version: 1, mapId: map.id, revision: map.revision, at,
-      ...(author ? { author } : {}), labels, contentHash: content, map: snapshotOf(map) });
+      ...(author ? { author } : {}), ...(kept ? { kept: true } : {}), labels, contentHash: content, map: snapshotOf(map) });
     await this.prune(map.id);
     return id;
   }
-  // Keeps every named version, and the newest unnamed ones within the count and byte limits.
+  // Keeps every named or imported version, and the newest others within the count and byte limits.
   async prune(mapId) {
     let kept = 0, bytes = 0;
-    for (const version of (await this.scan(mapId)).filter(version => !version.name)) {
+    for (const version of (await this.scan(mapId)).filter(version => !version.name && !version.kept)) {
       kept += 1; bytes += version.bytes;
       if (kept > 1 && (kept > this.limits.count || bytes > this.limits.bytes)) await unlink(this.file(mapId, version.id)).catch(() => {});
     }

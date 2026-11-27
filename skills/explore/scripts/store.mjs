@@ -86,7 +86,7 @@ export class Store {
     // A preview compares a version with the map as it is now; it writes nothing.
     this.versions.preview = async (mapId, id) => {
       const current = await this.get(mapId), { version, map } = await this.versions.get(mapId, id);
-      return { version, map, ...compareVersion(current, map, isCompleted) };
+      return { version, map, revision: current.revision, ...compareVersion(current, map, isCompleted) };
     };
   }
   serial(work) {
@@ -152,7 +152,8 @@ export class Store {
         const kept = parseMap(mapId, await readFile(path.join(dir, name)));
         const stamp = name.match(/^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)-(\d{3})Z/);
         const at = stamp ? `${stamp[1]}T${stamp[2]}:${stamp[3]}:${stamp[4]}.${stamp[5]}Z` : undefined;
-        if (!await this.versions.findContent(mapId, kept)) await this.versions.record(kept, { labels: ['preserved'], at });
+        if (!await this.versions.findContent(mapId, kept)) await this.versions.record(kept, { labels: ['preserved'], at, kept: true });
+        if (!await this.versions.findContent(mapId, kept)) return; // Only delete what version history now holds.
       } catch { return; } // Leave the folder for the user if a copy cannot be imported.
     }
     await rm(dir, { recursive: true, force: true });
@@ -193,10 +194,11 @@ export class Store {
           try { onDisk = fingerprintOf(await readFile(this.file(map.id))); } catch (error) { if (error.code !== 'ENOENT') throw error; }
           if (onDisk !== basis) { map.revision -= 1; throw new Problem(changedOutside, 409, 'changed-outside'); }
         }
-        // A failure to record a version never rolls back the map; it is reported after the save.
-        if (shouldRecord(labels)) { try { await this.versions.record(map, { labels, author: actor?.name }); } catch (error) { versionError = error; } }
       });
       this.adopted.set(map.id, { fingerprint, bytes }); this.basis.set(map, fingerprint); this.eventsAtLoad.set(map, map.history.length);
+      // Recorded only once the change is saved, so no version ever shows content that was not.
+      // A failure to record never rolls back the map; it is reported after the save.
+      if (shouldRecord(labels)) { try { await this.versions.record(map, { labels, author: actor?.name }); } catch (error) { versionError = error; } }
     });
     if (versionError) { await this.project(map).catch(() => {}); throw new Problem(`Map saved, but this version could not be recorded: ${versionError.message}`, 500); }
     // Views carry their revision: a crash here cannot make them authoritative.
@@ -347,7 +349,7 @@ export class Store {
       if (declared) { await declared.apply({ map, node: n, input, store: this, actor }); return this.save(map, { actor }); }
       // Naming a version changes only that version's file, so the map is not saved again.
       if (input.type === 'name-version' || input.type === 'unname-version') {
-        await this.versions.name(map.id, input.version, input.type === 'name-version' ? input.name : null);
+        await this.withMapLock(map.id, () => this.versions.name(map.id, input.version, input.type === 'name-version' ? input.name : null));
         return map;
       }
       switch (input.type) {
@@ -355,6 +357,7 @@ export class Store {
           // A restore never starts research; work that was active in that version comes back interrupted.
           need(!map.jobs.some(active), 'Wait until queued or running work finishes, or stop it, before restoring a version.', 409);
           const { map: snapshot } = await this.versions.get(map.id, input.version);
+          need(isRecord(snapshot) && wellFormed(snapshot, map.id), 'This version is damaged and cannot be restored. Choose another version.', 409);
           need(restorableHash(snapshot) !== restorableHash(map), 'The map already matches this version.', 409);
           const positions = map.view?.positions || {};
           Object.assign(map, { title: snapshot.title, originalIdea: snapshot.originalIdea, rootId: snapshot.rootId, nodes: snapshot.nodes, edges: snapshot.edges,

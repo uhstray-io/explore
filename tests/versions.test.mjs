@@ -82,6 +82,8 @@ test('retention keeps every named version and stays within the count and byte li
   versions = (await small.store.versions.list(small.map.id)).versions;
   assert.ok(versions.reduce((total, v) => total + v.bytes, 0) <= 9000);
   assert.ok(versions.length >= 1, 'the newest version is always kept');
+  const newest = (await small.store.get(small.map.id)).revision;
+  assert.equal(versions[0].revision, newest, 'and it is the newest');
 });
 
 test('restoring brings back the map as it was, keeps the event log and growth, and can be undone', async () => {
@@ -244,4 +246,80 @@ test('an undo is recorded as an undo, not as another restore', async () => {
   const before = (await store.versions.list(map.id)).versions[1];
   await act(store, map.id, { type: 'restore-version', version: before.id, undo: true });
   assert.deepEqual((await store.versions.list(map.id)).versions[0].labels, ['change-undone']);
+});
+
+test('copies kept before version history existed survive the retention limits and keep their time', async () => {
+  const { store, map } = await fixture({ versionLimits: { count: 2, bytes: 1e9, names: 10 } });
+  for (const title of ['A', 'B', 'C']) await suggest(store, map, title);
+  const preserved = path.join(store.directory, map.id, 'preserved');
+  await mkdir(preserved);
+  const old = JSON.parse(await readFile(store.file(map.id), 'utf8')); old.title = 'Only copy';
+  await writeFile(path.join(preserved, '2020-01-02T03-04-05-678Z-abcdef0123456789.json'), JSON.stringify(old, null, 2));
+  const restarted = new Store(store.directory, { versionLimits: { count: 2, bytes: 1e9, names: 10 } });
+  await restarted.recover();
+  await suggest(restarted, map, 'D');
+  const kept = (await restarted.versions.list(map.id)).versions.find(v => v.labels.includes('preserved'));
+  assert.ok(kept, 'the imported copy is not pruned');
+  assert.equal(kept.at, '2020-01-02T03:04:05.678Z');
+  assert.equal((await restarted.versions.get(map.id, kept.id)).map.title, 'Only copy');
+});
+
+test('a version is recorded only once its change is saved', async () => {
+  const { store, map } = await fixture();
+  const record = store.versions.record.bind(store.versions);
+  const seen = [];
+  store.versions.record = async (saved, options) => { seen.push(JSON.parse(await readFile(store.file(saved.id), 'utf8')).revision === saved.revision); return record(saved, options); };
+  await suggest(store, map, 'A');
+  assert.deepEqual(seen, [true]);
+});
+
+test('a failure to record a version leaves the map saved and says so', async () => {
+  const { store, map } = await fixture();
+  store.versions.record = async () => { throw new Error('disk full'); };
+  await assert.rejects(suggest(store, map, 'Still saved'), error => error.status === 500 && /Map saved, but this version could not be recorded/.test(error.message));
+  assert.equal(JSON.parse(await readFile(store.file(map.id), 'utf8')).nodes.at(-1).title, 'Still saved');
+});
+
+test('a damaged or newer version file is refused instead of restored', async () => {
+  const { store, map } = await fixture();
+  const job = await store.claim('test'); await store.fail(map.id, job.jobId, job.claimKey, 'Stopped for the test.');
+  await suggest(store, map, 'A');
+  const folder = path.join(store.directory, map.id, 'versions');
+  const [latest] = (await store.versions.list(map.id)).versions;
+  const record = JSON.parse(await readFile(path.join(folder, `${latest.id}.json`), 'utf8'));
+  const damaged = structuredClone(record); damaged.map.title = 'Damaged'; for (const node of damaged.map.nodes) delete node.questions;
+  await writeFile(path.join(folder, '20991231T000000000Z-dddddd.json'), JSON.stringify(damaged));
+  const newer = structuredClone(record); newer.version = 2; newer.map.title = 'Newer';
+  await writeFile(path.join(folder, '20991231T000000001Z-eeeeee.json'), JSON.stringify(newer));
+  const before = await readFile(store.file(map.id), 'utf8');
+  await assert.rejects(act(store, map.id, { type: 'restore-version', version: '20991231T000000000Z-dddddd' }), error => error.status === 409 && /damaged/.test(error.message));
+  await assert.rejects(act(store, map.id, { type: 'restore-version', version: '20991231T000000001Z-eeeeee' }), error => error.status === 409 && /newer version/.test(error.message));
+  await assert.rejects(store.versions.get(map.id, '20991231T000000002Z-ffffff'), error => error.status === 404);
+  assert.equal(await readFile(store.file(map.id), 'utf8'), before);
+});
+
+test('a preview names the revision it compared, so a restore after later changes is refused', async () => {
+  const { store, map } = await fixture();
+  const first = (await store.versions.list(map.id)).versions[0];
+  const job = await store.claim('test'); await store.fail(map.id, job.jobId, job.claimKey, 'Stopped for the test.');
+  const preview = await store.versions.preview(map.id, first.id);
+  assert.equal(preview.revision, (await store.get(map.id)).revision);
+  await suggest(store, map, 'Added after the preview');
+  await assert.rejects(store.action(map.id, { type: 'restore-version', version: first.id, expectedRevision: preview.revision }), error => error.status === 409);
+});
+
+test('restoring keeps today’s position where there is one and the version’s position otherwise', async () => {
+  const { store, map } = await fixture();
+  const job = await store.claim('test'); await store.fail(map.id, job.jobId, job.claimKey, 'Stopped for the test.');
+  await act(store, map.id, { type: 'position', nodeId: map.rootId, x: 5, y: 5 });
+  let saved = await suggest(store, map, 'Placed');
+  const child = saved.nodes[1].id;
+  await act(store, map.id, { type: 'position', nodeId: child, x: 40, y: 40 });
+  saved = await act(store, map.id, { type: 'suggest', nodeId: map.rootId, title: 'Recorded with positions', body: 'Snapshot carries positions.' });
+  const withPositions = (await store.versions.list(map.id)).versions[0];
+  await act(store, map.id, { type: 'restore-version', version: (await store.versions.list(map.id)).versions.at(-1).id });
+  await act(store, map.id, { type: 'position', nodeId: map.rootId, x: 99, y: 99 });
+  const restored = await act(store, map.id, { type: 'restore-version', version: withPositions.id });
+  assert.deepEqual(restored.view.positions[map.rootId], { x: 99, y: 99 }, 'today wins');
+  assert.deepEqual(restored.view.positions[child], { x: 40, y: 40 }, 'the version fills in ideas that have no position today');
 });

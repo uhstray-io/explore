@@ -130,7 +130,7 @@ function renderMap(fit = false, preserveView = false) {
   }).join('');
   renderEdges();
   renderDetail(); renderOverview(); renderHistory(); renderVersionsPanel();
-  if (state.versionsOpen && !state.versionChoice && state.versions && state.versions.revision !== state.map.revision) loadVersions();
+  if (state.versionsOpen && !state.versionChoice && state.versions?.revision !== state.map.revision) loadVersions();
   if (focusedNode) $(`[data-node="${focusedNode}"]`)?.focus({ preventScroll: true });
   if (!$('#node-results').hidden) searchNodes();
   connectionView();
@@ -290,14 +290,14 @@ function renderVersionsPanel() {
   const undo = undoTarget(data.versions, state.contributor);
   panel.innerHTML = `${heading}${undo ? `<button class="secondary version-undo" data-version-undo>Undo last change: ${esc(versionLabel(undo.undoing))}</button>` : ''}
     ${data.versions.length ? `<ul class="version-list">${data.versions.map(version => `<li><button data-version="${esc(version.id)}"><strong>${esc(versionLabel(version))}</strong><small>${esc([version.author, when(version.at)].filter(Boolean).join(' · '))}${version.name ? ' · named' : ''}</small></button></li>`).join('')}</ul>` : '<p class="history-description">No versions yet. Each change you save is kept here.</p>'}
-    ${data.earlierMissing ? '<p class="version-note">Earlier versions were not recorded or were tidied away. Committed ones remain in Git history.</p>' : ''}`;
+    ${data.failed ? '<p class="version-note">Versions could not be loaded. Close and open the panel to try again.</p>' : ''}${data.earlierMissing ? '<p class="version-note">Earlier versions were not recorded or were tidied away. Committed ones remain in Git history.</p>' : ''}`;
 }
 async function loadVersions() {
   if (!state.map || state.versionsLoading) return;
   const mapId = state.map.id, revision = state.map.revision;
   state.versionsLoading = true;
   try { const data = await api(`/maps/${mapId}/versions`); if (state.map?.id === mapId) { state.versions = { ...data, revision }; renderVersionsPanel(); } }
-  catch (error) { toast(error.message); }
+  catch (error) { toast(error.message); if (state.map?.id === mapId) { state.versions = { versions: [], earlierMissing: false, revision, failed: true }; renderVersionsPanel(); } }
   finally { state.versionsLoading = false; }
 }
 async function previewVersion(id, undo = null) {
@@ -313,7 +313,7 @@ async function previewVersion(id, undo = null) {
 async function restoreChosen() {
   const choice = state.versionChoice; if (!choice) return;
   returnLive();
-  if (await act(null, 'restore-version', { version: choice.version.id, ...(choice.undo ? { undo: true } : {}) })) toast(choice.undo ? 'Undone. Versions keeps the change you undid.' : 'Restored. You can undo this from Versions.');
+  if (await act(null, 'restore-version', { version: choice.version.id, expectedRevision: choice.revision, ...(choice.undo ? { undo: true } : {}) })) toast(choice.undo ? 'Undone. Versions keeps the change you undid.' : 'Restored. You can undo this from Versions.');
   state.versions = null; loadVersions();
 }
 $('#show-versions').addEventListener('click', () => {

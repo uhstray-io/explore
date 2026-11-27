@@ -114,3 +114,21 @@ test('an undo summary speaks of undoing', async () => {
   const text = restoreSummary({ counts: { nodesAdded: 1, nodesRemoved: 0, nodesChanged: 0, linksAdded: 1, linksRemoved: 0 }, reopened: [] }, { undo: true });
   assert.match(text, /^Undoing brings back 1 idea and brings back 1 connection\./); assert.match(text, /you can undo this too/);
 });
+
+test('pressing undo again steps further back instead of redoing', async () => {
+  const { undoTarget } = await import('../skills/explore/assets/workspace-view.js');
+  const T = { id: 'T' }, A = { id: 'A', author: 'Ana', labels: ['suggested'] }, B = { id: 'B', author: 'Ana', labels: ['suggested'] };
+  const U1 = { id: 'U1', author: 'Ana', labels: ['change-undone'] };
+  assert.deepEqual(undoTarget([U1, B, A, T], 'Ana'), { target: T, undoing: A, alsoUndone: [] });
+  const U2 = { id: 'U2', author: 'Ana', labels: ['change-undone'] };
+  assert.equal(undoTarget([U2, U1, B, A, T], 'Ana'), null, 'nothing of mine is left to undo');
+  assert.deepEqual(undoTarget([U1, B, A, T], null), { target: T, undoing: A, alsoUndone: [] }, 'the same without a Git name');
+});
+
+test('copies kept around a pull are never the change that undo undoes', async () => {
+  const { undoTarget } = await import('../skills/explore/assets/workspace-view.js');
+  const A = { id: 'A', author: 'Ana', labels: ['answered'] }, X = { id: 'X', author: 'Bo', labels: ['result'] };
+  const P = { id: 'P', labels: ['before-outside-change'] }, K = { id: 'K', labels: ['preserved'] }, O = { id: 'O' };
+  assert.deepEqual(undoTarget([P, X, A, O], 'Ana'), { target: O, undoing: A, alsoUndone: [X] });
+  assert.deepEqual(undoTarget([P, K, X, A, O], null), { target: A, undoing: X, alsoUndone: [] });
+});

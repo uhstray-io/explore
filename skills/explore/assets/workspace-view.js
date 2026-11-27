@@ -62,12 +62,30 @@ export function versionLabel(version) {
 }
 
 // Undo goes back to the version before my latest change. Anything saved after it, such as work
-// merged from someone else, is undone too, so it is named for the user to confirm.
+// merged from someone else, is undone too, so it is named for the user to confirm. Pressing Undo
+// again steps further back: each earlier undo cancels the change it undid. Copies kept around a
+// pull are bookkeeping, never a change to undo. Without any change of mine, the latest change counts.
+const keptCopies = new Set(['before-outside-change', 'preserved']);
+function findUndo(versions, me) {
+  const cancelled = new Set();
+  let pending = 0;
+  for (let index = 0; index < versions.length; index++) {
+    const version = versions[index], labels = version.labels || [];
+    if (labels.some(label => keptCopies.has(label)) || (me && version.author !== me)) continue;
+    if (labels.includes('change-undone')) { pending += 1; continue; }
+    if (pending) { pending -= 1; cancelled.add(version.id); continue; }
+    const target = versions[index + 1];
+    if (!target) return null;
+    const alsoUndone = versions.slice(0, index).filter(other => !cancelled.has(other.id) && other.author !== me
+      && !(other.labels || []).some(label => keptCopies.has(label) || label === 'change-undone'));
+    return { target, undoing: version, alsoUndone };
+  }
+  return undefined;
+}
 export function undoTarget(versions, me) {
-  const mine = me ? versions.findIndex(version => version.author === me) : -1;
-  const index = mine >= 0 ? mine : 0;
-  if (!versions[index] || !versions[index + 1]) return null;
-  return { target: versions[index + 1], undoing: versions[index], alsoUndone: versions.slice(0, index) };
+  const mine = me ? findUndo(versions, me) : undefined;
+  if (mine !== undefined) return mine;
+  return findUndo(versions, null) ?? null;
 }
 
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
