@@ -194,7 +194,7 @@ Only when the user asks: `export --map ID --out FILE` writes the complete map as
 
 ## Process lifetime
 
-The server lives independently of a worker's research result. The browser polls only for changed map revisions; this does not call an LLM. `next` waits at most 25 seconds and returns a small idle response. The user can keep the app open after the agent session ends, but new research stays queued until an agent starts listening again.
+The server lives independently of a worker's research result. The browser polls only for changed map revisions; this does not call an LLM. `next` waits at most 25 seconds and returns a small idle response with `listen: { windowMinutes, idleSeconds, keepListening }`. The user chooses the window in the browser (2, 10, 30 or 60 minutes; `listenMinutes` in the shared `ideas/settings.json`, default 2), and it is read on every idle response. `idleSeconds` counts from this listener's last activity: the last job handed to it, or the last saved change to a map it covers (any map without `--map`). Keep polling while `keepListening` is true; when it is false, finish and say how to resume. The user can keep the app open after the agent session ends, but new research stays queued until an agent starts listening again.
 
 On server restart, running jobs become interrupted and require an explicit retry. A running server's stale host-owned job can be stopped/retried from the UI. There is no automatic timeout-based paid retry.
 

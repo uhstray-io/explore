@@ -22,10 +22,13 @@
 import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
 import { questionJobTypes, questionActions } from './question-actions.mjs';
 import { restartActions } from './restart.mjs';
+import { listenSetting } from '../assets/listening.js';
 
 export const INVESTIGATE = 'investigate';
 
 const builtInJobTypes = { [INVESTIGATE]: { label: 'Branch investigation', target: 'node' } };
+// How long an agent keeps listening for work (K1): every server reports it, so every registry has it.
+const builtInSettings = { listenMinutes: listenSetting };
 // Store.action handles these itself; a registry entry may not replace them.
 const builtInActions = new Set(['activate', 'answer', 'suggest', 'cancel', 'cancel-job', 'accept', 'revise', 'fork-revision', 'position', 'restore-version', 'name-version', 'unname-version', 'change-answer', 'reaffirm', 'clear-finding']);
 const targets = new Set(['node', 'map']);
@@ -41,10 +44,11 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
     if (!targets.has(definition.target) || typeof definition.apply !== 'function') throw new Error(`Action ${type} needs a target of node or map and an apply function.`);
   }
   for (const [key, field] of Object.entries(settings)) {
+    if (Object.hasOwn(builtInSettings, key)) throw new Error(`The ${key} setting is built in.`);
     if (['version', 'revision', 'expectedRevision', 'unreadable'].includes(key) || typeof field.validate !== 'function' || !('default' in field))
       throw new Error(`Setting ${key} needs a default and a validate function, and may not reuse a reserved name.`);
   }
-  return { jobTypes: { ...builtInJobTypes, ...jobTypes }, actions: { ...actions }, settings: { ...settings } };
+  return { jobTypes: { ...builtInJobTypes, ...jobTypes }, actions: { ...actions }, settings: { ...builtInSettings, ...settings } };
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
