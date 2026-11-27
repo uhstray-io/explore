@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, helpSeen: readSeenHelp() };
@@ -71,6 +71,7 @@ async function refresh({ force = false } = {}) {
         state.map = map; renderMap();
         const note = outsideChangeNote(map.outsideChange, state.outsideSeen[mapId]);
         state.outsideSeen[mapId] = map.outsideChange?.at; if (note) toast(note);
+        checkGitStatus();
       }
     }
     if ((state.detailDeferred || previouslyListening !== agentListening()) && version === openVersion && state.map) renderDetail();
@@ -110,7 +111,7 @@ function renderMap(fit = false, preserveView = false) {
   $('#map-title').textContent = state.map.title; $('#canvas-title').textContent = state.map.title;
   const overview = mapOverview(state.visibleMap);
   $('#canvas-subtitle').textContent = `${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
-  $('#saved-state').textContent = historic ? (state.versionPreview ? 'Saved version, read-only' : 'Read-only history') : 'Saved in this repo';
+  showGitStatus();
   $('#workspace').classList.toggle('history-mode', historic);
   $('#canvas').setAttribute('aria-label', historic ? 'Map growth history. Read-only. Drag the background to pan; select an idea to view today’s findings.' : 'Constellation. Drag a node to move it or the background to pan. Focus a node and use Alt plus arrow keys to move it.');
   $('#canvas-instruction').textContent = historic ? 'Read-only history · pan or zoom to inspect · return to live to arrange ideas' : 'Drag nodes to arrange · Alt + arrow keys moves a focused node · / finds an idea';
@@ -151,6 +152,29 @@ function selectNode(nodeId) {
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
   $('#focus-selected').disabled = !state.selected; renderDetail();
 }
+// Git status of the open map (H9). Checked when a map opens, when the user asks, and at most every 10 seconds
+// after this browser saves or a fetch brings a changed map (a pull or an agent's result); never on every poll.
+function showGitStatus() {
+  const historic = state.historyStep !== null, label = $('#saved-state');
+  const status = state.gitStatus?.mapId === state.map?.id ? state.gitStatus.value : null;
+  label.textContent = historic ? (state.versionPreview ? 'Saved version, read-only' : 'Read-only history') : gitStatusLabel(status);
+  label.disabled = historic; $('#saved-state-detail').textContent = historic ? '' : gitStatusDetail(status);
+  label.classList.toggle('git-conflict', !historic && status?.state === 'conflict');
+}
+async function checkGitStatus({ force = false } = {}) {
+  const mapId = state.map?.id; if (!mapId) return;
+  clearTimeout(state.gitTimer);
+  const wait = gitCheckDelay({ last: state.gitStatus, mapId, now: Date.now(), force });
+  if (wait) { state.gitTimer = setTimeout(() => { if (state.map?.id === mapId) checkGitStatus({ force: true }); }, wait); return; }
+  // `at` is when this check started; only the latest check's reply is shown.
+  const request = state.gitRequest = (state.gitRequest ?? 0) + 1;
+  state.gitStatus = { mapId, at: Date.now(), value: state.gitStatus?.mapId === mapId ? state.gitStatus.value : null };
+  const value = await api(`/maps/${mapId}/git-status`).catch(() => null);
+  if (request !== state.gitRequest || state.map?.id !== mapId) return;
+  state.gitStatus.value = value ?? { state: 'unknown' }; // A failed check says so rather than showing an older result.
+  showGitStatus();
+}
+$('#saved-state').addEventListener('click', () => { $('#saved-state').textContent = 'Checking Git…'; checkGitStatus({ force: true }); });
 // Opens a map at `nodeId` when it has that idea, otherwise at its root. `push` adds a history entry; opening
 // what the address already names (startup, Back and Forward) replaces it instead.
 async function openMap(id, { nodeId = null, push = true } = {}) {
@@ -161,7 +185,7 @@ async function openMap(id, { nodeId = null, push = true } = {}) {
     state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); showAddress({ push });
-    renderMap(true); renderRail();
+    renderMap(true); renderRail(); checkGitStatus({ force: true });
   } catch (error) { toast(error.message); }
 }
 // Address routing (H2). The address bar always names the open map and the selected idea, so it can be copied as
@@ -651,7 +675,7 @@ function act(nodeId, type, extra = {}) {
     try {
       const result = await api(`/maps/${mapId}/action`, { nodeId, type, expectedRevision: state.map.revision, expectedFingerprint: state.map.fingerprint ?? undefined, ...extra });
       state.mutations++;
-      if (state.map?.id === mapId) { state.map = result; renderMap(); }
+      if (state.map?.id === mapId) { state.map = result; renderMap(); checkGitStatus(); }
       return true;
     } catch (error) {
       toast(error.message);

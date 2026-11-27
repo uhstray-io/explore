@@ -58,6 +58,10 @@ Each saved content change is also kept as a version, so anyone who pulls can pre
 
 Machine-local connection tokens, process locks, result drafts, and claim-delivery files live under `.explore/`, which should be ignored by Git. Settings are not machine-local; they live in `ideas/settings.json`. No model API key is part of a map. A provider's original chat history or conversation ID is not necessary to read/continue the map. Share saved maps deliberately: they contain the user's actual ideas and answers.
 
+## Git status
+
+`GET /api/maps/:id/git-status` reports where a map's `map.json` stands in Git: `{ state, staged?, unstaged?, untracked?, branch?, detached?, upstream?, checkedAt }`. The states are `committed`, `not-committed`, `ignored`, `conflict` (Git still lists the file as unmerged), `no-repository` and `unknown` (Git missing, a timeout, refused access or unexpected output). `branch` is the branch name; a detached HEAD has `detached: true` instead. `upstream` is absent when none is set, `{ ahead, behind }` against the local upstream ref, or `{ gone: true }` when its branch no longer exists; Explore never fetches. Every Git command runs through `scripts/git.mjs`, which is read-only: literal arguments, no shell, no optional locks, fsmonitor off, a 5-second timeout and a 64 KiB output cap, English messages, and none of the inherited variables that would point Git at another repository, index or object store. It works for a map that cannot be opened, and it never returns paths or Git's own output. A missing map is `404` with code `not-found`. The label describes `map.json` only; the generated Markdown beside it may differ from Git.
+
 ## Export and import
 
 An export is `{ format: "explore-map", version: 1, exportedAt, map }`, where `map` is the saved map without claim data (`claimKey`, `claimHash`, `inputSignature`). Everything else travels, including history, growth, positions and settings that live in the map. Nothing from `.explore/` is read.

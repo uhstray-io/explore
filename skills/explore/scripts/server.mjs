@@ -79,6 +79,9 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const q = url.searchParams;
           return send(res, 200, await previewRestart(store, restartRoute[1], { nodeId: q.get('node'), questionId: q.get('question'), offset: q.get('offset'), limit: q.get('limit') }));
         }
+        // Git status of a map's file (H9): read-only, and available even for a map that cannot be opened.
+        const gitRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/git-status$/);
+        if (req.method === 'GET' && gitRoute) return send(res, 200, await store.gitStatus(gitRoute[1]));
         const exportRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/export$/);
         if (req.method === 'GET' && exportRoute) return send(res, 200, await exportMap(store, exportRoute[1]));
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
