@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord } from './versions.mjs';
-import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText } from '../assets/questions.js';
+import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { questionFeedback } from './question-actions.mjs';
@@ -21,13 +21,17 @@ const active = job => ['queued', 'running'].includes(job.status);
 const certaintyFields = q => { const certainty = effectiveAnswerState(q); return certainty ? { answerState: certainty.state, ...(certainty.recorded ? {} : { certaintyRecorded: false }) } : {}; };
 // Built-in actions that cover the whole map rather than one idea.
 const mapLevelActions = new Set(['cancel-job', 'restore-version', 'name-version', 'unname-version']);
-// Only branch investigations complete an idea or count as its findings; other job types never do.
+// A finished investigation of this idea that still counts. Only branch investigations complete an idea or
+// count as its findings; other job types never do, and runs from before a restart are history.
+const currentRun = (node, job) => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && !job.restartedAt && !!job.result;
 export function isCompleted(map, node) {
-  return !!node.completedAt || node.status === 'explored' || map.jobs.some(job => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && job.result && !job.result.questions?.length);
+  return !!node.completedAt || node.status === 'explored' || map.jobs.some(job => currentRun(node, job) && !job.result.questions?.length);
 }
 export function hasFindings(map, node) {
-  return node.status === 'explored' || (map.jobs || []).some(job => job.nodeId === node.id && isInvestigation(job) && job.status === 'completed' && !job.stale && job.result?.body === node.body && job.result?.summary === node.summary);
+  return node.status === 'explored' || (map.jobs || []).some(job => currentRun(node, job) && job.result.body === node.body && job.result.summary === node.summary);
 }
+// An idea a restart or restore deleted while work ran: a result's link to it is skipped, not refused.
+const onceExisted = (map, id) => !!map.growth?.batches.some(batch => batch.nodeIds?.includes(id));
 export class Problem extends Error {
   constructor(message, status = 400, code) { super(message); this.status = status; if (code) this.code = code; }
 }
@@ -96,7 +100,7 @@ export class Store {
     // A preview compares a version with the map as it is now; it writes nothing.
     this.versions.preview = async (mapId, id) => {
       const current = await this.get(mapId), { version, map } = await this.versions.get(mapId, id);
-      return { version, map, revision: current.revision, ...compareVersion(current, map, isCompleted) };
+      return { version, map, revision: current.revision, queuedCancelled: current.jobs.filter(job => job.status === 'queued').length, ...compareVersion(current, map, isCompleted) };
     };
   }
   serial(work) {
@@ -247,16 +251,19 @@ export class Store {
       if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}`));
       const earlierRuns = map.jobs.filter(j => j.nodeId === n.id && isInvestigation(j) && j.result && (j.stale || j.result.summary !== n.summary || j.result.body !== n.body));
       for (const j of earlierRuns) {
-        lines.push('', '## Earlier investigation result', '', `Job: ${j.id}${j.stale ? ' | A premise changed while this investigation was running.' : ' | Retained history; use the current premise and findings above.'}`, '', j.result.summary, '', j.result.body);
+        lines.push('', j.restartedAt ? '## Earlier result before this branch was restarted' : '## Earlier investigation result', '', `Job: ${j.id}${j.restartedAt ? ` | Kept from before the restart on ${j.restartedAt.slice(0, 10)}; the full branch is in its checkpoint version.` : j.stale ? ' | A premise changed while this investigation was running.' : ' | Retained history; use the current premise and findings above.'}`, '', j.result.summary, '', j.result.body);
         if (j.result.sources?.length) lines.push('', '### Evidence recorded for this result', ...j.result.sources.flatMap(s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`]));
       }
       await writeFile(path.join(dir, 'nodes', `${n.id}.md`), lines.join('\n') + '\n');
     }
+    // Views of ideas that no longer exist, after a restart or restore, are removed; map.json is the source.
+    const current = new Set(map.nodes.map(n => `${n.id}.md`));
+    for (const name of await readdir(path.join(dir, 'nodes'))) if (/^node-[a-z0-9-]+\.md$/.test(name) && !current.has(name)) await rm(path.join(dir, 'nodes', name), { force: true });
     await writeFile(path.join(dir, 'README.md'), overview.join('\n') + '\n');
   }
   event(map, type, nodeId, detail = '') { map.history.push({ at: now(), type, nodeId, detail }); }
-  affectedBy(map, nodeId) {
-    const affected = new Set([nodeId]);
+  affectedBy(map, nodeIds) {
+    const affected = new Set([].concat(nodeIds));
     let changed = true;
     while (changed) {
       changed = false;
@@ -273,6 +280,13 @@ export class Store {
     if (causes.length > 20) node.earlierCauses = true;
     node.reviewCauses = causes.slice(-20);
   }
+  // Findings or a completed run that other work may rely on, and so must be flagged when what it built on changes.
+  hasConclusions(map, node) { return hasFindings(map, node) || isCompleted(map, node); }
+  // An idea's findings start again from `premise`; its answers and history stay.
+  resetFindings(node, premise) {
+    Object.assign(node, { prompt: premise, body: premise, summary: premise.slice(0, 600), sources: [], reviewState: 'unreviewed', stale: false });
+    for (const key of ['completedAt', 'options', 'optionsLimit', 'recommendation', 'reviewCauses', 'earlierCauses', 'reaffirmedAt', 'clearedAt', 'replacedBy', 'resolvedBy', 'acceptedAt', 'acceptedBy']) delete node[key];
+  }
   invalidatePremises(map, nodeId, kind = 'premise-revised') {
     const affected = new Set([nodeId]);
     let changed = true;
@@ -285,7 +299,7 @@ export class Store {
     }
     const at = now();
     for (const node of map.nodes) if (affected.has(node.id)) {
-      if (hasFindings(map, node) || isCompleted(map, node)) this.flagForReview(node, { sourceId: nodeId, kind });
+      if (this.hasConclusions(map, node)) this.flagForReview(node, { sourceId: nodeId, kind });
       node.contentRevision++;
       for (const question of node.questions) if (!question.supersededAt) question.supersededAt = at;
       if (node.status === 'awaiting-answer') node.status = 'interrupted';
@@ -394,8 +408,9 @@ export class Store {
       }
       switch (input.type) {
         case 'restore-version': {
-          // A restore never starts research; work that was active in that version comes back interrupted.
-          need(!map.jobs.some(active), 'Wait until queued or running work finishes, or stop it, before restoring a version.', 409);
+          // A restore never starts research. Queued work is cancelled with today's jobs, and work that was
+          // active in that version comes back interrupted. Only work already running has to finish first.
+          need(!map.jobs.some(job => job.status === 'running'), 'Wait until running work finishes, or stop it, before restoring a version.', 409);
           const { map: snapshot } = await this.versions.get(map.id, input.version);
           need(isRecord(snapshot) && wellFormed(snapshot, map.id), 'This version is damaged and cannot be restored. Choose another version.', 409);
           need(restorableHash(snapshot) !== restorableHash(map), 'The map already matches this version.', 409);
@@ -440,24 +455,20 @@ export class Store {
         case 'change-answer': {
           need(!isCompleted(map, n), 'This branch is finished, so its answers stay as they are. Explore the changed answer beside the original instead.', 409);
           const q = n.questions.find(q => q.id === input.questionId);
-          need(q && q.answer && !q.supersededAt && !q.dismissedAt, 'Only a saved, current answer can be changed.', 409);
+          need(q && hasCurrentAnswer(q), 'Only a saved, current answer can be changed.', 409);
           const answer = text(input.answer, 'Answer', 12000);
           if (input.answerState !== undefined) need(answerStates.includes(input.answerState), 'Choose Tentative, Decided or Assumption.');
           const answerState = input.answerState ?? q.answerState;
           need(answer !== q.answer || answerState !== q.answerState, 'Nothing changed in this answer.');
-          const at = now(), oldAt = q.answeredAt;
-          q.previousAnswers = [...(q.previousAnswers || []), { answer: q.answer, ...(q.answerState ? { answerState: q.answerState } : {}), ...(oldAt ? { answeredAt: oldAt } : {}), replacedAt: at, ...(input.rerun === false ? { wordingFix: true } : {}) }];
-          Object.assign(q, { answer, ...(answerState ? { answerState } : {}), changedAt: at }, actor?.name ? { answeredBy: { name: actor.name } } : {});
+          const at = now(), since = answeredSince(q), later = laterQuestions(map, n, q);
+          replaceAnswer(q, { answer, answerState, actor, at, mark: input.rerun === false ? { wordingFix: true } : {} });
           if (input.rerun === false) { this.event(map, 'answer-reworded', n.id, q.id); break; } // A wording fix flags, replaces and queues nothing.
           n.contentRevision++; // Work running on this branch, below it or depending on it now delivers a stale result.
           // Findings that relied on the old answer need another look; their questions stay.
-          if (hasFindings(map, n) && (!oldAt || map.jobs.some(j => j.nodeId === n.id && isInvestigation(j) && j.status === 'completed' && !j.stale && j.startedAt > oldAt))) this.flagForReview(n, { sourceId: n.id, kind: 'answer-changed' });
-          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && (hasFindings(map, other) || isCompleted(map, other))) this.flagForReview(other, { sourceId: n.id, kind: 'answer-changed' }); }
-          // Follow-ups asked after the old answer no longer fit it.
-          for (const other of n.questions) {
-            const askedAt = other.askedAt ?? map.jobs.find(j => j.result?.questions?.some(x => x.id === other.id))?.startedAt;
-            if (other !== q && isOpen(other) && oldAt && askedAt && askedAt > oldAt) other.supersededAt = at;
-          }
+          if (hasFindings(map, n) && (!since || map.jobs.some(j => currentRun(n, j) && j.startedAt > since))) this.flagForReview(n, { sourceId: n.id, kind: 'answer-changed' });
+          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && this.hasConclusions(map, other)) this.flagForReview(other, { sourceId: n.id, kind: 'answer-changed' }); }
+          // Open follow-ups asked after the old answer no longer fit it; answered ones keep their answers.
+          for (const other of later) if (isOpen(other)) other.supersededAt = at;
           this.event(map, 'answer-changed', n.id, q.id);
           if (!n.questions.some(isBlocking)) this.enqueue(map, n, `The user changed their answer to '${q.text.slice(0, 120)}'. Continue from the new answer and ask new follow-ups only where still needed.`);
           break;
@@ -510,8 +521,7 @@ export class Store {
           const revised = text(input.body, 'Revised idea', 16000);
           this.event(map, 'previous-premise', n.id, n.prompt || n.body);
           this.invalidatePremises(map, n.id);
-          n.prompt = revised; n.body = revised; n.summary = revised.slice(0, 600);
-          n.reviewState = 'unreviewed'; n.stale = false; n.sources = []; delete n.options; delete n.optionsLimit; delete n.recommendation;
+          this.resetFindings(n, revised);
           this.event(map, 'revised', n.id, 'Dependent conclusions need review.'); break;
         }
         case 'fork-revision': {
@@ -519,7 +529,7 @@ export class Store {
           let revised, title, revisesAnswer;
           if (input.questionId !== undefined) {
             const q = n.questions.find(q => q.id === input.questionId);
-            need(q && q.answer && !q.supersededAt, 'Choose a saved answer on this branch.', 409);
+            need(q && hasCurrentAnswer(q), 'Choose a saved answer on this branch.', 409);
             const answer = text(input.answer, 'Changed answer', 12000);
             need(answer !== q.answer, 'Nothing changed in this answer.');
             revisesAnswer = { questionId: q.id, previousAnswer: q.answer, answer };
@@ -667,9 +677,10 @@ export class Store {
       }),
       links: list(result.links, 'Links', 12).map(e => {
         object(e, 'Relationship');
-        need(relations.has(e.type) && map.nodes.some(n => n.id === e.to) && e.to !== node.id, 'Invalid relationship.');
-        return { from: node.id, to: e.to, type: e.type };
-      }) };
+        const exists = map.nodes.some(n => n.id === e.to);
+        need(relations.has(e.type) && (exists || onceExisted(map, e.to)) && e.to !== node.id, 'Invalid relationship.');
+        return exists ? { from: node.id, to: e.to, type: e.type } : null;
+      }).filter(Boolean) };
   }
   complete(mapId, jobId, claimKey, result) {
     return this.serial(async () => {

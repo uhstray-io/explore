@@ -31,7 +31,7 @@ export function restorableHash(map) {
 }
 export function shouldRecord(labels) { return labels.some(label => !bookkeeping.has(label)); }
 const describe = (id, record, bytes) => ({ id, mapId: record.mapId, revision: record.revision, at: record.at, labels: record.labels,
-  ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
+  ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.checkpoint ? { checkpoint: true } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
 
 export class Versions {
   constructor(directory, limits = {}) { this.directory = directory; this.limits = { ...versionLimits, ...limits }; this.headers = new Map(); }
@@ -77,12 +77,18 @@ export class Versions {
   }
   async findContent(mapId, map) { const target = contentHash(map); return (await this.scan(mapId)).find(version => version.contentHash === target) || null; }
   // Records the map as it is about to be saved. A snapshot identical to the newest version is not written again.
-  async record(map, { labels, author, at = new Date().toISOString(), kept = false } = {}) {
-    const content = contentHash(map), versions = await this.scan(map.id);
-    if (versions[0]?.contentHash === content) return versions[0].id;
+  // A checkpoint (`name` with `checkpoint: true`) is a version Explore names itself before a branch restart:
+  // kept like every named version, and not counted among the names people choose. When the newest
+  // version already holds this content and has no name, that version is named instead of copied.
+  async record(map, { labels, author, at = new Date().toISOString(), kept = false, name, checkpoint = false } = {}) {
+    const content = contentHash(map), versions = await this.scan(map.id), newest = versions[0];
+    if (newest?.contentHash === content && !(name && newest.name)) {
+      if (name) { const file = this.file(map.id, newest.id); await atomicJson(file, { ...JSON.parse(await readFile(file, 'utf8')), name, ...(checkpoint ? { checkpoint: true } : {}) }); }
+      return newest.id;
+    }
     const id = `${at.replace(/[-:.]/g, '')}-${randomBytes(3).toString('hex')}`;
     await atomicJson(this.file(map.id, id), { format: 'explore-version', version: 1, mapId: map.id, revision: map.revision, at,
-      ...(author ? { author } : {}), ...(kept ? { kept: true } : {}), labels, contentHash: content, map: snapshotOf(map) });
+      ...(author ? { author } : {}), ...(kept ? { kept: true } : {}), ...(name ? { name } : {}), ...(checkpoint ? { checkpoint: true } : {}), labels, contentHash: content, map: snapshotOf(map) });
     await this.prune(map.id);
     return id;
   }
@@ -103,9 +109,10 @@ export class Versions {
       need(typeof name === 'string' && name.trim().length >= 1 && name.trim().length <= 120, 'A version name must be 1–120 characters.');
       name = name.trim();
       need(!versions.some(version => version.id !== id && version.name === name), 'That name is already used for another version.', 409);
-      need(record.name || versions.filter(version => version.name).length < this.limits.names, `A map can have at most ${this.limits.names} named versions. Remove a name first.`, 409);
+      need((record.name && !record.checkpoint) || versions.filter(version => version.name && !version.checkpoint).length < this.limits.names, `A map can have at most ${this.limits.names} named versions. Remove a name first.`, 409);
       record.name = name;
     }
+    delete record.checkpoint; // Once the user names or unnames it, it is theirs.
     await atomicJson(file, record);
   }
 }

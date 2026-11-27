@@ -115,12 +115,17 @@ test('restoring keeps today’s positions for ideas that still exist', async () 
   assert.deepEqual(restored.view.positions[map.rootId], { x: 123, y: 45 });
 });
 
-test('restore is refused while work is queued or running, and when nothing would change', async () => {
+test('restore cancels queued work, is refused while work is running, and when nothing would change', async () => {
   const { store, map } = await fixture();
   const first = (await store.versions.list(map.id)).versions[0];
-  await assert.rejects(act(store, map.id, { type: 'restore-version', version: first.id }), error => error.status === 409 && /queued or running/.test(error.message));
+  await suggest(store, map, 'A');
+  assert.equal((await store.versions.preview(map.id, first.id)).queuedCancelled, 1);
+  let restored = await act(store, map.id, { type: 'restore-version', version: first.id });
+  assert.ok(!restored.jobs.some(j => ['queued', 'running'].includes(j.status)), 'the queued exploration is cancelled');
+  restored = await act(store, map.id, { type: 'activate', nodeId: map.rootId });
+  await suggest(store, map, 'B');
   const job = await store.claim('test');
-  await assert.rejects(act(store, map.id, { type: 'restore-version', version: first.id }), error => error.status === 409);
+  await assert.rejects(act(store, map.id, { type: 'restore-version', version: first.id }), error => error.status === 409 && /running/.test(error.message));
   await store.complete(map.id, job.jobId, job.claimKey, { summary: 'Found.', body: 'Details.', questions: ['Next?'] });
   const latest = (await store.versions.list(map.id)).versions[0];
   await assert.rejects(act(store, map.id, { type: 'restore-version', version: latest.id }), error => error.status === 409 && /already matches/.test(error.message));
