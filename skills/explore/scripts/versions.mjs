@@ -2,7 +2,7 @@ import { readFile, readdir, lstat, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { atomicJson } from './files.mjs';
-import { undoTarget } from '../assets/workspace-view.js';
+import { undoDependencies } from '../assets/workspace-view.js';
 
 // Version history (E1). Each saved change to a map is one standalone file in the map's folder,
 // ideas/<map-id>/versions/<time>-<random>.json, committed with the map so anyone who pulls can
@@ -36,15 +36,13 @@ const describe = (id, record, bytes) => ({ id, mapId: record.mapId, revision: re
   ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.checkpoint ? { checkpoint: true } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
 
 // The versions history may let go of, newest first: unnamed, unimported, beyond the newest `keepNewest` such
-// versions, and older than every version Undo could restore for anyone who saved one. Undo walks every undone
-// change and the change it cancelled, so nothing newer than the deepest Undo target is ever offered.
+// versions, and not one that anyone's Undo depends on (what it walks and what it restores), so letting go of
+// them never changes what Undo does. Old contributors keep only their own few versions, not the whole history.
 export function removable(versions, { keepNewest }) {
-  let floor = 0;
-  for (const author of new Set([null, ...versions.map(version => version.author).filter(Boolean)])) {
-    const undo = undoTarget(versions, author);
-    if (undo) floor = Math.max(floor, versions.indexOf(undo.target));
-  }
-  return versions.filter(version => !version.name && !version.kept).slice(keepNewest).filter(version => versions.indexOf(version) > floor);
+  const kept = new Set();
+  for (const author of new Set([null, ...versions.map(version => version.author).filter(Boolean)]))
+    for (const version of undoDependencies(versions, author)) kept.add(version.id);
+  return versions.filter(version => !version.name && !version.kept).slice(keepNewest).filter(version => !kept.has(version.id));
 }
 
 export class Versions {
@@ -54,6 +52,9 @@ export class Versions {
   // Newest first. Files are immutable except for their name, so headers are cached by size and time.
   async scan(mapId) {
     let names = [];
+    // A history folder that is a link is never read, so nothing behind it is listed or removed.
+    const folder = await lstat(this.folder(mapId)).catch(() => null);
+    if (folder && !folder.isDirectory()) return [];
     try { names = (await readdir(this.folder(mapId))).filter(name => name.endsWith('.json') && idPattern.test(name.slice(0, -5))); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     const versions = [];

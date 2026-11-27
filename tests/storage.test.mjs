@@ -121,3 +121,18 @@ test('links are reported and never followed or removed', async t => {
   await storage.clean({ previewId: preview.id });
   assert.deepEqual((await readdir(outside)).sort(), ['keep-0.json', 'keep-1.json', 'keep-2.json'], 'nothing behind the link was touched');
 });
+
+test('a history folder that is itself a link is never read or cleaned', async t => {
+  const { rename, symlink } = await import('node:fs/promises');
+  const { store, map, storage, workspace } = await fixture(12);
+  const versions = path.join(path.dirname(store.file(map.id)), 'versions'), outside = path.join(workspace, 'elsewhere');
+  await rename(versions, outside);
+  try { await symlink(outside, versions, 'junction'); } catch { t.skip('links cannot be made here'); return; }
+  const before = (await readdir(outside)).length;
+  const report = await storage.inventory();
+  assert.ok(report.linked >= 1); assert.equal(report.maps[0].versions.count, null);
+  const preview = await storage.preview({ keepNewest: 5 });
+  assert.deepEqual(preview.candidates, []);
+  await storage.clean({ previewId: preview.id });
+  assert.equal((await readdir(outside)).length, before, 'nothing behind the link was removed');
+});

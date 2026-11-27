@@ -108,6 +108,14 @@ function findUndo(versions, me) {
   }
   return undefined;
 }
+// The versions Undo depends on for `me`: those findUndo walks (my own, down to the change it undoes) and its target.
+// Removing any other version cannot change what my Undo does. With no `me`, everything down to the target.
+export function undoDependencies(versions, me) {
+  const undo = findUndo(versions, me);
+  if (!undo) return [];
+  const end = versions.indexOf(undo.target);
+  return versions.slice(0, end + 1).filter(version => !me || version.author === me || version === undo.target);
+}
 export function undoTarget(versions, me) {
   const mine = me ? findUndo(versions, me) : undefined;
   if (mine !== undefined) return mine;

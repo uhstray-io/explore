@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { removable } from './versions.mjs';
 import { mapFolderPattern } from './map-validation.mjs';
-import { keepChoices } from '../assets/storage-dialog.js';
+import { keepChoices } from '../assets/history-limits.js';
 
 // Storage overview and history cleanup (J5). The inventory only reads, without parsing any map. Cleanup removes
 // only history versions a preview listed, under the shared rule in versions.mjs (never named or imported versions,
@@ -19,10 +19,10 @@ async function entry(file) {
   try { const info = await lstat(file); return info.isSymbolicLink() ? { linked: true, bytes: null, folder: false } : { bytes: info.isFile() ? info.size : 0, folder: info.isDirectory() }; }
   catch (error) { return error.code === 'ENOENT' ? { bytes: 0, missing: true } : { bytes: null }; }
 }
-async function folderBytes(dir) {
+async function folderBytes(dir, keep = () => true) {
   const self = await entry(dir);
   if (self.linked || self.missing || !self.folder) return { bytes: self.linked ? null : 0, linked: self.linked ? 1 : 0 };
-  let names; try { names = await readdir(dir); } catch { return { bytes: null, linked: 0 }; }
+  let names; try { names = (await readdir(dir)).filter(keep); } catch { return { bytes: null, linked: 0 }; }
   let bytes = 0, linked = 0;
   for (const name of names) { const item = await entry(path.join(dir, name)); if (item.linked) linked++; else if (item.bytes === null) bytes = null; else if (bytes !== null) bytes += item.bytes; }
   return { bytes, linked };
@@ -48,7 +48,7 @@ export function createStorage(store, { runtime = null, now = Date.now } = {}) {
       }
       const total = map => add(map.mapBytes, map.markdownBytes, map.versions.bytes);
       maps.sort((a, b) => (total(b) ?? 0) - (total(a) ?? 0));
-      const claims = runtime ? await folderBytes(path.join(runtime, 'claims')) : { bytes: 0 };
+      const claims = runtime ? await folderBytes(path.join(runtime, 'claims'), name => name.endsWith('.json')) : { bytes: 0 };
       const claimCount = runtime ? (await readdir(path.join(runtime, 'claims')).catch(() => [])).filter(name => name.endsWith('.json')).length : 0;
       const usage = runtime ? await entry(path.join(runtime, 'context-usage.jsonl')) : { bytes: 0 };
       return { maps, totals: { bytes: add(...maps.map(total)) }, runtime: { claims: { count: claimCount, bytes: claims.bytes }, usageLogBytes: usage.bytes },

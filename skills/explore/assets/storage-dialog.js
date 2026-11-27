@@ -1,6 +1,7 @@
+import { keepChoices } from './history-limits.js';
+
 // The Storage dialog (J5): what each map and its history take, and a cleanup of old unnamed versions that is
 // always previewed first. Nothing is removed until the user confirms the listed versions.
-export const keepChoices = [5, 10, 25];
 const fileSize = bytes => bytes === null ? 'unknown' : bytes < 1024 ? `${bytes} B` : bytes < 1048576 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1048576).toFixed(1)} MB`;
 
 export function storageDialog({ api, esc, titleOf }) {
