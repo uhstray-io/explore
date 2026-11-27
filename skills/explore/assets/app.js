@@ -1,5 +1,6 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
+import { sinceVisitPanel } from './since-visit.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, researchSuggestion } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
@@ -102,6 +103,7 @@ function renderEdges() {
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
   const historic = state.historyStep !== null;
+  if (historic) sinceVisit.hide(); else sinceVisit.seen(state.map); // The user's own changes never count as new.
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
   state.selected = visibleSelection(state.visibleMap, state.selected);
@@ -185,7 +187,7 @@ async function openMap(id, { nodeId = null, push = true } = {}) {
     state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); showAddress({ push });
-    renderMap(true); renderRail(); checkGitStatus({ force: true });
+    sinceVisit.open(map); renderMap(true); renderRail(); checkGitStatus({ force: true });
   } catch (error) { toast(error.message); }
 }
 // Address routing (H2). The address bar always names the open map and the selected idea, so it can be copied as
@@ -278,6 +280,8 @@ function renderOverview() {
   if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $(`[data-filter="${state.filter}"]`))?.focus({ preventScroll: true });
 }
+// Since you were last here (K2): a card above the overview when a map opens; its filters open the overview.
+const sinceVisit = sinceVisitPanel({ esc, showFilter: filter => { state.filter = filter; renderOverview(); } });
 $('#overview-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]'); if (!button) return;
   state.filter = state.filter === button.dataset.filter ? null : button.dataset.filter;
