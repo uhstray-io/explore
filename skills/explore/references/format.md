@@ -8,6 +8,8 @@ README.md        generated overview with source revision and links
 nodes/<id>.md    generated readable node detail with source revision
 ```
 
+Shared settings for every map live beside them in `ideas/settings.json` (`{ version: 1, revision, ...fields }`). Like the maps, the file is meant to be committed.
+
 The JSON snapshot is the only source of truth. Markdown files are readable projections and can be rebuilt by restarting the server. If a generated file's revision differs from `map.json`, treat it as stale. Do not write generated files expecting the UI to ingest the edit.
 
 `schemaVersion` identifies the format; `revision` identifies a saved map state. Stable map/node/job IDs survive title and layout changes. The original user idea is preserved in `originalIdea`; each node's `prompt` records its current premise independently of model-generated `body` findings. Prior premises and research results remain in history/jobs.
@@ -19,6 +21,7 @@ Nodes contain `id`, `title`, `kind`, `parentId`, `prompt`, `summary`, `body`, `s
 - Review states: `unreviewed`, `accepted`. Staleness is separate from review; a previously accepted finding can need review after a premise changes.
 - Graph edges: `contains`, `depends_on`, `supports`, `contradicts`, `related_to`. A visual parent is not an evidence relationship. Dependency links inform context and staleness; they do not automatically activate/schedule other nodes.
 - Jobs retain their input-context fingerprint, visible results, worker name, timing and packet character count. A late result whose relevant context changed is retained for review instead of replacing the current premise.
+- A job's optional `type` names its kind of work; a missing type means `investigate`, the branch investigation, so older maps behave unchanged. Only investigations change an idea's status, findings, questions, completion or growth history. Other types keep their result on the job record. Work covering the whole map has `nodeId: null`; work about one question records it as `subjectId`.
 - `view.positions` is presentation state. A layout change does not alter content fingerprints.
 
 The server serializes mutations and writes/syncs a temporary snapshot before replacing `map.json`. Interrupted temporary files are not read as committed snapshots. This is a local single-writer MVP, not a multi-device synchronization system or a guarantee against every filesystem/power-loss failure. Generated Markdown is not part of the authoritative transaction.
@@ -31,7 +34,7 @@ The browser's shared `history.js` provides pure `growthTimeline(map)` and `mapAt
 
 Older maps are readable without migration or writes. Their available `createdAt` dates form deterministic date groups before recorded batches; equal dates form one group. Missing or invalid dates remain unknown. An undated connection is never assigned its endpoints' dates. Unknown additions appear in a final explicitly undated step, which does not assert when they happened. Connections with dates inconsistent with their endpoints also appear in that step; no connection appears before both endpoints. `incomplete`, `unknownNodeCount`, and `unknownEdgeCount` expose these limits. This is a view of known additions, not a claim to exact historical snapshots. First recording a new batch leaves legacy timestamps and connections untouched.
 
-Machine-local connection tokens, process locks, result drafts, and claim-delivery files live under `.explore/`, which should be ignored by Git. No model API key is part of a map. A provider's original chat history or conversation ID is not necessary to read/continue the map. Share saved maps deliberately: they contain the user's actual ideas and answers.
+Machine-local connection tokens, process locks, result drafts, and claim-delivery files live under `.explore/`, which should be ignored by Git. Settings are not machine-local; they live in `ideas/settings.json`. No model API key is part of a map. A provider's original chat history or conversation ID is not necessary to read/continue the map. Share saved maps deliberately: they contain the user's actual ideas and answers.
 
 ## Reading procedure
 

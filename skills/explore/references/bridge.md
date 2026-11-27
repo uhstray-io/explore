@@ -53,13 +53,21 @@ To create a map, the input file is `{ "title": "Short name", "idea": "The user's
 }
 ```
 
+This format is for `jobType: "investigate"`, the branch investigation. Other job types are described below.
+
 `summary` and `body` are required. Omit unused arrays. The example URL and ID are illustrative; real results require actual consulted sources and existing node IDs. Do not cite a source you have not read.
 
 Limits: summary 800 characters; body 24,000; at most 5 questions, 8 suggestions, 20 sources, 12 links. Suggestion kinds: `research`, `question`, `decision`, `risk`, `idea`. Link types: `depends_on`, `supports`, `contradicts`, `related_to`. `contains` is created by the server for suggested children. All results remain unreviewed until the user accepts them.
 
+## Other kinds of work
+
+Every packet from `next` carries `jobType`. `investigate` is the branch investigation above; a job saved without a `type` is one. Other types are registered in `scripts/job-types.mjs` by the features that need them. Each such packet carries `mapId`, `jobId`, `jobType`, `reason` and `instruction`, plus the type's own fields. Follow its `instruction`, then deliver the result it describes with the same `result --job ID --file result.json` command, or use `fail`. The result is kept on the job record. It never changes the idea's status, findings, questions or completion, and it never accepts anything for the user.
+
+Some work covers the whole map rather than one idea. Its job has `nodeId: null`, and its packet names the map only. Work about one question of an idea records that question as `subjectId`. A repeat request for the same type, idea (or map) and subject reuses the open job. A job type this version of Explore does not know stays queued for a newer version. A job whose idea no longer exists fails with that reason.
+
 ## Mutations
 
-An action carries `expectedRevision`, `nodeId`, and `type`. Use the current revision returned by `read`. On a conflict, re-read before deciding whether the action still applies; do not blindly overwrite.
+An action carries `expectedRevision` and `type`, plus `nodeId` unless the action covers the whole map. Use the current revision returned by `read`. On a conflict, re-read before deciding whether the action still applies; do not blindly overwrite. Map-level actions still need `expectedRevision` and run one at a time like every other action.
 
 - `activate`: queue a suggested branch or retry unfinished work. Completed branches reject activation. Only on the user's explicit request, normally via the UI.
 - `answer`: `questionId`, `answer`. Supply only an actual user answer. Questions superseded by a changed premise remain in history and reject new answers.
@@ -69,6 +77,11 @@ An action carries `expectedRevision`, `nodeId`, and `type`. Use the current revi
 - `accept`: user accepts a current finding. Never self-accept a model conclusion.
 - `cancel`: stops queued work or rejects subsequent results from the claimed run. The agent should also stop its actual investigation; this API cannot kill host-owned subagents.
 - `position`: `x`, `y`. Presentation only.
+- `cancel-job`: `jobId`, no `nodeId`. Stops queued or running work that is not a branch investigation. Use `cancel` for a branch.
+
+## Shared settings
+
+Settings live in `ideas/settings.json` beside the maps and are meant to be committed, so everyone who opens the repo gets the same experience. The file is `{ "version": 1, "revision": N, ...fields }`. Each feature registers its own fields with a default and validation; unknown fields are rejected, and fields saved by a newer Explore version are kept. The browser reads them with authenticated `GET /api/settings` and saves them with `POST /api/settings` carrying `expectedRevision`. A missing file means defaults. An unreadable one, for example with Git conflict markers, falls back to defaults with `unreadable: true` and is replaced only when the user saves. Settings are the user's choice: never change them unless the user asks.
 
 ## Bounded discovery and reading
 

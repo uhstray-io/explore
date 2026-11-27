@@ -8,7 +8,7 @@ import { contextExcerpt } from './context.mjs';
 import { mapBrief } from './brief.mjs';
 
 const assets = fileURLToPath(new URL('../assets/', import.meta.url));
-export async function startServer({ workspace = process.cwd(), port = 4317, dataDirectory } = {}) {
+export async function startServer({ workspace = process.cwd(), port = 4317, dataDirectory, registry } = {}) {
   workspace = path.resolve(workspace);
   const runtime = path.join(workspace, '.explore');
   await mkdir(runtime, { recursive: true });
@@ -29,7 +29,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
   await lock.writeFile(JSON.stringify({ pid: process.pid })); await lock.close();
   const connectionPath = path.join(runtime, 'connection.json');
   const token = randomBytes(32).toString('hex');
-  const store = new Store(dataDirectory || path.join(workspace, 'ideas'));
+  const store = new Store(dataDirectory || path.join(workspace, 'ideas'), registry ? { registry } : {});
   let address, worker = '', closing = false;
   const listeners = new Map();
   const bridgeStatus = () => {
@@ -54,6 +54,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
       if (url.pathname.startsWith('/api/')) {
         if (req.headers.authorization !== `Bearer ${token}`) throw new Problem('Open the workspace again to reconnect.', 401);
         if (req.method === 'GET' && url.pathname === '/api/maps') return send(res, 200, { maps: await store.list(), bridge: bridgeStatus() });
+        if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, await store.getSettings());
         const briefRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/brief$/);
         if (req.method === 'GET' && briefRoute) return send(res, 200, mapBrief(await store.get(briefRoute[1]), url.searchParams.get('node')));
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
@@ -85,6 +86,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         let body; try { body = JSON.parse(raw); } catch { throw new Problem('Invalid JSON.'); }
         if (url.pathname === '/api/maps') return send(res, 201, publicMap(await store.create(body)));
         if (url.pathname === '/api/demo') return send(res, 201, publicMap(await store.demo()));
+        if (url.pathname === '/api/settings') return send(res, 200, await store.updateSettings(body));
         if (match?.[2] === 'action') return send(res, 200, publicMap(await store.action(match[1], body)));
         if (match?.[2] === 'result') return send(res, 200, publicMap(await store.complete(match[1], body.jobId, body.claimKey, body.result)));
         if (match?.[2] === 'fail') return send(res, 200, publicMap(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
