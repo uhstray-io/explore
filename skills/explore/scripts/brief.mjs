@@ -50,7 +50,7 @@ export function mapBrief(map, nodeId = null) {
     ['active', 'Queued, running, or interrupted work', nodes.filter(n => ['queued', 'running', 'interrupted'].includes(n.status)).map(n => entry(n))],
     ['relationships', 'Recorded semantic relationships — not verified conclusions', map.edges.filter(e => e.type !== 'contains' && (ids.has(e.from) || ids.has(e.to))).map(e => {
       const node = map.nodes.find(n => n.id === e.from);
-      return node ? entry(node, `${e.type}: ${map.nodes.find(n => n.id === e.to)?.title || e.to}`, { to: e.to, relation: e.type }) : null;
+      return node ? entry(node, `${e.type}: ${map.nodes.find(n => n.id === e.to)?.title || e.to}${e.addedBy === 'user' ? ` (added by the user${e.note ? `: ${e.note}` : ''})` : ''}`, { to: e.to, relation: e.type, ...(e.addedBy ? { addedBy: e.addedBy } : {}) }) : null;
     }).filter(Boolean)],
   ];
   const brief = {

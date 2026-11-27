@@ -290,10 +290,29 @@ export function gitCheckDelay({ last, mapId, now, force = false, every = 10000 }
   return force || last?.mapId !== mapId ? 0 : Math.max(0, every - (now - last.at));
 }
 
-// The idea ⋯ menu (H2): Copy link.
-export function nodeMenuHtml(node, { esc }) {
+// How a connection reads from one idea's side (D1): "Depends on X" from the dependent, "Needed by X" from the other.
+const outgoing = { depends_on: 'Depends on', supports: 'Supports', contradicts: 'Contradicts', related_to: 'Related to' };
+const incoming = { depends_on: 'Needed by', supports: 'Supported by', contradicts: 'Contradicted by', related_to: 'Related to' };
+export const connectionLabel = (edge, nodeId) => (edge.from === nodeId ? outgoing : incoming)[edge.type] ?? edge.type.replaceAll('_', ' ');
+// Connected thinking: each link with its direction; one the user added shows its note and, while live, Remove.
+export function connectionsHtml(node, map, { esc, live }) {
+  return map.edges.filter(edge => edge.type !== 'contains' && (edge.from === node.id || edge.to === node.id)).map(edge => {
+    const other = map.nodes.find(item => item.id === (edge.from === node.id ? edge.to : edge.from)); if (!other) return '';
+    const remove = live && edge.addedBy === 'user' ? `<button type="button" class="text-button" data-unlink data-from="${esc(edge.from)}" data-to="${esc(edge.to)}" data-relation="${esc(edge.type)}">Remove</button>` : '';
+    return `<div class="connection"><button class="relationship" data-select="${esc(other.id)}">${connectionLabel(edge, node.id)}<strong>${esc(other.title)}</strong></button>${edge.addedBy === 'user' && edge.note ? `<p class="form-note">${esc(edge.note)}</p>` : ''}${remove}</div>`;
+  }).join('');
+}
+// Add a connection: what kind, to which idea (any other in the map), and an optional note. Work already reading
+// this idea would come back stale, so the form says so while there is some.
+export function linkEditorHtml(node, map, { esc, working }) {
+  const others = map.nodes.filter(item => item.id !== node.id).sort((a, b) => a.title.localeCompare(b.title));
   const id = esc(node.id);
-  return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`]);
+  return `<details data-editor="link"><summary>Add a connection</summary><form id="link-form" data-node-id="${id}"><label for="link-relation-${id}">This idea</label><select id="link-relation-${id}" name="relation" data-draft="link-relation-${id}">${Object.entries(outgoing).map(([value, label]) => `<option value="${value}">${label.toLowerCase()}</option>`).join('')}</select><label for="link-to-${id}">Which idea</label><select id="link-to-${id}" name="to" data-draft="link-to-${id}" required><option value="">Choose an idea…</option>${others.map(other => `<option value="${esc(other.id)}">${esc(other.title)}</option>`).join('')}</select><label for="link-note-${id}">Why (optional)</label><textarea id="link-note-${id}" name="note" rows="2" maxlength="1000" data-draft="link-note-${id}"></textarea>${working ? '<p class="form-note">Your agent is working on this idea; its current result will come back for review instead of being applied.</p>' : ''}<button class="secondary" type="submit">Add connection</button></form></details>`;
+}
+// The idea ⋯ menu (H2): Copy link.
+export function nodeMenuHtml(node, { esc, live = false }) {
+  const id = esc(node.id);
+  return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open="${id}">Add a connection</button>`] : [])]);
 }
 
 // Text that reads as itself in Markdown, on one line.

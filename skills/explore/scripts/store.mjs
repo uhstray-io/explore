@@ -237,7 +237,7 @@ export class Store {
         ...dismissedQuestions.map(q => `- ${q.text}${q.ratingReason ? ` — ${q.ratingReason}` : ''}${q.replacedBy === 'pending' ? ' (a replacement is on its way)' : q.replacedBy ? ' (replaced)' : ''}`));
       if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(evidenceLine));
       const edges = map.edges.filter(e => e.from === n.id || e.to === n.id);
-      if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}`));
+      if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}${e.addedBy === 'user' ? ` (added by the user${e.note ? `: ${e.note.replace(/\s+/g, ' ')}` : ''})` : ''}`));
       const earlierRuns = map.jobs.filter(j => j.nodeId === n.id && isInvestigation(j) && j.result && (j.stale || j.result.summary !== n.summary || j.result.body !== n.body));
       for (const j of earlierRuns) {
         lines.push('', j.restartedAt ? '## Earlier result before this branch was restarted' : '## Earlier investigation result', '', `Job: ${j.id}${j.restartedAt ? ` | Kept from before the restart on ${j.restartedAt.slice(0, 10)}; the full branch is in its checkpoint version.` : j.stale ? ' | A premise changed while this investigation was running.' : ' | Retained history; use the current premise and findings above.'}`, '', j.result.summary, '', j.result.body);
