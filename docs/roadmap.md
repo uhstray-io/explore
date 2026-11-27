@@ -58,7 +58,7 @@ The owner settled every open decision on 2026-11-27. Where an issue body still d
 ## Known defects
 
 - One damaged or conflict-marked `map.json` stops the server from starting. Startup recovery reads every map with no per-map error handling (`skills/explore/scripts/server.mjs:40` → `store.mjs:383-385` → `store.mjs:64-66`). Confirmed by reading the code, not by running it. Covered by H3 ([#32](https://github.com/uhstray-io/explore/issues/32)) and J2 ([#44](https://github.com/uhstray-io/explore/issues/44)).
-- Job claim keys and worker names are saved in shared map files, and committed maps contain them. They only work with the local server's token. Covered by H8 ([#37](https://github.com/uhstray-io/explore/issues/37)); I2 ([#40](https://github.com/uhstray-io/explore/issues/40)) strips them from exports.
+- Fixed by H8 ([#37](https://github.com/uhstray-io/explore/issues/37)): job claim keys were saved in shared map files. Maps now keep only a one-way hash, and older keys are replaced on the next save. Worker names stay, by decision 4. I2 ([#40](https://github.com/uhstray-io/explore/issues/40)) strips claim data from exports.
 - Reported while drafting H3 but not independently re-checked: an edit can overwrite a map changed outside Explore when the revision numbers happen to match. Covered by H3.
 
 ## Rename notes
