@@ -80,7 +80,9 @@ test('retention keeps every named version and stays within the count and byte li
   const small = await fixture({ versionLimits: { count: 50, bytes: 9000, names: 10 } });
   for (const title of ['A', 'B', 'C', 'D', 'E', 'F']) await suggest(small.store, small.map, title);
   versions = (await small.store.versions.list(small.map.id)).versions;
-  assert.ok(versions.reduce((total, v) => total + v.bytes, 0) <= 9000);
+  // Only the newest version and the one Undo restores may take history past the byte limit.
+  let sum = 0;
+  versions.forEach((v, i) => { sum += v.bytes; if (sum > 9000) assert.ok(i <= 1, `version ${i} is over the limit`); });
   assert.ok(versions.length >= 1, 'the newest version is always kept');
   const newest = (await small.store.get(small.map.id)).revision;
   assert.equal(versions[0].revision, newest, 'and it is the newest');
@@ -327,4 +329,13 @@ test('restoring keeps today’s position where there is one and the version’s 
   const restored = await act(store, map.id, { type: 'restore-version', version: withPositions.id });
   assert.deepEqual(restored.view.positions[map.rootId], { x: 99, y: 99 }, 'today wins');
   assert.deepEqual(restored.view.positions[child], { x: 40, y: 40 }, 'the version fills in ideas that have no position today');
+});
+
+test('a contributor who saved once long ago does not stop history being trimmed', async () => {
+  const { store, map } = await fixture({ versionLimits: { count: 10, bytes: 1e9, names: 10 } });
+  await act(store, map.id, { type: 'suggest', nodeId: map.rootId, title: 'From A', body: 'x' }, { name: 'A' });
+  for (let i = 0; i < 40; i++) await act(store, map.id, { type: 'suggest', nodeId: map.rootId, title: `From B ${i}`, body: 'x' }, { name: 'B' });
+  const { versions } = await store.versions.list(map.id);
+  assert.ok(versions.some(v => v.author === 'A') && versions.some(v => v.author === 'B'), 'both contributors are recorded, and the Undo of A still has its version');
+  assert.ok(versions.length <= 14, `${versions.length} versions kept`);
 });
