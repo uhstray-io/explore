@@ -99,7 +99,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           do {
             if (res.destroyed || closing) return;
             const packet = await store.claim(workerName, mapId || undefined);
-            worker = workerName;
+            worker = workerName; listeners.waiting(listener);
             if (packet) return send(res, 200, packet);
             if (Date.now() >= deadline) break;
             await new Promise(resolve => setTimeout(resolve, 500));

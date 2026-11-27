@@ -132,3 +132,18 @@ test('a new agent session after a closed window starts a fresh window, even unde
 test('a registry cannot replace the built-in listening setting', () => {
   assert.throws(() => createRegistry({ settings: { listenMinutes: { default: 5, validate: value => value } } }), /built in/);
 });
+
+test('an agent polling for 25 seconds with 16-second turns is told to finish after one window, and stays listening between polls', () => {
+  const listeners = createListeners();
+  let start = 0, keepListening = true, replies = 0;
+  while (keepListening && replies < 20) {
+    const record = listeners.seen(null, 'codex', 2, start);
+    for (let t = start; t <= start + 25_000; t += 500) listeners.waiting(record, t); // The 25-second wait.
+    const reply = start + 25_000;
+    ({ keepListening } = listeners.listen(record, 2, reply));
+    replies++;
+    assert.equal(listeners.status(reply + 16_000).listening, true, 'the browser still sees the agent between polls');
+    start = reply + 16_000; // The agent's turn before it polls again.
+  }
+  assert.equal(keepListening, false); assert.ok(start - 16_000 >= 120_000 && start - 16_000 <= 145_000, 'finished within one window of the start');
+});

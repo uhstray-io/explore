@@ -17,6 +17,8 @@ export function createListeners() {
       record.lastSeen = now; records.set(key, record);
       return record;
     },
+    // Still waiting inside a poll: presence stays fresh for as long as the poll lasts.
+    waiting(record, now = Date.now()) { record.lastSeen = now; },
     // A saved change to `mapId` restarts the window of every listener covering it.
     noteActivity(mapId, now = Date.now()) { for (const record of records.values()) if (!record.mapId || record.mapId === mapId) record.lastActivity = now; },
     // Who is listening now; listeners silent for hours are forgotten.
