@@ -104,7 +104,7 @@ function renderEdges() {
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
   const historic = state.historyStep !== null;
-  if (historic) sinceVisit.hide(); else sinceVisit.seen(state.map); // The user's own changes never count as new.
+  sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
   state.selected = visibleSelection(state.visibleMap, state.selected);
@@ -281,12 +281,14 @@ function renderOverview() {
   if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $(`[data-filter="${state.filter}"]`))?.focus({ preventScroll: true });
 }
-// Since you were last here (K2): a card above the overview when a map opens; its filters open the overview.
-const sinceVisit = sinceVisitPanel({ esc, showFilter: filter => { state.filter = filter; renderOverview(); } });
+function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
+// Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
+const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $('#overview-filters button')?.focus() });
+// Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else.
+document.addEventListener('visibilitychange', async () => { if (document.hidden) return; await refresh({ force: true }); if (state.map) renderMap(); });
 $('#overview-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]'); if (!button) return;
-  state.filter = state.filter === button.dataset.filter ? null : button.dataset.filter;
-  $('#node-results').hidden = true; renderOverview();
+  openFilter(state.filter === button.dataset.filter ? null : button.dataset.filter);
 });
 $('#overview-filters').addEventListener('keydown', event => {
   if (event.key === 'ArrowDown' && state.filter) { event.preventDefault(); $('#overview-list button')?.focus(); }

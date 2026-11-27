@@ -10,11 +10,12 @@ function fixture() {
   const cursor = visitCursor(map, at(2));
   return { map, cursor };
 }
+// As the Store records them: an applied result is a "result" event; a stale one is "stale-result" and changes nothing.
 const deliver = (map, nodeId, minutes, { stale = false, questions = [] } = {}) => {
   const jobId = `job-${nodeId}-${minutes}`;
   map.jobs.push({ id: jobId, nodeId, status: 'completed', stale });
-  map.nodes.find(n => n.id === nodeId).questions.push(...questions.map((text, i) => ({ id: `q-${jobId}-${i}`, text, answer: null, jobId })));
-  map.history.push({ at: at(minutes), type: 'result', nodeId, detail: jobId });
+  if (!stale) map.nodes.find(n => n.id === nodeId).questions.push(...questions.map((text, i) => ({ id: `q-${jobId}-${i}`, text, answer: null, jobId })));
+  map.history.push({ at: at(minutes), type: stale ? 'stale-result' : 'result', nodeId, detail: jobId });
 };
 
 test('with no cursor nothing is shown, and nothing new shows nothing', () => {
@@ -31,7 +32,7 @@ test('a result delivered while away is a new finding, with its waiting questions
   deliver(map, 'sync', 6, { stale: true });
   map.nodes[0].questions.push({ id: 'q-old', text: 'Older?', answer: null });
   const summary = sinceLastVisit(map, cursor);
-  assert.deepEqual(summary.newFindings, { items: [{ id: 'sync', title: 'Idea sync', summary: 'About sync.' }], more: 0 }, 'listed once; the stale result is not a finding');
+  assert.deepEqual(summary.newFindings, { items: [{ id: 'sync', title: 'Idea sync', summary: 'About sync.' }], total: 1 }, 'listed once; the stale result is not a finding');
   assert.equal(summary.newQuestions, 2); assert.equal(summary.waitingNow, 3);
   assert.equal(summary.since, at(2));
 });
@@ -55,9 +56,10 @@ test('a replaced map file falls back to times, and long lists are capped', () =>
   map.history = [{ at: at(0), type: 'created', nodeId: 'root' }]; // A shorter log from Git.
   for (let i = 0; i < 10; i++) { map.nodes.push(node(`n${i}`)); deliver(map, `n${i}`, 10 + i); }
   const summary = sinceLastVisit(map, cursor);
-  assert.equal(summary.newFindings.items.length, 8); assert.equal(summary.newFindings.more, 2);
+  assert.equal(summary.newFindings.items.length, 8); assert.equal(summary.newFindings.total, 10);
   const shifted = { ...cursor, lastEventAt: 'something else' };
-  assert.equal(sinceLastVisit(map, shifted).newFindings.items.length + sinceLastVisit(map, shifted).newFindings.more, 10);
+  assert.equal(sinceLastVisit(map, shifted).newFindings.total, 10);
+  assert.match(sinceVisitHtml(sinceLastVisit(map, cursor), { esc: String, when: 'x' }), /and 2 more/);
 });
 
 test('the card offers a button per idea and filter, and a way to dismiss it', () => {
@@ -70,6 +72,25 @@ test('the card offers a button per idea and filter, and a way to dismiss it', ()
   assert.match(html, /Since you were last here/); assert.match(html, /27 Nov, 10:02/);
   assert.match(html, /data-focus-node="sync">New finding: Sync &lt;fast>/);
   assert.match(html, /data-since-filter="answer">Show questions/);
-  assert.match(html, /data-since-filter="stale">Review flagged/);
+  assert.match(html, /data-since-filter="stale">Show flagged/);
   assert.match(html, /data-since-dismiss/);
+});
+
+test('flags and directions a collaborator made before this visit, pulled afterwards, still count as new', () => {
+  const { map, cursor } = fixture();
+  // Pulled later, but made earlier than this browser's visit (minute 2): flagged at 1.5, suggested at 1.5, result at 1.6.
+  const earlier = new Date(Date.UTC(2026, 10, 27, 10, 1, 30)).toISOString();
+  map.nodes.push(node('flag', { stale: true, reviewCauses: [{ at: earlier }] }), node('dir', { status: 'suggested', createdAt: earlier }));
+  map.history.push({ at: new Date(Date.UTC(2026, 10, 27, 10, 1, 30, 1)).toISOString(), type: 'answer-changed', nodeId: 'root' });
+  const summary = sinceLastVisit(map, cursor);
+  assert.deepEqual(summary.flagged.items.map(n => n.id), ['flag']); assert.equal(summary.newDirections, 1);
+});
+
+test('a return to the tab counts only what happened before the return', () => {
+  const { map, cursor } = fixture();
+  map.nodes.push(node('sync'), node('mine', { status: 'suggested', createdAt: at(12) }));
+  deliver(map, 'sync', 5);
+  map.history.push({ at: at(12), type: 'suggested', nodeId: 'mine' }); // The user's own change after coming back at minute 10.
+  const summary = sinceLastVisit(map, cursor, at(10));
+  assert.deepEqual(summary.newFindings.items.map(n => n.id), ['sync']); assert.equal(summary.newDirections, 0);
 });
