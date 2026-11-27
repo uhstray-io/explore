@@ -97,3 +97,47 @@ test('linking works through the CLI and shows in node Markdown', async () => {
     assert.match(markdown, /related_to .*added by the user: Same team\./);
   } finally { await app.close(); }
 });
+
+test('a link never makes a Check answers result look out of date', async () => {
+  const { proposalOutdated } = await import('../skills/explore/scripts/map-jobs.mjs');
+  const { store, act, map, battery, rules } = await fixture();
+  const before = await store.get(map.id);
+  const included = before.nodes.map(n => ({ nodeId: n.id, contentRevision: n.contentRevision }));
+  const saved = await act({ type: 'link', nodeId: rules.id, to: battery.id, relation: 'related_to' });
+  assert.equal(saved.nodes.find(n => n.id === rules.id).contentRevision, before.nodes.find(n => n.id === rules.id).contentRevision, 'no content changed');
+  assert.ok(!proposalOutdated(saved, { included: included.filter(r => r.nodeId === rules.id).map(r => ({ ...r })) }));
+  await assert.rejects(act({ type: 'link', nodeId: battery.id, to: rules.id, relation: 'related_to' }), error => error.status === 409, 'related to has no direction');
+});
+
+test('the editor keeps what was typed, opens only from the ⋯ menu, and names version history entries', async () => {
+  const { linkEditorHtml, nodeMenuHtml, versionLabel } = await import('../skills/explore/assets/workspace-view.js');
+  const map = { nodes: [{ id: 'a', title: 'Battery' }, { id: 'b', title: 'Rules' }], edges: [], jobs: [] };
+  const drafts = { 'link-relation-b': 'supports', 'link-to-b': 'a', 'link-note-b': 'Because <power>.' };
+  const html = linkEditorHtml(map.nodes[1], map, { esc: value => String(value).replace(/</g, '&lt;'), drafts, shown: true });
+  assert.match(html, /<option value="supports" selected>/); assert.match(html, /<option value="a" selected>Battery/); assert.match(html, /Because &lt;power>\./);
+  assert.match(linkEditorHtml(map.nodes[1], map, { esc: String }), /data-editor="link" hidden/, 'not on the main path until the menu opens it');
+  assert.doesNotMatch(linkEditorHtml(map.nodes[1], map, { esc: String }), /exploring a branch/);
+  assert.match(linkEditorHtml(map.nodes[1], { ...map, jobs: [{ status: 'running' }] }, { esc: String }), /exploring a branch/);
+  assert.match(nodeMenuHtml(map.nodes[1], { esc: String, live: true }), /data-link-open>Add a connection/);
+  assert.doesNotMatch(nodeMenuHtml(map.nodes[1], { esc: String, live: false }), /Add a connection/);
+  assert.equal(versionLabel({ labels: ['linked'] }), 'Connection added'); assert.equal(versionLabel({ labels: ['unlinked'] }), 'Connection removed');
+});
+
+test('an agent link can be removed, a removed and re-added link keeps its first growth time, and dependents of dependents are flagged', async () => {
+  const { store, act, map, sync, battery, rules } = await fixture();
+  const { brief } = await (async () => ({ brief: (await import('../skills/explore/scripts/brief.mjs')).mapBrief }))();
+  // An agent-recorded link, as a result would record it.
+  await act({ type: 'activate', nodeId: sync.id });
+  let job = await store.claim('agent', map.id);
+  await store.complete(map.id, job.jobId, job.claimKey, { summary: 'Sync done.', body: 'F.', links: [{ to: battery.id, type: 'related_to' }] });
+  let saved = await act({ type: 'unlink', nodeId: sync.id, to: battery.id, relation: 'related_to' });
+  assert.ok(!saved.edges.some(e => e.from === sync.id && e.to === battery.id), 'an agent link can be removed');
+  saved = await act({ type: 'link', nodeId: rules.id, to: battery.id });
+  const first = saved.edges.find(e => e.from === rules.id).createdAt;
+  await act({ type: 'unlink', nodeId: rules.id, to: battery.id, relation: 'depends_on' });
+  saved = await act({ type: 'link', nodeId: rules.id, to: battery.id, note: 'Again.' });
+  const batch = saved.growth.batches.find(b => b.edges.some(e => e.from === rules.id && e.to === battery.id));
+  assert.equal(batch.at, first, 'growth history shows it at its first addition (identities are recorded once)');
+  const text = JSON.stringify(brief(saved));
+  assert.match(text, /added by the user: Again\./);
+});

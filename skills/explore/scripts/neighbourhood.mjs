@@ -22,8 +22,12 @@ export function contextNodes(map, node) {
   return map.nodes.filter(n => ids.has(n.id));
 }
 // Changes when any idea in the neighbourhood changes content (premise, findings or an answer).
+// Changes when any idea in the neighbourhood changes content (premise, findings or an answer), or when a link
+// touching the neighbourhood is added or removed: work reading it would then read a different map.
 export function signature(map, node) {
-  return createHash('sha256').update(JSON.stringify(contextNodes(map, node).map(n => [n.id, n.contentRevision]))).digest('hex');
+  const nodes = contextNodes(map, node), ids = new Set(nodes.map(n => n.id));
+  const links = map.edges.filter(e => e.type !== 'contains' && (ids.has(e.from) || ids.has(e.to))).map(e => `${e.from} ${e.type} ${e.to}`).sort();
+  return createHash('sha256').update(JSON.stringify([nodes.map(n => [n.id, n.contentRevision]), links])).digest('hex');
 }
 // The other ideas in the neighbourhood for a packet: the root first, then nearest first by parent links and
 // connections, so trimming from the end leaves out the farthest.

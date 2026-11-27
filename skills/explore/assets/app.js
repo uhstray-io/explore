@@ -617,7 +617,6 @@ function renderDetail(force = false) {
   const completed = n.completed || n.status === 'explored';
   const pending = ['suggested', 'queued', 'running', 'awaiting-answer', 'interrupted'].includes(n.status);
   const job = state.visibleMap.jobs.filter(j => j.nodeId === n.id && (!j.type || j.type === 'investigate')).at(-1);
-  const related = state.visibleMap.edges.filter(e => e.type !== 'contains' && (e.from === n.id || e.to === n.id));
   const nearby = state.visibleMap.nodes.filter(node => node.id === n.parentId || node.parentId === n.id);
   // Answered questions show how sure the answer is; open ones can wait; waiting ones collapse together.
   const answeredBy = q => q.answeredBy?.name ? `<small class="answered-by">Answered by ${esc(q.answeredBy.name)}${answeredSince(q) ? ` · ${esc(new Date(answeredSince(q)).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))}` : ''}</small>` : '';
@@ -685,9 +684,9 @@ function renderDetail(force = false) {
     ${n.body && n.body !== n.summary ? `<h3 class="section-label">${n.status === 'suggested' ? 'What to explore' : 'Notes & findings'}</h3><div class="prose">${prose(n.body)}</div>` : ''}
     ${job?.stale && job.result ? `<h3 class="section-label">Result from the earlier premise</h3><div class="prose">${prose(job.result.body)}</div>` : ''}
     ${n.sources.length ? `<h3 class="section-label">Sources & evidence</h3>${n.sources.map(s => `<a class="evidence-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} <span aria-hidden="true">↗</span><small>${esc(s.note)}</small></a>`).join('')}` : ''}
-    ${related.length ? `<h3 class="section-label">Connected thinking</h3>${connectionsHtml(n, state.visibleMap, { esc, live: !historic })}` : ''}
+    ${connectionsHtml(n, state.visibleMap, { esc, live: !historic })}
     ${!historic ? `<details data-editor="suggest"><summary>Add a direction</summary><form id="suggest-form" data-node-id="${n.id}"><label for="branch-title">What's worth exploring?</label><input id="branch-title" name="title" maxlength="100" data-draft="${n.id}-title" value="${esc(state.drafts[`${n.id}-title`] ?? '')}" required><label for="branch-body">A little context</label><textarea id="branch-body" name="body" rows="3" maxlength="4000" data-draft="${n.id}-branch">${esc(state.drafts[`${n.id}-branch`] ?? '')}</textarea><button type="submit" class="secondary">Add suggested branch</button></form></details>
-    ${!historic ? linkEditorHtml(n, state.visibleMap, { esc, working: state.visibleMap.jobs.some(j => j.nodeId === n.id && ['queued', 'running'].includes(j.status)) }) : ''}
+    ${!historic ? linkEditorHtml(n, state.visibleMap, { esc, drafts: state.drafts, shown: state.editors[`${n.id}:link`] === true }) : ''}
     <details data-editor="revise"><summary>${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new branch and starts exploring it. Affected findings are flagged for review; the original is preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
     ${job?.contextCharacters ? `<p class="run-note">Last investigation used ${job.contextCharacters.toLocaleString()} characters of map context. Only relevant context is sent.</p>` : ''}`;
   // The user's open or closed choice wins; otherwise a disclosure stays as rendered (closed, or new help open).
@@ -826,7 +825,7 @@ document.addEventListener('click', async event => {
     return;
   }
   const linkOpen = event.target.closest('[data-link-open]');
-  if (linkOpen) { closeMenus(); const editor = document.querySelector('#detail details[data-editor="link"]'); if (editor) { editor.open = true; editor.querySelector('select')?.focus(); } return; }
+  if (linkOpen) { closeMenus(); state.editors[`${state.selected}:link`] = true; renderDetail(true); document.querySelector('#detail details[data-editor="link"] select')?.focus(); return; }
   const unlink = event.target.closest('[data-unlink]');
   if (unlink) { if (await act(unlink.dataset.from, 'unlink', { to: unlink.dataset.to, relation: unlink.dataset.relation })) toast('Connection removed.'); return; }
   const menuToggle = event.target.closest('[data-menu]');
