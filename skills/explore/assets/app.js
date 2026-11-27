@@ -3,6 +3,7 @@ import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { agentDialog } from './agent-dialog.js';
 import { createAlerts } from './alerts.js';
 import { questionClick } from './question-clicks.js';
+import { sinceVisitPanel } from './since-visit.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
@@ -108,6 +109,7 @@ function renderEdges() {
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
   const historic = state.historyStep !== null;
+  sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
   state.selected = visibleSelection(state.visibleMap, state.selected);
@@ -191,7 +193,7 @@ async function openMap(id, { nodeId = null, push = true } = {}) {
     state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); showAddress({ push });
-    renderMap(true); renderRail(); checkGitStatus({ force: true });
+    sinceVisit.open(map); renderMap(true); renderRail(); checkGitStatus({ force: true });
   } catch (error) { toast(error.message); }
 }
 // Address routing (H2). The address bar always names the open map and the selected idea, so it can be copied as
@@ -284,10 +286,15 @@ function renderOverview() {
   if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $(`[data-filter="${state.filter}"]`))?.focus({ preventScroll: true });
 }
+function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
+// Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
+const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $('#overview-filters button')?.focus() });
+// Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else. The
+// render runs even when nothing changed, only to finish that summary.
+document.addEventListener('visibilitychange', async () => { if (document.hidden) return; await refresh({ force: true }); if (state.map) renderMap(); });
 $('#overview-filters').addEventListener('click', event => {
   const button = event.target.closest('[data-filter]'); if (!button) return;
-  state.filter = state.filter === button.dataset.filter ? null : button.dataset.filter;
-  $('#node-results').hidden = true; renderOverview();
+  openFilter(state.filter === button.dataset.filter ? null : button.dataset.filter);
 });
 $('#overview-filters').addEventListener('keydown', event => {
   if (event.key === 'ArrowDown' && state.filter) { event.preventDefault(); $('#overview-list button')?.focus(); }
