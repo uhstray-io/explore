@@ -1,10 +1,11 @@
 import path from 'node:path';
 import { mapFolderPattern } from './map-validation.mjs';
+import { packageVersion } from './package-version.mjs';
+import { runtimePath, inspectLock } from './server-lock.mjs';
 import { fileURLToPath } from 'node:url';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 
 const skillDirectory = fileURLToPath(new URL('../', import.meta.url));
-const runtimePath = workspace => path.join(workspace, '.explore');
 
 // Never send the local bearer token to an address supplied by an unchecked file.
 export async function readConnection(workspace) {
@@ -27,15 +28,6 @@ export async function readConnection(workspace) {
   return { ...value, address: address.origin };
 }
 
-async function inspectLock(workspace) {
-  try {
-    const lock = JSON.parse(await readFile(path.join(runtimePath(workspace), 'server.lock'), 'utf8'));
-    if (!Number.isInteger(lock.pid) || lock.pid <= 0) return { state: 'invalid' };
-    try { process.kill(lock.pid, 0); return { state: 'process-present', pid: lock.pid }; }
-    catch (error) { return { state: error.code === 'ESRCH' ? 'process-absent' : 'unknown', pid: lock.pid }; }
-  } catch (error) { return { state: error.code === 'ENOENT' ? 'absent' : 'invalid' }; }
-}
-
 export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {}) {
   workspace = path.resolve(workspace);
   const checks = [];
@@ -45,7 +37,7 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
   let workspaceExists = false;
   try { workspaceExists = (await stat(workspace)).isDirectory(); } catch { /* Report missing/inaccessible without raw errors. */ }
   add('workspace', workspaceExists ? 'ok' : 'error', workspaceExists ? 'Workspace directory is accessible.' : 'Use an existing, accessible workspace directory.');
-  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
+  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/package-version.mjs', 'scripts/install.mjs', 'scripts/server-lock.mjs', 'version.json', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
   const missing = [];
   for (const file of files) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
   add('package', missing.length ? 'error' : 'ok', missing.length ? `Restore the complete skill package; missing: ${missing.join(', ')}.` : 'Skill scripts, references, and browser assets are accessible.');
@@ -53,7 +45,8 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
   try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && mapFolderPattern.test(entry.name)).length; }
   catch (error) { if (error.code !== 'ENOENT') add('maps', 'warning', 'Saved-map directory could not be inspected.'); }
   const lock = await inspectLock(workspace);
-  const result = { ready: false, state: 'not-started', workspace, skillDirectory, savedMaps, lock, checks,
+  const version = await packageVersion();
+  const result = { ready: false, state: 'not-started', version: version ?? 'unversioned', workspace, skillDirectory, savedMaps, lock, checks,
     start: { executable: process.execPath, args: [path.join(skillDirectory, 'scripts/server.mjs'), '--workspace', workspace, '--port', '0'] },
     note: 'Read-only diagnostics. No server was started, files changed, or model/provider connection tested.' };
   let connection;
@@ -64,7 +57,8 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
     result.nextStep = error.code === 'missing' ? 'Start the server with the start arguments in a persistent process, then rerun doctor.' : 'Use the current workspace path. If its runtime files were copied or became invalid, stop the owning workspace server and resolve those local runtime files before restarting; saved ideas do not need replacement.';
   }
   if (connection) {
-    result.address = connection.address;
+    result.address = connection.address; result.serverVersion = connection.version ?? 'unversioned';
+    if (result.serverVersion !== result.version) add('version', 'warning', 'The running server is from a different Explore version. Restart it to use the installed one.');
     try {
       const response = await fetch(`${connection.address}/api/maps`, { headers: { Authorization: `Bearer ${connection.token}` }, redirect: 'error', signal: AbortSignal.timeout(timeout) });
       if (response.status === 401 || response.status === 403) {

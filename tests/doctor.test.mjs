@@ -40,7 +40,8 @@ test('doctor reconnects to a live bridge and diagnoses a stopped bridge without 
     const result = JSON.parse(response.stdout);
     assert.equal(result.ready, true); assert.equal(result.state, 'ready'); assert.equal(result.bridge.listening, false);
     assert.ok(!response.stdout.includes(connection.token)); assert.ok(!response.stdout.includes('"token"'));
-    assert.deepEqual((await readdir(path.join(workspace, '.explore'))).sort(), ['connection.json', 'server.lock']);
+    assert.deepEqual((await readdir(path.join(workspace, '.explore'))).sort(), ['.gitignore', 'connection.json', 'server.lock']);
+    assert.equal(await readFile(path.join(workspace, '.explore/.gitignore'), 'utf8'), '*\n', 'the runtime folder ignores itself in Git');
   } finally { await app.close(); }
   await saveConnection(workspace, connection);
   const result = JSON.parse((await run(workspace)).stdout);
@@ -93,4 +94,21 @@ test('doctor never follows an authenticated redirect or echoes a rejected creden
     await assert.rejects(run(workspace, ['status']));
     assert.equal(destinationRequests, 0);
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+test('the app and doctor name the package version, and doctor warns about a server from another version', async () => {
+  const workspace = await temporary('doctor-version-');
+  const app = await startServer({ workspace, port: 0 });
+  try {
+    const { version } = JSON.parse(await readFile(path.resolve('skills/explore/version.json'), 'utf8'));
+    assert.equal((await (await fetch(app.address + '/api/session')).json()).version, version);
+    let result = JSON.parse((await run(workspace)).stdout);
+    assert.equal(result.version, version); assert.equal(result.serverVersion, version);
+    assert.ok(!result.checks.some(check => check.name === 'version'));
+    const file = path.join(workspace, '.explore/connection.json'), connection = JSON.parse(await readFile(file, 'utf8'));
+    await writeFile(file, JSON.stringify({ ...connection, version: '0.0.1' }));
+    result = JSON.parse((await run(workspace)).stdout);
+    assert.equal(result.serverVersion, '0.0.1');
+    assert.match(result.checks.find(check => check.name === 'version').message, /different Explore version\. Restart it/);
+  } finally { await app.close(); }
 });

@@ -3,6 +3,7 @@ import { readFile, mkdir, appendFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { atomicJson } from './store.mjs';
 import { diagnose, readConnection } from './doctor.mjs';
+import { runtimePath } from './server-lock.mjs';
 
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
@@ -32,7 +33,7 @@ const page = (items, revision, fields = ['title']) => {
 };
 try {
   const workspace = path.resolve(option('workspace', process.cwd()));
-  const runtime = path.join(workspace, '.explore');
+  const runtime = runtimePath(workspace);
   if (command === 'help' || args.includes('--help')) { console.log(usage); }
   else {
     if (!['doctor', 'status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'usage', 'act'].includes(command)) throw new Error(usage);

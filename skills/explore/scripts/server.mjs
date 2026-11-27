@@ -1,38 +1,36 @@
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readFile, mkdir, open, unlink } from 'node:fs/promises';
+import { readFile, open, unlink } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { Store, Problem, atomicJson, publicMap } from './store.mjs';
 import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
 import { previewRestart } from './restart.mjs';
+import { packageVersion } from './package-version.mjs';
+import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
 
 const assets = fileURLToPath(new URL('../assets/', import.meta.url));
 export async function startServer({ workspace = process.cwd(), port = 4317, dataDirectory, registry } = {}) {
   workspace = path.resolve(workspace);
-  const runtime = path.join(workspace, '.explore');
-  await mkdir(runtime, { recursive: true });
+  const runtime = await ensureRuntime(workspace);
   const lockPath = path.join(runtime, 'server.lock');
   let lock;
   try { lock = await open(lockPath, 'wx'); }
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
-    const existing = JSON.parse(await readFile(lockPath, 'utf8'));
-    if (!Number.isInteger(existing.pid) || existing.pid <= 0) throw new Error('Invalid server lock. Inspect .explore/server.lock before starting another server.');
-    try { process.kill(existing.pid, 0); throw new Error('A server already owns this workspace. Use the existing URL shown by the CLI status command.'); }
-    catch (probe) {
-      if (probe.code !== 'ESRCH') throw probe;
-      await unlink(lockPath); // The recorded process no longer exists.
-      lock = await open(lockPath, 'wx');
-    }
+    const existing = await inspectLock(workspace);
+    if (existing.state === 'invalid') throw new Error('Invalid server lock. Inspect .explore/server.lock before starting another server.');
+    if (!lockIsFree(existing)) throw new Error('A server already owns this workspace. Use the existing URL shown by the CLI status command.');
+    await unlink(lockPath).catch(() => {}); // The recorded process no longer exists.
+    lock = await open(lockPath, 'wx');
   }
   await lock.writeFile(JSON.stringify({ pid: process.pid })); await lock.close();
   const connectionPath = path.join(runtime, 'connection.json');
   const token = randomBytes(32).toString('hex');
   const store = new Store(dataDirectory || path.join(workspace, 'ideas'), registry ? { registry } : {});
-  const contributor = gitContributor(workspace);
+  const contributor = gitContributor(workspace), version = await packageVersion();
   let address, worker = '', closing = false;
   const listeners = new Map();
   const bridgeStatus = () => {
@@ -53,7 +51,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
       if (req.headers.origin && req.headers.origin !== address) throw new Problem('Cross-origin requests are not allowed.', 403);
       if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])) throw new Problem('Cross-site requests are not allowed.', 403);
       const url = new URL(req.url, address);
-      if (req.method === 'GET' && url.pathname === '/api/session') return send(res, 200, { token, workspace: path.basename(workspace), workspacePath: workspace, skillPath: fileURLToPath(new URL('../SKILL.md', import.meta.url)), dataDirectory: store.directory });
+      if (req.method === 'GET' && url.pathname === '/api/session') return send(res, 200, { token, version, workspace: path.basename(workspace), workspacePath: workspace, skillPath: fileURLToPath(new URL('../SKILL.md', import.meta.url)), dataDirectory: store.directory });
       if (url.pathname.startsWith('/api/')) {
         if (req.headers.authorization !== `Bearer ${token}`) throw new Problem('Open the workspace again to reconnect.', 401);
         if (req.method === 'GET' && url.pathname === '/api/maps') return send(res, 200, { maps: await store.list(), bridge: bridgeStatus() });
@@ -126,7 +124,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
     address = `http://127.0.0.1:${server.address().port}`;
-    await atomicJson(connectionPath, { address, token, pid: process.pid, workspace, dataDirectory: store.directory });
+    await atomicJson(connectionPath, { address, token, pid: process.pid, workspace, dataDirectory: store.directory, version });
   } catch (error) { server.close(); await unlink(lockPath); throw error; }
   async function close() {
     if (closing) return; closing = true;
