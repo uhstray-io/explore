@@ -212,6 +212,20 @@ test('superseded questions stay readable without an answer control', () => {
   assert.doesNotMatch(h.markup(), /data-question="old-question"|data-draft="old-question"/);
 });
 
+test('the inspector says who answered and who accepted, and nothing for unattributed records', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'explored'; node.completed = true; node.reviewState = 'accepted'; node.acceptedBy = { name: 'Ana' };
+  node.questions = [{ id: 'q-1', text: 'Who decides?', answer: 'The owner.', answeredAt: '2026-11-03T10:00:00Z', answeredBy: { name: 'Ana' } },
+    { id: 'q-2', text: 'When?', answer: 'Soon.', answeredAt: '2026-11-04T10:00:00Z' }];
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /Answered by Ana · /);
+  assert.equal(h.markup().match(/Answered by/g).length, 1);
+  assert.match(h.markup(), /Accepted by Ana/);
+  node.acceptedBy = 'user'; h.render();
+  assert.doesNotMatch(h.markup(), /Accepted by/);
+});
+
 test('the inspector reports the branch investigation, not later helper work on the same idea', () => {
   const h = harness();
   h.state.visibleMap.nodes[0].status = 'interrupted';

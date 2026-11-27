@@ -31,6 +31,8 @@ const unreadable = {
 };
 const changedOutside = 'This map changed outside Explore, for example after a pull. Read the updated map, then try again; your text has been kept.';
 const fingerprintOf = bytes => createHash('sha256').update(bytes).digest('hex');
+// Contributor names come from Git; in generated Markdown they stay literal text, never markup.
+const literal = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const isRecord = value => value && typeof value === 'object' && !Array.isArray(value);
 // Enough structure that listing, recovery and the views can rely on it; anything less is unreadable, never a crash.
 function wellFormed(map, mapId) {
@@ -191,9 +193,10 @@ export class Store {
     for (const n of map.nodes) {
       overview.push(`- [${n.title.replace(/[\[\]]/g, '')}](nodes/${n.id}.md): ${n.status}; ${n.reviewState}${n.stale ? '; needs review after a premise changed' : ''}. ${n.summary.replace(/\n/g, ' ')}`);
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
-        `Generated from map revision ${map.revision}. Edit through Explore.`, '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
+        `Generated from map revision ${map.revision}. Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.');
-      if (n.questions.length) lines.push('', '## Questions and answers', ...n.questions.flatMap(q => ['', `### ${q.text}`, '', ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : '_Awaiting the user._')]));
+      if (n.questions.length) lines.push('', '## Questions and answers', ...n.questions.flatMap(q => ['', `### ${q.text}`, '', ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : '_Awaiting the user._'),
+        ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : [])]));
       if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`]));
       const edges = map.edges.filter(e => e.from === n.id || e.to === n.id);
       if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}`));
@@ -303,7 +306,8 @@ export class Store {
       return this.save(map);
     });
   }
-  action(mapId, input) {
+  // `actor` is { name } from the server's own Git lookup, never from the request body.
+  action(mapId, input, { actor = null } = {}) {
     return this.serial(async () => {
       object(input, 'Input');
       // An edit made from an outdated view never overwrites a map changed outside Explore, even
@@ -318,7 +322,7 @@ export class Store {
       const mapLevel = input.type === 'cancel-job' || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);
       if (!mapLevel) need(n, 'Node not found.', 404);
-      if (declared) { await declared.apply({ map, node: n, input, store: this }); return this.save(map); }
+      if (declared) { await declared.apply({ map, node: n, input, store: this, actor }); return this.save(map); }
       switch (input.type) {
         case 'cancel-job': {
           const job = map.jobs.find(j => j.id === input.jobId);
@@ -339,6 +343,7 @@ export class Store {
           need(!q.supersededAt, 'This question belongs to an earlier premise. Activate the revised branch to continue.', 409);
           need(!q.answer, 'This question was already answered. Refresh the map.', 409);
           q.answer = text(input.answer, 'Answer', 12000); q.answeredAt = now(); n.contentRevision++;
+          if (actor?.name) q.answeredBy = { name: actor.name };
           this.event(map, 'answered', n.id, q.id);
           if (n.questions.every(q => q.answer || q.supersededAt)) this.enqueue(map, n, 'User answered the branch questions. Continue this investigation.');
           break;
@@ -357,7 +362,7 @@ export class Store {
           n.status = 'interrupted'; this.event(map, 'cancelled', n.id); break;
         case 'accept':
           need(n.status === 'explored' && !n.stale, 'Only current findings can be accepted.');
-          n.reviewState = 'accepted'; n.acceptedAt = now(); n.acceptedBy = 'user'; n.contentRevision++;
+          n.reviewState = 'accepted'; n.acceptedAt = now(); n.acceptedBy = actor?.name ? { name: actor.name } : 'user'; n.contentRevision++;
           this.event(map, 'accepted', n.id); break;
         case 'revise': {
           need(!isCompleted(map, n), 'Keep the completed finding. Use fork-revision to explore a changed premise.', 409);
