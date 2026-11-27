@@ -1,5 +1,4 @@
 import { listenChoices } from './listening.js';
-import { notifyKey } from './alerts.js';
 
 // The prompt to paste into a coding agent: continue this workspace, and this map when one is open.
 export function agentPrompt(session, map) {
@@ -10,7 +9,7 @@ export function agentPrompt(session, map) {
 // The agent dialog, opened from the bridge status: the prompt, and how long that agent keeps listening for work
 // (K1), a setting shared by everyone who opens the repo. Nothing here runs or wakes an agent; the window only
 // applies while the agent's session stays open.
-export function agentDialog({ api, toast, session, map }) {
+export function agentDialog({ api, toast, alerts, session, map }) {
   const $ = selector => document.querySelector(selector), select = $('#listen-minutes'), status = $('#agent-copy-status');
   let revision = null;
   select.innerHTML = listenChoices.map(minutes => `<option value="${minutes}">${minutes} minutes</option>`).join('');
@@ -33,21 +32,15 @@ export function agentDialog({ api, toast, session, map }) {
     try { await navigator.clipboard.writeText($('#agent-prompt').value); status.textContent = 'Prompt copied. Paste it into your coding agent.'; }
     catch { $('#agent-prompt').focus(); $('#agent-prompt').select(); status.textContent = 'Copy the selected prompt above.'; }
   });
-  // Notify me in the background (K12). The browser is asked only here, when the user turns it on; never on load.
+  // Notify me in the background (K12). Turning it on is the only thing that asks the browser; never on load.
   const notify = $('#notify-toggle'), notifyNote = $('#notify-note');
-  const permission = () => typeof Notification === 'function' ? Notification.permission : 'unavailable';
   const describeNotify = () => {
-    notifyNote.textContent = permission() === 'denied' || permission() === 'unavailable' ? 'This browser will not show notifications here. The count in the tab title still works.'
-      : 'Alerts arrive only while this tab is open and an agent is listening. They name the map and the idea, never findings or answers.';
+    notify.disabled = !alerts.available(); notify.checked = alerts.enabled();
+    notifyNote.textContent = alerts.available() ? 'Alerts arrive only while this tab is open and an agent is listening. They name the map and the idea, never findings or answers.'
+      : 'This browser will not show notifications here. The count in the tab title still works.';
   };
-  notify.addEventListener('change', async () => {
-    if (notify.checked && permission() === 'default') await Notification.requestPermission();
-    if (permission() !== 'granted') notify.checked = false;
-    try { localStorage.setItem(notifyKey, notify.checked ? 'on' : 'off'); } catch {}
-    describeNotify();
-  });
+  notify.addEventListener('change', async () => { await alerts.setEnabled(notify.checked); describeNotify(); });
   return function show() {
-    try { notify.checked = localStorage.getItem(notifyKey) === 'on' && permission() === 'granted'; } catch { notify.checked = false; }
     describeNotify();
     $('#agent-prompt').value = agentPrompt(session(), map());
     status.textContent = ''; loadSetting(); $('#help-dialog').showModal();
