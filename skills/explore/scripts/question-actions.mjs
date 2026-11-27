@@ -1,4 +1,4 @@
-import { isOpen, isBlocking } from '../assets/questions.js';
+import { isOpen, isBlocking, normalizeQuestion } from '../assets/questions.js';
 
 // The question ⋯ menu (B7): rate a question, dismiss it, bring it back, or ask for a better one.
 // Ratings and dismissals are the user's feedback, never content: they don't re-run research, and
@@ -78,7 +78,7 @@ export const questionActions = {
   } },
 };
 
-const regenerateInstruction = 'Ask one replacement question that serves the same purpose better. Take the user\'s reason into account. Do not repeat the original or any dismissed question, and do not answer it. Return {"question": {"text": "…"}} through the CLI.';
+const regenerateInstruction = 'Ask one replacement question that serves the same purpose better. Take the user\'s reason into account. Do not repeat the original or any dismissed question, and do not answer it. Return {"question": {"text": "…", "importance": "low|medium|high", "why": "…"}} through the CLI; importance and why are optional, and importance needs why.';
 
 export const questionJobTypes = {
   [REGENERATE]: {
@@ -86,7 +86,7 @@ export const questionJobTypes = {
     packet: ({ map, job, node }) => {
       const original = node.questions.find(q => q.id === job.subjectId);
       return {
-        question: { id: original?.id, text: clip(original?.text, 600) }, userReason: job.input?.reason ?? null,
+        question: { id: original?.id, text: clip(original?.text, 600), ...(original?.why ? { why: clip(original.why, 600) } : {}) }, userReason: job.input?.reason ?? null,
         node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 600), summary: clip(node.summary, 400) },
         answeredQuestions: node.questions.filter(q => q.answer && !q.supersededAt).slice(-6).map(q => ({ question: clip(q.text, 200), answer: clip(q.answer, 300) })),
         openQuestions: node.questions.filter(isOpen).map(q => clip(q.text, 200)),
@@ -94,16 +94,14 @@ export const questionJobTypes = {
       };
     },
     validate: result => {
-      need(result.question && typeof result.question === 'object' && typeof result.question.text === 'string' && result.question.text.trim(), 'Return {"question": {"text": "…"}}.');
-      need(result.question.text.length <= 1600, 'The question must be at most 1,600 characters.');
-      return { question: { text: result.question.text.trim() } };
+      return { question: normalizeQuestion(result.question, message => need(false, message)) };
     },
     // A replacement only makes sense while the original is still waiting to be replaced.
     isStale: ({ job, node }) => { const original = node?.questions.find(q => q.id === job.subjectId); return !original || original.replacedBy !== 'pending' || !!original.supersededAt; },
     store: ({ job, result, stale, makeId, at, map }) => {
       const node = map.nodes.find(n => n.id === job.nodeId), original = node?.questions.find(q => q.id === job.subjectId);
       if (stale) { if (original?.replacedBy === 'pending') delete original.replacedBy; return; }
-      const fresh = { id: makeId('q'), text: result.question.text, answer: null, askedAt: at, jobId: job.id, replaces: original.id };
+      const fresh = { id: makeId('q'), ...result.question, answer: null, askedAt: at, jobId: job.id, replaces: original.id };
       node.questions.push(fresh); original.replacedBy = fresh.id; node.contentRevision++;
     },
     release: ({ map, job }) => restoreOriginal(map.nodes.find(n => n.id === job.nodeId), job.subjectId),

@@ -40,7 +40,9 @@ To create a map, the input file is `{ "title": "Short name", "idea": "The user's
 {
   "summary": "A concise account of this branch's current understanding.",
   "body": "Detailed findings, reasons, alternatives, and uncertainties in readable Markdown.",
-  "questions": ["One question that genuinely needs the user's answer"],
+  "questions": [
+    {"text": "One question that genuinely needs the user's answer", "importance": "high", "why": "What the answer would change for this branch"}
+  ],
   "suggestions": [
     {"title": "A direction worth exploring", "body": "Why it matters and what we would investigate", "kind": "research"}
   ],
@@ -71,7 +73,7 @@ Give 1–4 options with unique `id`s (a letter, then letters, digits, `_` or `-`
 
 `summary` and `body` are required. Omit unused arrays. The example URL and ID are illustrative; real results require actual consulted sources and existing node IDs. Do not cite a source you have not read.
 
-Limits: summary 800 characters; body 24,000; at most 5 questions, 8 suggestions, 20 sources, 12 links. Suggestion kinds: `research`, `question`, `decision`, `risk`, `idea`. Link types: `depends_on`, `supports`, `contradicts`, `related_to`. `contains` is created by the server for suggested children. All results remain unreviewed until the user accepts them.
+Limits: summary 800 characters; body 24,000; at most 5 questions, 8 suggestions, 20 sources, 12 links. A question is a string or `{text, importance, why}`: `importance` is `low`, `medium` or `high` and needs a `why` (at most 600 characters) saying what the answer would change; `why` may also stand alone. A missing `why` for a rated question, or any other importance value, rejects the whole result so you can resend it. Suggestion kinds: `research`, `question`, `decision`, `risk`, `idea`. Link types: `depends_on`, `supports`, `contradicts`, `related_to`. `contains` is created by the server for suggested children. All results remain unreviewed until the user accepts them.
 
 ## Other kinds of work
 
@@ -81,7 +83,7 @@ Some work covers the whole map rather than one idea. Its job has `nodeId: null`,
 
 ## Regenerating a question
 
-A `regenerate-question` packet carries the `question` to replace, the user's `userReason`, the idea (`node`), its `answeredQuestions` and `openQuestions`, and the map's `questionFeedback`. Return `{"question": {"text": "…"}}` (at most 1,600 characters): one question that serves the same purpose better, never the original or a dismissed one, and never its answer. It is added beside the original, linked by `replaces` and `replacedBy`. A replacement for a question that is no longer waiting is kept as stale and not added.
+A `regenerate-question` packet carries the `question` to replace, the user's `userReason`, the idea (`node`), its `answeredQuestions` and `openQuestions`, and the map's `questionFeedback`. Return `{"question": {"text": "…", "importance": "…", "why": "…"}}` (text at most 1,600 characters; importance and why are optional, as in results): one question that serves the same purpose better, never the original or a dismissed one, and never its answer. It is added beside the original, linked by `replaces` and `replacedBy`. A replacement for a question that is no longer waiting is kept as stale and not added.
 
 Every investigation packet carries `questionFeedback`: up to 10 of the map's most recent questions the user rated, dismissed or replaced, with any reason (trimmed first when the packet is over budget), and `selected.dismissedQuestions`, which are never to be asked again.
 
