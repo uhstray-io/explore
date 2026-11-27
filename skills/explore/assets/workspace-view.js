@@ -215,6 +215,28 @@ export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
   const help = mine.filter(job => job.status === 'completed' && !job.stale && job.result?.help).at(-1);
   return help ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer</summary><p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
 }
+// Git status for the open map (H9), in plain words. Unknown states fall back to the plain saved label.
+export function gitStatusLabel(status) {
+  switch (status?.state) {
+    case 'committed': return status.branch && status.branch !== 'detached' && status.branch !== 'unknown' ? `Saved · committed on ${status.branch}` : 'Saved · committed';
+    case 'not-committed': return 'Saved locally · not committed';
+    case 'conflict': return 'Git conflict · resolve before editing';
+    case 'no-repository': return 'Saved locally · no Git repository';
+    case 'ignored': return 'Saved locally · ignored by Git';
+    default: return 'Saved in this repo';
+  }
+}
+// What hovering or focusing the label shows: the branch, how it compares with its upstream, and when this was checked.
+export function gitStatusDetail(status) {
+  if (!status || ['unknown', 'no-repository'].includes(status.state)) return status?.state === 'no-repository' ? 'This map is not inside a Git repository.' : 'Git status could not be checked.';
+  const change = status.state === 'not-committed' ? (status.untracked ? 'New, never committed' : status.staged && status.unstaged ? 'Staged, with further changes' : status.staged ? 'Staged, not committed' : 'Changed, not staged') : null;
+  const branch = status.branch === 'detached' ? 'Detached HEAD' : `Branch ${status.branch}`;
+  const upstream = status.upstream ? `${status.ahead ?? 0} ahead, ${status.behind ?? 0} behind its upstream` : 'no upstream';
+  const when = status.checkedAt ? `Checked ${new Date(status.checkedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : '';
+  const facts = [change, branch, upstream].filter(Boolean).join(' · ');
+  return [facts, when, 'Explore does not fetch, so the remote may be newer. Click to check again.'].filter(Boolean).join('. ');
+}
+
 // The idea ⋯ menu (H2): Copy link.
 export function nodeMenuHtml(node, { esc }) {
   const id = esc(node.id);

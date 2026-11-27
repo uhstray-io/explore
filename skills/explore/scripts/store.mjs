@@ -1,10 +1,9 @@
 import { mkdir, readFile, readdir, writeFile, rm, access } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
+import { git } from './git.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
@@ -13,7 +12,6 @@ import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
 
-const run = promisify(execFile);
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
 // Packet fields for an answer's certainty; older answers say theirs was not recorded.
@@ -128,14 +126,9 @@ export class Store {
   // line-ending and attribute rules, then whether Git has that object. A Windows checkout's CRLF copy
   // of committed work therefore counts as already in Git.
   async inGit(mapId, bytes) {
-    const folder = path.dirname(this.file(mapId)), options = { timeout: 5000, windowsHide: true };
-    try {
-      const hashing = run('git', ['-C', folder, 'hash-object', '--path=map.json', '--stdin'], options);
-      hashing.child.stdin.end(bytes);
-      const name = (await hashing).stdout.trim();
-      await run('git', ['-C', folder, 'cat-file', '-e', name], options);
-      return true;
-    } catch { return false; }
+    const folder = path.dirname(this.file(mapId));
+    const hashing = await git(['hash-object', '--path=map.json', '--stdin'], { cwd: folder, input: bytes });
+    return Boolean(hashing.ok && (await git(['cat-file', '-e', hashing.stdout.trim()], { cwd: folder })).ok);
   }
   // Copies kept by H3 before version history existed become versions labelled `preserved`.
   async importPreserved(mapId) {

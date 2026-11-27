@@ -58,6 +58,10 @@ Each saved content change is also kept as a version, so anyone who pulls can pre
 
 Machine-local connection tokens, process locks, result drafts, and claim-delivery files live under `.explore/`, which should be ignored by Git. Settings are not machine-local; they live in `ideas/settings.json`. No model API key is part of a map. A provider's original chat history or conversation ID is not necessary to read/continue the map. Share saved maps deliberately: they contain the user's actual ideas and answers.
 
+## Git status
+
+`GET /api/maps/:id/git-status` reports where a map's `map.json` stands in Git: `{ state, staged?, unstaged?, untracked?, branch?, upstream?, ahead?, behind?, checkedAt }`. The states are `committed`, `not-committed`, `ignored`, `conflict`, `no-repository` and `unknown` (Git missing, a timeout or unexpected output). Branch is a name, `detached` or `unknown`. Ahead and behind compare local refs only; Explore never fetches. The check runs read-only Git (`scripts/git.mjs`: literal arguments, no shell, no optional locks, fsmonitor off, a 5-second timeout and a 64 KiB output cap, and no inherited `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE`). It works for a map that cannot be opened, and it never returns paths or Git's own output. The label describes `map.json` only; the generated Markdown beside it may differ from Git.
+
 ## Export and import
 
 An export is `{ format: "explore-map", version: 1, exportedAt, map }`, where `map` is the saved map without claim data (`claimKey`, `claimHash`, `inputSignature`). Everything else travels, including history, growth, positions and settings that live in the map. Nothing from `.explore/` is read.
