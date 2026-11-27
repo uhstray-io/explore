@@ -96,7 +96,7 @@ export const questionActions = {
   // Replace an unhelpful question: the original is set aside and the branch waits for the new one.
   'regenerate-question': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const question = openQuestion(map, node, input.questionId, store, 'regenerated');
-    need(!question.deferredAt, 'A question saved for later cannot be regenerated while its branch carries on. Answer it, or dismiss it once the branch waits for you.', 409);
+    need(!question.deferredAt, 'A question saved for later cannot be regenerated. Answer it, or ask for research to help.', 409);
     const reason = reasonText(input.reason);
     Object.assign(question, { dismissedAt: now(), ...(by(actor) ? { dismissedBy: by(actor) } : {}), replacedBy: 'pending',
       ...(reason ? { rating: 'bad', ratingReason: reason, ratedAt: now(), ...(by(actor) ? { ratedBy: by(actor) } : {}) } : {}) });
