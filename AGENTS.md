@@ -30,3 +30,5 @@ Do not use the owner's `ideas/` for tests. `.explore/` (or `.grill-my-mind/` in 
 Planned features are GitHub issues on `uhstray-io/explore`, tracked in #70. Read `docs/roadmap.md` before picking an issue, switching branches or merging: it records branch state, the owner's decisions (which win over older issue text), and known defects. Earlier design decisions are in `.scratch/explore/map.md`. Record new decisions with reasons and verification, not hidden reasoning. A copied skill package or simulated worker test does not prove live Claude Code/Copilot compatibility.
 
 The owner merges into `main`. Commit owner map edits under `ideas/` separately from implementation work.
+
+Always commit and push completed work; you don't need to ask first. Work on a feature branch, never on `main`. When an issue is finished and its checks pass, commit it, push the branch, and open a pull request for the owner to merge, with `Closes #N` for the issue it completes. When a branch builds on another unmerged branch, open its pull request against that branch so the stack merges in order. Never force-push a branch someone else may have pulled, and never merge into `main` yourself.
