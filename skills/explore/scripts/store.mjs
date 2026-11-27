@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, open, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, open, rename, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -31,8 +31,13 @@ const unreadable = {
 };
 const changedOutside = 'This map changed outside Explore, for example after a pull. Read the updated map, then try again; your text has been kept.';
 const fingerprintOf = bytes => createHash('sha256').update(bytes).digest('hex');
-// Git's own object name for these bytes, so Explore can ask whether Git already keeps them.
-const gitObjectName = bytes => createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+const isRecord = value => value && typeof value === 'object' && !Array.isArray(value);
+// Enough structure that listing, recovery and the views can rely on it; anything less is unreadable, never a crash.
+function wellFormed(map, mapId) {
+  return map.id === mapId && typeof map.title === 'string' && typeof map.updatedAt === 'string' && Number.isSafeInteger(map.revision)
+    && Array.isArray(map.nodes) && map.nodes.length > 0 && map.nodes.every(n => isRecord(n) && typeof n.id === 'string' && Array.isArray(n.questions) && Array.isArray(n.sources))
+    && Array.isArray(map.edges) && map.edges.every(isRecord) && Array.isArray(map.jobs) && map.jobs.every(isRecord) && Array.isArray(map.history);
+}
 function parseMap(mapId, bytes) {
   const raw = bytes.toString('utf8');
   // JSON strings cannot contain raw line breaks, so a line starting with a marker is never map content.
@@ -41,7 +46,7 @@ function parseMap(mapId, bytes) {
   try { map = JSON.parse(raw); } catch { throw new Problem(unreadable['invalid-json'], 409, 'invalid-json'); }
   need(map && typeof map === 'object' && !Array.isArray(map), unreadable['invalid-map'], 409, 'invalid-map');
   need(map.schemaVersion === 1, unreadable['unsupported-version'], 409, 'unsupported-version');
-  need(map.id === mapId && Array.isArray(map.nodes) && map.nodes.length > 0 && Array.isArray(map.edges) && Array.isArray(map.jobs), unreadable['invalid-map'], 409, 'invalid-map');
+  need(wellFormed(map, mapId), unreadable['invalid-map'], 409, 'invalid-map');
   return map;
 }
 function object(value, field) {
@@ -61,13 +66,15 @@ function safeUrl(value) {
   catch { throw new Problem('Source URL must be a valid HTTP or HTTPS URL.'); }
   return url;
 }
-async function atomicWrite(file, contents) {
+// `beforeRename` runs once the new contents are synced; if it throws, the old file stays untouched.
+async function atomicWrite(file, contents, beforeRename) {
   await mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomUUID()}.tmp`;
   const handle = await open(temp, 'wx');
   try { await handle.writeFile(contents); await handle.sync(); }
   finally { await handle.close(); }
-  await rename(temp, file);
+  try { if (beforeRename) await beforeRename(); await rename(temp, file); }
+  catch (error) { await unlink(temp).catch(() => {}); throw error; }
 }
 export async function atomicJson(file, value) { await atomicWrite(file, JSON.stringify(value, null, 2) + '\n'); }
 
@@ -109,12 +116,21 @@ export class Store {
     const change = { at: now(), preserved: null, inGit: false };
     this.outside.set(mapId, change);
     // Keep the version that was replaced unless Git already has it, so ordinary pulls add no files.
-    try { change.inGit = await this.inGit(known.bytes); if (!change.inGit) change.preserved = await this.preserve(mapId, known.bytes, known.fingerprint); }
+    try { change.inGit = await this.inGit(mapId, known.bytes); if (!change.inGit) change.preserved = await this.preserve(mapId, known.bytes, known.fingerprint); }
     catch {} // Keeping a copy is a courtesy; the read itself must still succeed.
   }
-  async inGit(bytes) {
-    try { await run('git', ['-C', this.directory, 'cat-file', '-e', gitObjectName(bytes)], { timeout: 5000, windowsHide: true }); return true; }
-    catch { return false; }
+  // Asks Git for the object name these bytes would have as this map's file, applying the repository's
+  // line-ending and attribute rules, then whether Git has that object. A Windows checkout's CRLF copy
+  // of committed work therefore counts as already in Git.
+  async inGit(mapId, bytes) {
+    const folder = path.dirname(this.file(mapId)), options = { timeout: 5000, windowsHide: true };
+    try {
+      const hashing = run('git', ['-C', folder, 'hash-object', '--path=map.json', '--stdin'], options);
+      hashing.child.stdin.end(bytes);
+      const name = (await hashing).stdout.trim();
+      await run('git', ['-C', folder, 'cat-file', '-e', name], options);
+      return true;
+    } catch { return false; }
   }
   async preserve(mapId, bytes, fingerprint) {
     const dir = path.join(this.directory, mapId, 'preserved'), tag = fingerprint.slice(0, 16);
@@ -133,7 +149,11 @@ export class Store {
     for (const entry of entries.filter(e => e.isDirectory() && /^map-[a-f0-9]{8}$/.test(e.name))) {
       let m;
       try { m = await this.get(entry.name); }
-      catch (error) { if (error instanceof Problem && Object.hasOwn(unreadable, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; } throw error; }
+      catch (error) {
+        if (error instanceof Problem && error.code === 'not-found') continue; // A folder left behind by a branch switch is not a map.
+        if (error instanceof Problem && Object.hasOwn(unreadable, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; }
+        throw error;
+      }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
         count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length });
     }
@@ -146,12 +166,13 @@ export class Store {
     const bytes = Buffer.from(JSON.stringify(map, null, 2) + '\n'), fingerprint = fingerprintOf(bytes);
     await this.withMapLock(map.id, async () => {
       const basis = this.basis.get(map);
-      if (basis) {
+      // Checked after the new file is written and synced, just before it replaces the old one.
+      await atomicWrite(this.file(map.id), bytes, async () => {
+        if (!basis) return;
         let onDisk = null;
         try { onDisk = fingerprintOf(await readFile(this.file(map.id))); } catch (error) { if (error.code !== 'ENOENT') throw error; }
         if (onDisk !== basis) { map.revision -= 1; throw new Problem(changedOutside, 409, 'changed-outside'); }
-      }
-      await atomicWrite(this.file(map.id), bytes);
+      });
       this.adopted.set(map.id, { fingerprint, bytes }); this.basis.set(map, fingerprint);
     });
     // Views carry their revision: a crash here cannot make them authoritative.
@@ -287,11 +308,12 @@ export class Store {
       object(input, 'Input');
       // An edit made from an outdated view never overwrites a map changed outside Explore, even
       // when the revision numbers happen to match. The browser names the version it shows.
-      const { map, bytes, fingerprint } = await this.read(mapId);
+      // Whatever is on disk is adopted first, so a version replaced by a reset or pull is kept.
       const known = this.adopted.get(mapId)?.fingerprint;
-      need((input.expectedFingerprint ?? known ?? fingerprint) === fingerprint, changedOutside, 409, 'changed-outside');
-      if (!known) this.adopted.set(mapId, { fingerprint, bytes });
+      const { map, fingerprint } = await this.withMapLock(mapId, async () => { const current = await this.read(mapId); await this.adopt(mapId, current); return current; });
+      // A view behind Explore's own save is simply stale; only a different file is an outside change.
       need(input.expectedRevision === map.revision, 'This map changed. Refresh and try again; your text has been kept.', 409);
+      need((input.expectedFingerprint ?? known ?? fingerprint) === fingerprint, changedOutside, 409, 'changed-outside');
       const declared = Object.hasOwn(this.registry.actions, input.type) ? this.registry.actions[input.type] : null;
       const mapLevel = input.type === 'cancel-job' || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);

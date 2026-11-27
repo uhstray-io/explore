@@ -194,3 +194,62 @@ test('a map file copied into another folder is unreadable rather than saved over
   await writeFile(store.file(copy), await readFile(store.file(map.id)));
   assert.deepEqual((await store.list()).find(item => item.id === copy), { id: copy, unreadable: true, problem: 'invalid-map' });
 });
+
+test('a map folder without a map file is ignored instead of stopping the list and startup', async () => {
+  const { store, map } = await fixture();
+  await mkdir(path.join(store.directory, 'map-0000aaaa', 'preserved'), { recursive: true });
+  const restarted = new Store(store.directory);
+  await restarted.recover();
+  assert.deepEqual((await restarted.list()).map(item => item.id), [map.id]);
+});
+
+test('a map file missing required parts is unreadable, not a crash', async () => {
+  const { store, map } = await fixture();
+  const good = JSON.parse(await readFile(store.file(map.id), 'utf8'));
+  for (const damage of [m => { delete m.updatedAt; }, m => { m.nodes = [null]; }, m => { m.jobs = [null]; }, m => { delete m.history; }, m => { m.revision = 'three'; }]) {
+    const broken = structuredClone(good); damage(broken);
+    await writeFile(store.file(map.id), JSON.stringify(broken));
+    const restarted = new Store(store.directory);
+    await restarted.recover();
+    assert.deepEqual(await restarted.list(), [{ id: map.id, unreadable: true, problem: 'invalid-map' }]);
+  }
+});
+
+test('a checkout with Windows line endings is recognised as already in Git', async t => {
+  const { dir, store, map } = await fixture();
+  const git = (...args) => exec('git', ['-C', dir, ...args]);
+  try { await exec('git', ['init', '-q', dir]); } catch { t.skip('Git is not available.'); return; }
+  await git('config', 'core.autocrlf', 'true'); await git('config', 'user.name', 'Test'); await git('config', 'user.email', 'test@example.invalid');
+  await git('add', 'ideas'); await git('commit', '-q', '-m', 'Map');
+  // What a checkout produces when Git converts line endings: the same content with CRLF.
+  const lf = await readFile(store.file(map.id), 'utf8');
+  await writeFile(store.file(map.id), lf.replace(/\n/g, '\r\n'));
+  const restarted = new Store(store.directory);
+  await restarted.get(map.id);
+  await replaceOutside(restarted, map.id, m => { m.title = 'Pulled from a teammate'; });
+  await restarted.get(map.id);
+  assert.equal(restarted.tracking(map.id).outsideChange.inGit, true);
+  assert.deepEqual(await preserved(restarted, map.id), []);
+});
+
+test('an edit made right after a reset keeps the replaced, uncommitted version', async () => {
+  const { store, map } = await fixture();
+  const shown = await store.get(map.id), shownBytes = await readFile(store.file(map.id));
+  const fingerprint = store.tracking(map.id).fingerprint;
+  const job = await store.claim('test');
+  await store.complete(map.id, job.jobId, job.claimKey, { summary: 'Agent result, not yet committed.', body: 'Would be lost.' });
+  const withResult = await readFile(store.file(map.id), 'utf8');
+  await writeFile(store.file(map.id), shownBytes); // git reset --hard back to what the browser still shows
+  await store.action(map.id, { expectedRevision: shown.revision, expectedFingerprint: fingerprint, nodeId: map.rootId, type: 'suggest', title: 'After the reset', body: 'Built on the shown version.' });
+  const change = store.tracking(map.id).outsideChange;
+  assert.ok(change, 'the reset counts as an outside change');
+  assert.equal(await readFile(path.join(store.directory, map.id, change.preserved), 'utf8'), withResult);
+});
+
+test('a view one step behind Explore’s own save is told to refresh, not that the map changed outside', async () => {
+  const { store, map } = await fixture();
+  const shown = await store.get(map.id), fingerprint = store.tracking(map.id).fingerprint;
+  await store.claim('test');
+  await assert.rejects(store.action(map.id, { expectedRevision: shown.revision, expectedFingerprint: fingerprint, nodeId: map.rootId, type: 'suggest', title: 'Late', body: 'One poll behind.' }),
+    error => error.status === 409 && error.code !== 'changed-outside' && !/outside Explore/.test(error.message));
+});

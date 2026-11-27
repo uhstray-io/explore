@@ -53,7 +53,9 @@ async function refresh() {
   const previouslyListening = agentListening();
   try {
     const data = await api('/maps'); state.maps = data.maps; state.bridge = data.bridge; renderRail(); connectionView();
-    const listed = state.map && data.maps.find(m => m.id === state.map.id), change = openMapChange(listed, state.map);
+    // A list requested before another map opened says nothing about the map open now.
+    const current = version === openVersion ? state.map : null;
+    const listed = current && data.maps.find(m => m.id === current.id), change = openMapChange(listed, current);
     if (change === 'removed' || change === 'unreadable') {
       toast(change === 'removed' ? 'This map is no longer in the workspace, for example after a branch switch.' : `${unreadableLabel(listed.problem)}. It opens again once its file is fixed.`);
       showWelcome();
@@ -370,7 +372,12 @@ function act(nodeId, type, extra = {}) {
     } catch (error) {
       toast(error.message);
       // Reload acknowledged coordinates after a conflict instead of displaying an unsaved move.
-      try { const current = await api(`/maps/${mapId}`); if (state.map?.id === mapId) { state.map = current; renderMap(); } } catch { connectionView(true); }
+      try {
+        const current = await api(`/maps/${mapId}`);
+        // The refusal already explained any pull, so it is not announced again later.
+        state.outsideSeen[mapId] = current.outsideChange?.at;
+        if (state.map?.id === mapId) { state.map = current; renderMap(); }
+      } catch { connectionView(true); }
       return false;
     } finally { state.mutating = false; }
   };

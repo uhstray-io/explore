@@ -384,3 +384,35 @@ test('creation errors attach only to the unchanged submitted dialog', async () =
     if (newerDraft) assert.match(h.messages.at(-1), /Disk unavailable/);
   }
 });
+
+test('a map list that was requested before another map opened never closes the new map', async () => {
+  const state = { map: { id: 'map-a', revision: 5, fingerprint: 'f1' }, bridge: {}, mutations: 0, outsideSeen: {} };
+  const events = { welcome: 0, toasts: [] };
+  const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
+    api: async () => {
+      // While this list is in flight the user creates and opens a new map.
+      context.openVersion++; state.map = { id: 'map-new', revision: 1, fingerprint: 'f9' };
+      return { maps: [{ id: 'map-a', revision: 5, fingerprint: 'f1' }], bridge: {} };
+    },
+    renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() {},
+    toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; } });
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+  await context.refresh();
+  assert.equal(events.welcome, 0); assert.deepEqual(events.toasts, []);
+});
+
+test('after an edit is refused because of a pull, the pull is not announced again later', async () => {
+  const state = { map: { id: 'map-a', revision: 5, fingerprint: 'f1' }, historyStep: null, mutations: 0, outsideSeen: {} };
+  const toasts = [];
+  const context = vm.createContext({ state, actionTail: Promise.resolve(), ...viewHelpers,
+    api: async route => {
+      if (route.endsWith('/action')) throw new Error('This map changed outside Explore, for example after a pull.');
+      return { id: 'map-a', revision: 5, fingerprint: 'f2', outsideChange: { at: 't1', preserved: null } };
+    },
+    renderMap() {}, connectionView() {}, toast(message) { toasts.push(message); } });
+  vm.runInContext(between('function act(', '\nlet createVersion'), context);
+  assert.equal(await context.act('node-a', 'suggest', { title: 'Mine' }), false);
+  assert.equal(state.map.fingerprint, 'f2');
+  assert.equal(state.outsideSeen['map-a'], 't1');
+  assert.equal(toasts.length, 1);
+});
