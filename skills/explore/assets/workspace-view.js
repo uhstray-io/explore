@@ -103,6 +103,24 @@ export function restoreSummary({ counts, reopened }, { undo = false } = {}) {
   return `${changes}${reopens} Nothing is explored until you choose Retry, and you can undo ${undo ? 'this too' : 'the restore'}.`;
 }
 
+// Options the agent compared (C1), as compact cards. Only the recommended one is labelled, and the
+// whole section says it is the agent's view: the user still decides.
+export function optionsHtml(node, esc) {
+  if (!node.options?.length) return '';
+  const r = node.recommendation, list = (label, items) => items?.length ? `<p class="option-list"><strong>${label}</strong> ${items.map(esc).join(' · ')}</p>` : '';
+  const cards = node.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ' <span class="option-badge">Recommended</span>' : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}</article>`).join('');
+  const chosen = node.options.find(option => option.id === r?.optionId);
+  const advice = chosen
+    ? `<p><strong>Why ${esc(chosen.title)}:</strong> ${esc(r.rationale)}</p><p><strong>Main trade-off:</strong> ${esc(r.mainTradeoff)}</p>${r.reconsiderIf ? `<p><strong>Reconsider if:</strong> ${esc(r.reconsiderIf)}</p>` : ''}`
+    : `<p><strong>No recommendation yet.</strong> ${esc(r?.missing ?? '')}</p>`;
+  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${node.optionsLimit ? `<p class="state-note">Only one real option: ${esc(node.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${advice}</div>`;
+}
+// A suggested answer is added after the user's own draft, never replacing it.
+export function appendSuggestion(draft, suggestion) {
+  const own = String(draft ?? '').trimEnd();
+  return own ? `${own}\n\n${suggestion}` : suggestion;
+}
+
 export function briefFilename(title) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}-brief.md`;

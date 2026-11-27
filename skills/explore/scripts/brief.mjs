@@ -32,6 +32,10 @@ export function mapBrief(map, nodeId = null) {
     ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
     ['unsettled', 'Unsettled answers — assumptions, not decisions', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt && effectiveAnswerState(q).state === 'assumption').map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
     ['superseded', 'Earlier questions and answers — previous premises', nodes.flatMap(n => n.questions.filter(q => q.supersededAt).map(q => entry(n, q.answer || 'No answer was recorded.', { questionId: q.id, question: clip(q.text, 240), supersededAt: q.supersededAt })))],
+    ['recommendations', 'Agent recommendations — not decisions', nodes.filter(n => n.options?.length).map(n => {
+      const r = n.recommendation, chosen = n.options.find(option => option.id === r?.optionId);
+      return entry(n, chosen ? `Recommended: ${chosen.title}. Main trade-off: ${r.mainTradeoff}` : `No recommendation yet: ${r?.missing ?? 'not recorded'}`, { options: n.options.length });
+    })],
     ['risks', 'Risk investigations — not verified risks', nodes.filter(n => n.kind === 'risk').map(n => entry(n))],
     ['directions', 'Unexplored directions', nodes.filter(n => n.status === 'suggested').map(n => entry(n, n.prompt || n.summary))],
     ['active', 'Queued, running, or interrupted work', nodes.filter(n => ['queued', 'running', 'interrupted'].includes(n.status)).map(n => entry(n))],

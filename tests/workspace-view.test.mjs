@@ -132,3 +132,25 @@ test('copies kept around a pull are never the change that undo undoes', async ()
   assert.deepEqual(undoTarget([P, X, A, O], 'Ana'), { target: O, undoing: A, alsoUndone: [X] });
   assert.deepEqual(undoTarget([P, K, X, A, O], null), { target: A, undoing: X, alsoUndone: [] });
 });
+
+test('option cards label only the recommended one, say it is the agent’s view, and escape text', async () => {
+  const { optionsHtml } = await import('../skills/explore/assets/workspace-view.js');
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const node = { options: [
+    { id: 'a', title: 'Hands-on <b>', description: 'Do it.', fit: 'Small groups.', pros: ['Fun'], cons: ['Tools'] },
+    { id: 'b', title: 'Discussion', description: 'Talk.', fit: 'Big groups.', pros: [], cons: [] },
+  ], recommendation: { optionId: 'a', rationale: 'Learning by doing.', mainTradeoff: 'Needs tools.', reconsiderIf: 'No hall.' } };
+  const html = optionsHtml(node, esc);
+  assert.match(html, /Hands-on &lt;b&gt;/); assert.doesNotMatch(html, /<b>/);
+  assert.equal(html.match(/Recommended/g).length, 1);
+  assert.match(html, /not a decision/i); assert.match(html, /Main trade-off/); assert.match(html, /Reconsider if/);
+  const none = optionsHtml({ ...node, recommendation: { optionId: null, missing: 'Budget.' } }, esc);
+  assert.match(none, /No recommendation yet/); assert.match(none, /Budget\./); assert.doesNotMatch(none, /Recommended/);
+  assert.equal(optionsHtml({}, esc), '');
+});
+
+test('a suggested answer is added to the draft, never replacing it', async () => {
+  const { appendSuggestion } = await import('../skills/explore/assets/workspace-view.js');
+  assert.equal(appendSuggestion('', 'I would start hands-on.'), 'I would start hands-on.');
+  assert.equal(appendSuggestion('My own thoughts.  ', 'I would start hands-on.'), 'My own thoughts.\n\nI would start hands-on.');
+});

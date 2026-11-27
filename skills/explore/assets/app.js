@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
@@ -422,13 +422,15 @@ function renderDetail(force = false) {
     const current = effectiveAnswerState(q);
     return `<label class="certainty"><span class="visually-hidden">How sure is this answer?</span><select data-certainty="${q.id}" data-node-id="${n.id}"${current.recorded ? '' : ' title="Certainty not recorded"'}>${answerStates.map(value => `<option value="${value}"${value === current.state ? ' selected' : ''}>${answerStateLabels[value]}</option>`).join('')}</select></label>`;
   };
-  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p><textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea><div class="question-actions"><button type="submit" class="primary">Save answer & continue</button>${waiting ? '' : `<button type="button" class="text-button" data-answer-later="${q.id}" data-node-id="${n.id}">Answer later</button>`}</div></form>`;
+  // Options with a suggested answer can start the user's draft; nothing is saved until they press Save.
+  const suggestions = q => { const drafts = (n.options || []).filter(option => option.suggestedAnswer); return drafts.length ? `<div class="suggested-answers"><span>Start from a suggested answer:</span>${drafts.map(option => `<button type="button" class="text-button" data-suggest-answer="${esc(option.id)}" data-question-id="${q.id}">${esc(option.title)}</button>`).join('')}</div>` : ''; };
+  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p><textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save answer & continue</button>${waiting ? '' : `<button type="button" class="text-button" data-answer-later="${q.id}" data-node-id="${n.id}">Answer later</button>`}</div></form>`;
   const live = !completed && !historic;
   const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
   const waiting = live ? n.questions.filter(q => isOpen(q) && q.deferredAt) : [];
   const questionHtml = n.questions.filter(q => !waiting.includes(q)).map(q => live && isBlocking(q) ? questionForm(q, false) : record(q)).join('')
     + (waiting.length ? `<details class="saved-for-later"><summary>Saved for later (${waiting.length})</summary>${waiting.map(q => questionForm(q, true)).join('')}</details>` : '');
-  $('#detail').innerHTML = `<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span></div><h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}
+  $('#detail').innerHTML = `<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span></div><h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${n.stale ? '<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.</p>' : ''}
     ${completed && !historic ? '<p class="state-note">This branch is complete. Add a new direction to keep exploring; these findings stay here.</p>' : ''}
@@ -537,6 +539,13 @@ document.addEventListener('click', async event => {
   const example = event.target.closest('[data-example]');
   if (example) { const starter = starterIdeas[example.dataset.example]; if (starter) { $('#idea').value = starter.idea; $('#title').value = starter.title; $('#idea').focus(); } return; }
   const brief = event.target.closest('[data-branch-brief]'); if (brief) return showBrief(brief.dataset.branchBrief);
+  const suggested = event.target.closest('[data-suggest-answer]');
+  if (suggested) {
+    const option = state.map?.nodes.find(node => node.id === state.selected)?.options?.find(item => item.id === suggested.dataset.suggestAnswer);
+    const field = document.querySelector(`[data-draft="${suggested.dataset.questionId}"]`);
+    if (option?.suggestedAnswer && field) { field.value = appendSuggestion(field.value, option.suggestedAnswer); state.drafts[suggested.dataset.questionId] = field.value; field.focus(); }
+    return;
+  }
   const later = event.target.closest('[data-answer-later]');
   if (later) { later.disabled = true; if (await act(later.dataset.nodeId, 'answer-later', { questionId: later.dataset.answerLater })) toast(state.map?.nodes.find(node => node.id === later.dataset.nodeId)?.questions.some(isBlocking) ? 'Saved for later.' : 'Saved for later. The branch continues without it.'); later.disabled = false; return; }
   for (const [attribute, action, message] of [['explore', 'activate', 'Exploration queued.'], ['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {

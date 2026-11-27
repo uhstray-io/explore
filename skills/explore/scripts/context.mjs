@@ -1,5 +1,6 @@
 import { Problem, isCompleted, hasFindings } from './store.mjs';
 import { certaintyText } from '../assets/questions.js';
+import { comparisonLines } from './options.mjs';
 
 // Pages are tied to a map revision so a resumed read cannot silently mix versions.
 export function contextExcerpt(map, nodeId, options = {}) {
@@ -19,8 +20,9 @@ export function contextExcerpt(map, nodeId, options = {}) {
     case 'findings': records = [node.body]; break;
     case 'questions': records = node.questions.filter(q => !options.question || q.id === options.question).map(q => `## ${q.id}\nQuestion: ${q.text}\nAnswer: ${q.answer ?? (q.supersededAt ? '[Superseded after a premise changed; no answer recorded]' : '[Awaiting answer]')}${q.answer ? `\nCertainty: ${certaintyText(q)}` : ''}${q.deferredAt && !q.answer ? `\nSaved for later: ${q.deferredAt}` : ''}${q.answeredAt ? `\nAnswered: ${q.answeredAt}` : ''}${q.supersededAt ? `\nSuperseded: ${q.supersededAt}` : ''}`); break;
     case 'sources': records = node.sources.map(s => `## ${s.title}\nURL: ${s.url}\nRetrieved: ${s.retrievedAt}\nEvidence: ${s.note}`); break;
+    case 'options': records = node.options?.length ? [comparisonLines(node).join('\n')] : []; break;
     case 'relationships': records = map.edges.filter(e => e.from === node.id || e.to === node.id).map(e => `${e.from} ${e.type} ${e.to}`); break;
-    default: throw new Problem('Unknown section. Use summary, premise, findings, questions, sources, or relationships.');
+    default: throw new Problem('Unknown section. Use summary, premise, findings, questions, options, sources, or relationships.');
   }
   if (options.question && section !== 'questions') throw new Problem('Question IDs require the questions section.');
   if (options.question && !node.questions.some(q => q.id === options.question)) throw new Problem('Question not found.', 404);
