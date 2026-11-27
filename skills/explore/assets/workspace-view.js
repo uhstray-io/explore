@@ -61,6 +61,7 @@ const unreadableLabels = {
   'invalid-json': "Can't open: the file is damaged",
   'unsupported-version': "Can't open: saved by a newer Explore",
   'invalid-map': "Can't open: the file is incomplete",
+  'too-large': "Can't open: the file is too large",
 };
 export function unreadableLabel(problem) { return Object.hasOwn(unreadableLabels, problem) ? unreadableLabels[problem] : "Can't open this map"; }
 
@@ -78,7 +79,7 @@ const versionWords = {
   'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
   'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
-  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart',
+  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported',
 };
 export function versionLabel(version) {
   if (version.name) return version.name;
@@ -303,9 +304,18 @@ export function restartPreviewHtml(preview, { esc, expanded = false }) {
     + `<div class="question-actions"><button type="button" class="primary" data-restart-confirm>${ideas ? `Delete ${count(ideas, 'idea')} and restart` : 'Restart this branch'}</button><button type="button" class="text-button" data-restart-cancel>Cancel</button></div></div>`;
 }
 
-export function briefFilename(title) {
+// A file name made from a map's title that every system accepts, plus an ending such as `-brief.md`.
+export function downloadName(title, ending) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
-  return `${name}-brief.md`;
+  return `${name}${ending}`;
+}
+export const briefFilename = title => downloadName(title, '-brief.md');
+
+// Import (I2): a map with this ID is already here and the file differs. Nothing has been changed yet.
+export function importConflictHtml({ existing, incoming }, { esc }) {
+  const when = at => Number.isNaN(Date.parse(at)) ? '' : ` · updated ${esc(new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }))}`;
+  const side = (label, map) => `<div class="import-side"><h3 class="section-label">${label}</h3>${map.unreadable ? '<p class="form-note">A map folder with this ID is here but cannot be opened.</p>' : `<p><strong>${esc(map.title)}</strong></p><p class="form-note">${count(map.ideas, 'idea')} · revision ${esc(map.revision)}${when(map.updatedAt)}</p>`}</div>`;
+  return `<p>A map with the same ID is already in this workspace, and the file is different. Nothing has been changed.</p><div class="import-sides">${side('Already here', existing)}${side('In the file', incoming)}</div>`;
 }
 
 export function briefPreview(brief) {

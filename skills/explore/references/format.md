@@ -58,6 +58,18 @@ Each saved content change is also kept as a version, so anyone who pulls can pre
 
 Machine-local connection tokens, process locks, result drafts, and claim-delivery files live under `.explore/`, which should be ignored by Git. Settings are not machine-local; they live in `ideas/settings.json`. No model API key is part of a map. A provider's original chat history or conversation ID is not necessary to read/continue the map. Share saved maps deliberately: they contain the user's actual ideas and answers.
 
+## Export and import
+
+An export is `{ format: "explore-map", version: 1, exportedAt, map }`, where `map` is the saved map without claim data (`claimKey`, `claimHash`, `inputSignature`). Everything else travels, including history, growth, positions and settings that live in the map. Nothing from `.explore/` is read.
+
+An import accepts an export or a bare format-1 `map.json`. It is untrusted data and must pass the validator (`scripts/map-validation.mjs`) with no errors, or nothing is written. Then one of four things happens:
+- **No map with that ID:** the map is saved under its ID.
+- **Identical content:** if a map with that ID matches (ignoring `revision`, `updatedAt` and claim data), nothing is written and the existing map opens.
+- **Different content:** the import is a conflict. Nothing is written, and the user may import a copy instead.
+- **A copy:** asked for, or the ID is outside the `map-` + 8 hex format. It gets a new map ID, a " (copy)" title and `importedFrom: { mapId, revision, exportedAt }`. Idea IDs and content are unchanged.
+
+Queued or running work arrives `interrupted` and releases what it held, so nothing runs until the user retries. The map's history is unchanged: the import names its first version `map-imported`. A folder with the map's ID that cannot be opened (even one without `map.json`) counts as taken, and a new map is only ever saved where no file exists yet. Imports are limited to 5,000 ideas.
+
 ## Reading procedure
 
 Read the map overview, then the selected node and related evidence. Check status and staleness before treating a finding as accepted knowledge. Prefer the CLI's bounded section reads with question IDs or a query, continuing only necessary pages at the same revision. Linked node Markdown remains a fallback; avoid loading a long history to answer one targeted question. Never load the whole snapshot merely to resume an investigation.

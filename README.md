@@ -40,7 +40,7 @@ Explored branches stay complete. Use **Add a direction** to grow a new branch. *
 
 Agents can retrieve individual sections or old answers with `read --node ID --section questions --query "constraint"` (also pass `--map ID` and `--workspace PATH`). Reads are paged instead of loading full node histories. `usage --map ID` reports recorded CLI output sizes, not total conversation context or model tokens; see [the bridge reference](skills/explore/references/bridge.md).
 
-For first use or connection problems, run `node skills/explore/scripts/cli.mjs doctor --workspace <repo>`. It works without a running server and changes no files. `maps --query TEXT` discovers saved explorations; `read --map ID --query TEXT` searches nodes beyond the first page. `brief --map ID --format markdown` provides the same extractive overview to another agent. All commands accept `--workspace`; list continuation uses the returned offset and revision.
+For first use or connection problems, run `node skills/explore/scripts/cli.mjs doctor --workspace <repo>`. It works without a running server and changes no files. To report a problem, `doctor --support` prints a short JSON report you can attach to an issue. It holds setup facts and counts only: no ideas, answers, titles, IDs, paths, names, tokens or process IDs. `--out FILE` writes it to a new file instead. `maps --query TEXT` discovers saved explorations; `read --map ID --query TEXT` searches nodes beyond the first page. `brief --map ID --format markdown` provides the same extractive overview to another agent. All commands accept `--workspace`; list continuation uses the returned offset and revision.
 
 ## Saved design prototypes
 

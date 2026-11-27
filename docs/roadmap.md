@@ -50,6 +50,10 @@ The owner settled every open decision on 2026-11-27. Where an issue body still d
 | F3 | B1 #3 | Answering stays type-then-Save. A saved answer carries a small Tentative, Decided or Assumption label. Not relevant becomes Dismiss, Need evidence becomes Help me answer (#10), and Revisit later becomes "Answer later" in the ⋯ menu. | Six choices on every answer is friction, and three of them duplicated other actions. |
 | F4 | B2 #4, B4 #6, B9 #10, Z3 #61 | The question box keeps only the question, an importance label with a "Why?" link, the answer box and Save. The ⋯ menu, in order: Help me answer, Explain this question, Tidy my wording (only while drafting), Answer later, Regenerate, Dismiss, Good or Bad question. | Every extra is one click away in one place, and two overlaps disappear. |
 
+### Limits decided while building
+
+- **A map file is at most 64 MiB (J3 #45).** The server neither opens nor saves a larger `map.json`; it is listed as unreadable (`too-large`) and a save is refused with a clear message. One rule in `map-validation.mjs` (`readMapFile`, `maxMapBytes`) serves the server, the validator and the support report. Real maps are far smaller; the limit keeps reads, generated views and CI checks bounded.
+
 ### Rules that change when those issues land
 
 - `AGENTS.md` "History shows graph growth…" changes with #20.
