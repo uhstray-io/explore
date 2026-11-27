@@ -8,6 +8,8 @@ import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
 import { exportMap } from './transfer.mjs';
+import { createListeners } from './listeners.mjs';
+import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
@@ -30,15 +32,11 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
   await lock.writeFile(JSON.stringify({ pid: process.pid })); await lock.close();
   const connectionPath = path.join(runtime, 'connection.json');
   const token = randomBytes(32).toString('hex');
-  const store = new Store(dataDirectory || path.join(workspace, 'ideas'), registry ? { registry } : {});
+  const listeners = createListeners();
+  const store = new Store(dataDirectory || path.join(workspace, 'ideas'), { ...(registry ? { registry } : {}), onSaved: map => listeners.noteActivity(map.id) });
   const contributor = gitContributor(workspace), version = await packageVersion();
   let address, worker = '', closing = false;
-  const listeners = new Map();
-  const bridgeStatus = () => {
-    for (const [key, listener] of listeners) if (Date.now() - listener.lastSeen >= 40000) listeners.delete(key);
-    return { listening: listeners.size > 0, worker,
-      scopes: [...listeners.values()].map(({ mapId, worker }) => ({ mapId, worker, listening: true })) };
-  };
+  const bridgeStatus = () => ({ ...listeners.status(), worker });
   try { await store.recover(); } catch (error) { await unlink(lockPath); throw error; }
   const send = (res, status, data) => {
     if (!res.writableEnded) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(data)); }
@@ -93,17 +91,20 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const mapId = url.searchParams.get('map') || null;
           const wait = Math.max(0, Math.min(25, Number(url.searchParams.get('wait')) || 0));
           const deadline = Date.now() + wait * 1000;
+          // Claiming a job saves the map, which restarts this listener's window like any other saved change.
+          // Read on every poll, so a change in the browser applies at the next one. An unreadable settings file
+          // falls back to the default rather than failing the poll.
+          const windowMinutes = await store.getSettings().then(settings => settings.listenMinutes, () => defaultListenMinutes);
+          const listener = listeners.seen(mapId, workerName, windowMinutes);
           do {
             if (res.destroyed || closing) return;
             const packet = await store.claim(workerName, mapId || undefined);
-            worker = workerName;
-            listeners.set(JSON.stringify([mapId, workerName]), { mapId, worker: workerName, lastSeen: Date.now() });
-            bridgeStatus();
+            worker = workerName; listeners.waiting(listener);
             if (packet) return send(res, 200, packet);
             if (Date.now() >= deadline) break;
             await new Promise(resolve => setTimeout(resolve, 500));
           } while (!closing);
-          return send(res, 200, { idle: true, message: 'No activated branches. Do not analyze the map again while waiting.' });
+          return send(res, 200, { idle: true, message: 'No activated branches. Do not analyze the map again while waiting.', listen: listeners.listen(listener, windowMinutes) });
         }
         if (req.method !== 'POST') throw new Problem('Route not found.', 404);
         if (!req.headers['content-type']?.startsWith('application/json')) throw new Problem('Use application/json.', 415);
@@ -126,7 +127,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/since-visit.js': 'since-visit.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/since-visit.js': 'since-visit.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
