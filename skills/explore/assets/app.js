@@ -1,7 +1,7 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {} };
@@ -47,8 +47,8 @@ function renderRail() {
   const html = state.maps.length ? state.maps.map(m => m.unreadable ? `<button class="map-link unreadable" data-map="${m.id}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.id)}</strong><small>${esc(unreadableLabel(m.problem))}</small></span></button>` : `<button class="map-link ${state.map?.id === m.id ? 'current' : ''}" data-map="${m.id}" ${state.map?.id === m.id ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.title)}</strong><small>${m.demo ? 'Example map' : `${m.count} ${m.count === 1 ? 'idea' : 'ideas'}`}${m.pending ? ` · ${m.pending} queued` : ''}</small></span></button>`).join('') : '<p class="empty-list">Your ideas will find a home here.</p>';
   if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
 }
-async function refresh() {
-  if (state.refreshing || state.mutating || gesture || document.hidden) return;
+async function refresh({ force = false } = {}) {
+  if (state.refreshing || state.mutating || gesture || (document.hidden && !force)) return;
   state.refreshing = true;
   const version = openVersion;
   const previouslyListening = agentListening();
@@ -72,17 +72,6 @@ async function refresh() {
     if ((state.detailDeferred || previouslyListening !== agentListening()) && version === openVersion && state.map) renderDetail();
   } catch { connectionView(true); }
   finally { state.refreshing = false; }
-}
-async function openMap(id) {
-  const version = ++openVersion;
-  try {
-    const map = await api(`/maps/${id}`); if (version !== openVersion) return;
-    state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
-    state.map = map; state.selected = state.map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
-    $('#find-node').value = ''; $('#node-results').hidden = true;
-    localStorage.setItem('explore-map', id); location.hash = id;
-    renderMap(true); renderRail();
-  } catch (error) { toast(error.message); }
 }
 function layout() {
   const source = state.historySource || state.map;
@@ -154,8 +143,46 @@ function zoom(factor, cx = $('#canvas').clientWidth / 2, cy = $('#canvas').clien
 }
 function selectNode(nodeId) {
   state.selected = visibleSelection(state.visibleMap, nodeId);
+  showAddress();
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
   $('#focus-selected').disabled = !state.selected; renderDetail();
+}
+// Opens a map at `nodeId` when it has that idea, otherwise at its root. `push` adds a history entry; opening
+// what the address already names (startup, Back and Forward) replaces it instead.
+async function openMap(id, { nodeId = null, push = true } = {}) {
+  const version = ++openVersion;
+  try {
+    const map = await api(`/maps/${id}`); if (version !== openVersion) return;
+    state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
+    state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
+    $('#find-node').value = ''; $('#node-results').hidden = true;
+    localStorage.setItem('explore-map', id); showAddress({ push });
+    renderMap(true); renderRail();
+  } catch (error) { toast(error.message); }
+}
+// Address routing (H2). The address bar always names the open map and the selected idea, so it can be copied as
+// a link. This is its only writer: a new map pushes a history entry, a new selection replaces it.
+function showAddress({ push = false } = {}) {
+  if (!state.map) return;
+  const address = `#${nodeAddress(state.map.id, state.selected)}`;
+  if (location.hash !== address) history[push ? 'pushState' : 'replaceState'](null, '', address);
+}
+// Opens a referenced map and idea. A missing map keeps the current one; a missing idea shows the map's root.
+async function openReference({ mapId, nodeId }, { push = true } = {}) {
+  if (!state.maps.some(item => item.id === mapId)) { toast(missingMapMessage); showAddress(); return; }
+  if (state.map?.id !== mapId) { await openMap(mapId, { nodeId, push }); if (state.map?.id !== mapId) return; }
+  if (state.historyStep !== null) returnLive();
+  const found = !nodeId || state.map.nodes.some(node => node.id === nodeId);
+  if (!found) toast(missingIdeaMessage);
+  focusNode(found ? nodeId ?? state.selected : state.map.rootId);
+}
+// Loading, editing, Back and Forward: follow whatever the address names, unless that is already shown.
+// Returns whether the address named a map; anything else in it is not a reference.
+async function followAddress() {
+  const target = parseAddress(location.hash.slice(1));
+  if (!target) return false;
+  if (target.mapId !== state.map?.id || (target.nodeId ?? state.selected) !== state.selected || state.historyStep !== null) await openReference(target, { push: false });
+  return true;
 }
 function focusNode(nodeId) {
   if (!state.positions[nodeId] || !state.visibleMap.nodes.some(node => node.id === nodeId)) return;
@@ -175,6 +202,11 @@ function centerSelected() {
 function searchNodes() {
   if (!state.map) return;
   const focusedIdea = $('#node-results').contains(document.activeElement) ? document.activeElement.dataset.focusNode : null;
+  const reference = parseNodeReference($('#find-node').value);
+  if (reference) {
+    $('#node-results').innerHTML = `<p role="status">A link to an idea</p><button type="button" data-open-reference="${reference.mapId}/${reference.nodeId}"><strong>Open referenced idea</strong></button>`;
+    $('#node-results').hidden = false; return;
+  }
   const query = $('#find-node').value.trim().toLowerCase();
   const matches = state.visibleMap.nodes.filter(node => `${node.title} ${node.summary || ''}`.toLowerCase().includes(query));
   $('#node-results').innerHTML = `<p role="status">${matches.length ? `${matches.length} ${matches.length === 1 ? 'idea' : 'ideas'}${matches.length > 12 ? ' · showing 12, type more to narrow' : ''}` : 'No matching ideas'}</p>` + matches.slice(0, 12).map(node => `<button type="button" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}</small></button>`).join('');
@@ -186,7 +218,7 @@ $('#find-node').addEventListener('focus', searchNodes);
 $('#find-node').addEventListener('keydown', event => {
   if (event.key === 'Escape') { event.preventDefault(); $('#node-results').hidden = true; }
   if (event.key === 'ArrowDown') { event.preventDefault(); $('#node-results button')?.focus(); }
-  if (event.key === 'Enter') { event.preventDefault(); const id = $('#node-results button')?.dataset.focusNode; if (id && !$('#node-results').hidden) focusNode(id); }
+  if (event.key === 'Enter') { event.preventDefault(); const first = $('#node-results button'); if (first && !$('#node-results').hidden) first.click(); }
 });
 $('#node-finder').addEventListener('focusout', event => { if (!event.currentTarget.contains(event.relatedTarget)) $('#node-results').hidden = true; });
 $('#node-finder').addEventListener('keydown', event => { if (event.key === 'Escape') { $('#find-node').focus(); $('#node-results').hidden = true; } });
@@ -390,14 +422,14 @@ function advanceReview(nodeId, position, message) {
   if (!queue.length) { state.reviewing = null; renderDetail(true); toast('All flagged findings are reviewed.'); return; }
   focusNode(queue[Math.min(Math.max(0, position), queue.length - 1)]); renderDetail(true);
 }
-// The question menu opens on its button, moves with the arrow keys, and closes with Escape back to its button.
-function openQuestionMenu(toggle) {
+// A ⋯ menu opens on its button, moves with the arrow keys, and closes with Escape back to its button.
+function openMenu(toggle) {
   const menu = document.getElementById(toggle.getAttribute('aria-controls')); if (!menu) return;
   menu.hidden = false; toggle.setAttribute('aria-expanded', 'true');
   menu.querySelector('[role="menuitem"]')?.focus();
 }
-function closeQuestionMenus(returnFocus = false) {
-  for (const menu of document.querySelectorAll('.question-menu:not([hidden])')) {
+function closeMenus(returnFocus = false) {
+  for (const menu of document.querySelectorAll('.item-menu:not([hidden])')) {
     menu.hidden = true;
     const toggle = document.querySelector(`[aria-controls="${menu.id}"]`);
     toggle?.setAttribute('aria-expanded', 'false');
@@ -405,16 +437,16 @@ function closeQuestionMenus(returnFocus = false) {
   }
 }
 document.addEventListener('keydown', event => {
-  const menu = event.target.closest?.('.question-menu');
+  const menu = event.target.closest?.('.item-menu');
   if (menu) {
     const items = [...menu.querySelectorAll('[role="menuitem"]')], index = items.indexOf(event.target);
-    if (event.key === 'Escape') { event.preventDefault(); closeQuestionMenus(true); }
+    if (event.key === 'Escape') { event.preventDefault(); closeMenus(true); }
     else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) { event.preventDefault(); items[menuFocusIndex(Math.max(0, index), event.key, items.length)]?.focus(); }
-    else if (event.key === 'Tab') closeQuestionMenus();
+    else if (event.key === 'Tab') closeMenus();
     return;
   }
   const row = event.target.closest?.('[data-reason-for]');
-  if (row && event.key === 'Escape') { row.hidden = true; document.querySelector(`[data-question-menu="${row.dataset.reasonFor}"]`)?.focus(); }
+  if (row && event.key === 'Escape') { row.hidden = true; document.querySelector(`[data-menu="${row.dataset.reasonFor}"]`)?.focus(); }
   if (row && event.key === 'Enter') { event.preventDefault(); row.querySelector('[data-send-reason]')?.click(); }
 });
 // Changing how sure an answer is saves at once; it never re-runs research.
@@ -474,7 +506,7 @@ $('#download-brief').addEventListener('click', () => {
 function detailFocusKey(element) {
   const form = element.closest('form'), editor = element.closest('details[data-editor]');
   return JSON.stringify([element.tagName, element.getAttribute('href'),
-    ...['explore', 'cancel', 'accept', 'branchBrief', 'select'].map(key => element.dataset[key] || null),
+    ...['explore', 'cancel', 'accept', 'branchBrief', 'select', 'copyLink', 'menu'].map(key => element.dataset[key] || null),
     form?.dataset.question || form?.id || null, editor?.dataset.editor || null]);
 }
 function renderDetail(force = false) {
@@ -549,7 +581,7 @@ function renderDetail(force = false) {
     // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
     if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
   }
-  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span></div><h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
     ${completed && !historic ? '<p class="state-note">This branch is complete. Add a new direction to keep exploring; these findings stay here.</p>' : ''}
@@ -654,6 +686,8 @@ document.addEventListener('click', async event => {
   const map = event.target.closest('[data-map]'); if (map) return openMap(map.dataset.map);
   if (!event.target.closest('#node-finder')) $('#node-results').hidden = true;
   const focus = event.target.closest('[data-focus-node]'); if (focus) return focusNode(focus.dataset.focusNode);
+  const reference = event.target.closest('[data-open-reference]');
+  if (reference) { const [mapId, nodeId] = reference.dataset.openReference.split('/'); $('#find-node').value = ''; $('#node-results').hidden = true; return openReference({ mapId, nodeId }); }
   const select = event.target.closest('[data-select]'); if (select) return focusNode(select.dataset.select);
   const example = event.target.closest('[data-example]');
   if (example) { const starter = starterIdeas[example.dataset.example]; if (starter) { $('#idea').value = starter.idea; $('#title').value = starter.title; $('#idea').focus(); } return; }
@@ -668,7 +702,7 @@ document.addEventListener('click', async event => {
   if (event.target.closest('[data-show-all-questions]')) { state.showAllQuestions = true; renderDetail(true); return; }
   if (event.target.closest('[data-show-one-question]')) { state.showAllQuestions = false; renderDetail(true); document.querySelector('#detail form.question-box textarea')?.focus(); return; }
   const changeOpen = event.target.closest('[data-q-change]');
-  if (changeOpen) { closeQuestionMenus(); const editor = document.querySelector(`[data-change-for="${changeOpen.dataset.questionId}"]`); if (editor) { editor.hidden = false; editor.querySelector('textarea').focus(); } return; }
+  if (changeOpen) { closeMenus(); const editor = document.querySelector(`[data-change-for="${changeOpen.dataset.questionId}"]`); if (editor) { editor.hidden = false; editor.querySelector('textarea').focus(); } return; }
   const changeSave = event.target.closest('[data-save-change], [data-save-wording]');
   if (changeSave) {
     const questionId = changeSave.dataset.questionId, field = document.querySelector(`#change-${questionId}`), answer = field?.value.trim();
@@ -739,14 +773,22 @@ document.addEventListener('click', async event => {
     if (done) advanceReview(nodeId, position, agentListening() ? 'Re-exploring. Your agent will pick it up next.' : 'Queued to re-explore. Connect your agent to run it.');
     return;
   }
-  // The question ⋯ menu.
-  const menuToggle = event.target.closest('[data-question-menu]');
-  if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeQuestionMenus(); if (opening) openQuestionMenu(menuToggle); return; }
-  if (!event.target.closest('.question-menu')) closeQuestionMenus();
+  // The ⋯ menus.
+  const copyLink = event.target.closest('[data-copy-link]');
+  if (copyLink) {
+    const node = state.map?.nodes.find(item => item.id === copyLink.dataset.copyLink); if (!node) return;
+    const text = nodeReference(state.map.id, node);
+    try { await navigator.clipboard.writeText(text); state.linkFallbackFor = null; closeMenus(true); toast('Link copied. Paste it into an issue, a pull request or a chat, or into Find an idea.'); }
+    catch { state.linkFallbackFor = node.id; renderDetail(true); $('#link-fallback')?.select(); }
+    return;
+  }
+  const menuToggle = event.target.closest('[data-menu]');
+  if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeMenus(); if (opening) openMenu(menuToggle); return; }
+  if (!event.target.closest('.item-menu')) closeMenus();
   const rate = event.target.closest('[data-q-rate]');
-  if (rate) { closeQuestionMenus(); if (await act(rate.dataset.nodeId, 'rate-question', { questionId: rate.dataset.questionId, rating: rate.dataset.qRate || null })) toast(rate.dataset.qRate ? 'Thanks. Your agent will ask more like this.' : 'Rating removed.'); return; }
+  if (rate) { closeMenus(); if (await act(rate.dataset.nodeId, 'rate-question', { questionId: rate.dataset.questionId, rating: rate.dataset.qRate || null })) toast(rate.dataset.qRate ? 'Thanks. Your agent will ask more like this.' : 'Rating removed.'); return; }
   const reason = event.target.closest('[data-q-reason]');
-  if (reason) { closeQuestionMenus(); const row = document.querySelector(`[data-reason-for="${reason.dataset.questionId}"]`); if (row) { row.hidden = false; row.dataset.action = reason.dataset.qReason; row.querySelector('button').textContent = reason.dataset.qReason === 'regenerate' ? 'Get a new question' : 'Send'; row.querySelector('input').focus(); } return; }
+  if (reason) { closeMenus(); const row = document.querySelector(`[data-reason-for="${reason.dataset.questionId}"]`); if (row) { row.hidden = false; row.dataset.action = reason.dataset.qReason; row.querySelector('button').textContent = reason.dataset.qReason === 'regenerate' ? 'Get a new question' : 'Send'; row.querySelector('input').focus(); } return; }
   const send = event.target.closest('[data-send-reason]');
   if (send) {
     const row = send.closest('[data-reason-for]'), text = row.querySelector('input').value.trim(), questionId = send.dataset.sendReason;
@@ -758,11 +800,11 @@ document.addEventListener('click', async event => {
     send.disabled = false; return;
   }
   const dismiss = event.target.closest('[data-q-dismiss]');
-  if (dismiss) { closeQuestionMenus(); if (await act(dismiss.dataset.nodeId, 'dismiss-question', { questionId: dismiss.dataset.questionId })) toast(state.map?.nodes.find(node => node.id === dismiss.dataset.nodeId)?.questions.some(isBlocking) ? 'Dismissed.' : 'Dismissed. The branch continues without it.'); return; }
+  if (dismiss) { closeMenus(); if (await act(dismiss.dataset.nodeId, 'dismiss-question', { questionId: dismiss.dataset.questionId })) toast(state.map?.nodes.find(node => node.id === dismiss.dataset.nodeId)?.questions.some(isBlocking) ? 'Dismissed.' : 'Dismissed. The branch continues without it.'); return; }
   const restore = event.target.closest('[data-q-restore]');
   if (restore) { if (await act(restore.dataset.nodeId, 'restore-question', { questionId: restore.dataset.questionId })) toast('The question is back.'); return; }
   const later = event.target.closest('[data-answer-later]');
-  if (later) { closeQuestionMenus(); later.disabled = true; if (await act(later.dataset.nodeId, 'answer-later', { questionId: later.dataset.answerLater })) toast(state.map?.nodes.find(node => node.id === later.dataset.nodeId)?.questions.some(isBlocking) ? 'Saved for later.' : 'Saved for later. The branch continues without it.'); later.disabled = false; return; }
+  if (later) { closeMenus(); later.disabled = true; if (await act(later.dataset.nodeId, 'answer-later', { questionId: later.dataset.answerLater })) toast(state.map?.nodes.find(node => node.id === later.dataset.nodeId)?.questions.some(isBlocking) ? 'Saved for later.' : 'Saved for later. The branch continues without it.'); later.disabled = false; return; }
   for (const [attribute, action, message] of [['explore', 'activate', 'Exploration queued.'], ['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
     const button = event.target.closest(`[data-${attribute}]`);
     if (button) { button.disabled = true; if (await act(button.dataset[attribute], action)) toast(message); button.disabled = false; return; }
@@ -856,14 +898,15 @@ $('#nodes').addEventListener('keydown', async event => {
   selectNode(id); await act(id, 'position', { x, y }); $(`[data-node="${id}"]`)?.focus();
 });
 window.addEventListener('resize', () => { if (state.map && state.historyStep === null) { if (state.overview) fitMap(); else centerSelected(); } });
-window.addEventListener('hashchange', () => { const id = location.hash.slice(1); if (id && id !== state.map?.id) openMap(id); else if (!id) showWelcome(); });
+// Editing the address, Back and Forward all fire hashchange: every Explore entry has its own fragment.
+window.addEventListener('hashchange', async () => { if (!(await followAddress()) && !location.hash.slice(1)) showWelcome(); });
 try {
   const session = await (await fetch('/api/session')).json(); state.token = session.token; state.session = session;
   $('#workspace-name').textContent = session.workspace;
   // Contributions are attributed by Git name; say plainly when there is none.
   api('/contributor').then(person => { state.contributor = person.name; $('#contributor').textContent = person.name ? `You: ${person.name} (from Git)` : 'Answers aren’t attributed: Git has no user name.'; }).catch(() => {});
-  await refresh();
-  const saved = location.hash.slice(1) || localStorage.getItem('explore-map');
-  if (saved && state.maps.some(m => m.id === saved)) await openMap(saved);
+  await refresh({ force: true });
+  const saved = localStorage.getItem('explore-map');
+  if (!(await followAddress()) && saved && state.maps.some(m => m.id === saved)) await openMap(saved, { push: false });
   setInterval(refresh, 2500);
 } catch (error) { toast(`Cannot connect to the workspace: ${error.message}`); connectionView(true); }

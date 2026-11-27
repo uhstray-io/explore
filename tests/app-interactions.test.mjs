@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, nodeMenuHtml, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -265,7 +265,7 @@ test('agent coverage changes refresh queued guidance even without a map revision
     const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
       api: async () => ({ maps: [{ id: 'map-a', revision: 2 }], bridge: bridge(after) }),
       renderRail() {}, connectionView() {}, renderDetail() { renders++; } });
-    vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+    vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
     await context.refresh();
     assert.equal(renders, expectedRenders);
   }
@@ -282,7 +282,7 @@ function refreshHarness({ listed, fetched, mutateDuringFetch = false }) {
     },
     renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() { events.renders++; },
     toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; state.map = null; } });
-  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
   return { state, events, refresh: context.refresh };
 }
 
@@ -411,7 +411,7 @@ test('a map list that was requested before another map opened never closes the n
     },
     renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() {},
     toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; } });
-  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nfunction layout('), context);
   await context.refresh();
   assert.equal(events.welcome, 0); assert.deepEqual(events.toasts, []);
 });
@@ -508,8 +508,8 @@ test('each question has one ⋯ menu; dismissed ones collapse and a regenerating
   ];
   h.document.activeElement = null; h.render();
   const markup = h.markup();
-  assert.equal(markup.match(/data-question-menu=/g).length, 2, 'the open and the answered question each have one menu');
-  assert.match(markup, /data-question-menu="q-open"/); assert.match(markup, />Dismiss</, 'a regeneration is still pending, so dismissing does not continue the branch yet');
+  assert.equal(markup.match(/aria-label="More for this question">/g).length, 2, 'the open and the answered question each have one menu');
+  assert.match(markup, /data-menu="q-open"/); assert.match(markup, />Dismiss</, 'a regeneration is still pending, so dismissing does not continue the branch yet');
   assert.doesNotMatch(markup, /class="text-button" data-answer-later/, 'Answer later lives in the menu now');
   assert.match(markup, /You rated this a good question/);
   assert.match(markup, /<summary>Dismissed \(1\)<\/summary>.*Leading one\?.*data-q-restore/s);
@@ -615,4 +615,13 @@ test('a finished branch offers Restart from this answer, and its preview keeps t
   node.status = 'queued'; node.completed = false; h.render();
   assert.doesNotMatch(h.markup(), /Delete 1 idea and restart/, 'a branch that is no longer finished shows no restart preview');
   assert.match(h.markup(), /data-change-for="q-a" hidden/);
+});
+
+test('every idea has a ⋯ menu with Copy link, and a clipboard failure shows the link to copy by hand', () => {
+  const h = harness();
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /data-menu="node-a"[^>]*aria-label="More for this idea"/);
+  assert.match(h.markup(), /data-copy-link="node-a">Copy link</);
+  h.state.linkFallbackFor = 'node-a'; h.render();
+  assert.match(h.markup(), /<input id="link-fallback" readonly value="Explore idea map-a\/node-a: "node-a" \(ideas\/map-a\/nodes\/node-a\.md\)">/, 'built from today\'s title');
 });
