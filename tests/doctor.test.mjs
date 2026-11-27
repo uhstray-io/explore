@@ -112,3 +112,42 @@ test('the app and doctor name the package version, and doctor warns about a serv
     assert.match(result.checks.find(check => check.name === 'version').message, /different Explore version\. Restart it/);
   } finally { await app.close(); }
 });
+
+// Support report (J3, #45).
+const support = (workspace, ...extra) => exec(process.execPath, [cli, 'doctor', '--support', ...extra, '--workspace', workspace]);
+
+test('the support report has exactly its version 1 fields and leaks nothing private', async () => {
+  const workspace = await temporary('doctor-support-CANARYPATH-');
+  const app = await startServer({ workspace, port: 0 });
+  try {
+    const map = await app.store.create({ title: 'CANARYTITLE plan', idea: 'CANARYIDEA details.' });
+    const { token } = JSON.parse(await readFile(path.join(workspace, '.explore/connection.json'), 'utf8'));
+    await fetch(`${app.address}/api/next?worker=CANARYWORKER&wait=0`, { headers: { Authorization: `Bearer ${token}` } });
+    // One map the server cannot read, with private words in it.
+    await mkdir(path.join(workspace, 'ideas', 'map-00000bad'), { recursive: true });
+    await writeFile(path.join(workspace, 'ideas', 'map-00000bad', 'map.json'), '{\n<<<<<<< HEAD\n"title": "CANARYCONFLICT"\n=======\n>>>>>>> theirs\n}\n');
+    const { stdout } = await support(workspace);
+    const report = JSON.parse(stdout);
+    assert.deepEqual(Object.keys(report).sort(), ['arch', 'bridge', 'checks', 'format', 'generatedAt', 'legacyRuntimeFolder', 'lock', 'missingPackageFiles', 'node', 'platform', 'ready', 'savedMaps', 'skillVersion', 'state', 'unreadableMaps', 'version']);
+    assert.equal(report.format, 'explore-support'); assert.equal(report.version, 1);
+    assert.equal(report.state, 'ready'); assert.deepEqual(report.bridge, { listening: true, scopeCount: 1 });
+    assert.equal(report.unreadableMaps, 1); assert.equal(report.savedMaps, 2); assert.deepEqual(report.missingPackageFiles, []);
+    assert.deepEqual(Object.keys(report.lock), ['state']);
+    assert.ok(report.checks.every(check => Object.keys(check).sort().join() === 'name,status'));
+    for (const secret of ['CANARY', token, workspace, map.id, String(new URL(app.address).port), String(process.pid), 'map-00000bad']) assert.ok(!stdout.includes(secret), secret);
+    assert.ok(stdout.length <= 4096);
+  } finally { await app.close(); }
+});
+
+test('--support writes nothing unless --out names a new file', async () => {
+  const workspace = await temporary('doctor-support-out-');
+  assert.equal(JSON.parse((await support(workspace)).stdout).state, 'not-started');
+  await assert.rejects(readdir(path.join(workspace, '.explore')), 'no runtime files');
+  const file = path.join(workspace, 'report.json');
+  const written = await support(workspace, '--out', file);
+  assert.match(written.stderr, /Left out: ideas and answers, map titles and IDs, paths, names, tokens, process IDs and error text/);
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).format, 'explore-support');
+  await writeFile(file, 'keep me');
+  await assert.rejects(support(workspace, '--out', file), /already exists/);
+  assert.equal(await readFile(file, 'utf8'), 'keep me');
+});

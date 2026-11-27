@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { atomicJson } from './store.mjs';
 import { diagnose, readConnection } from './doctor.mjs';
 import { runtimePath } from './server-lock.mjs';
+import { supportReport, writeSupportReport, leftOut } from './support-report.mjs';
 
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
@@ -14,7 +15,7 @@ const option = (name, fallback) => {
   return args[i + 1];
 };
 const required = name => { const value = option(name); if (!value) throw new Error(`--${name} is required.`); return value; };
-const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  create --file idea.json                 {title, idea}\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?}\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
+const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  doctor --support [--out FILE]          A redacted report to attach to a bug report; --out writes a new file\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  create --file idea.json                 {title, idea}\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?}\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
 const secrets = [];
 const page = (items, revision, fields = ['title']) => {
   const integer = (name, fallback, min, max) => {
@@ -52,7 +53,13 @@ try {
     };
     let output, rendered;
     switch (command) {
-      case 'doctor': output = await diagnose({ workspace }); break;
+      case 'doctor': {
+        if (!args.includes('--support')) { output = await diagnose({ workspace }); break; }
+        const report = await supportReport({ workspace });
+        if (option('out')) { await writeSupportReport(report, path.resolve(option('out'))); console.error(leftOut); output = { supportReport: 'written' }; }
+        else output = report;
+        break;
+      }
       case 'status': case 'maps': {
         const value = await api('/api/maps');
         const revision = createHash('sha256').update(JSON.stringify(value.maps.map(m => [m.id, m.revision, m.updatedAt]))).digest('hex').slice(0, 16);

@@ -28,6 +28,14 @@ export async function readConnection(workspace) {
   return { ...value, address: address.origin };
 }
 
+// The package files every installed copy needs; the support report lists missing ones by these names only.
+const packageFiles = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/package-version.mjs', 'scripts/install.mjs', 'scripts/server-lock.mjs', 'scripts/support-report.mjs', 'version.json', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
+export async function missingPackageFiles() {
+  const missing = [];
+  for (const file of packageFiles) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
+  return missing;
+}
+
 export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {}) {
   workspace = path.resolve(workspace);
   const checks = [];
@@ -37,9 +45,7 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
   let workspaceExists = false;
   try { workspaceExists = (await stat(workspace)).isDirectory(); } catch { /* Report missing/inaccessible without raw errors. */ }
   add('workspace', workspaceExists ? 'ok' : 'error', workspaceExists ? 'Workspace directory is accessible.' : 'Use an existing, accessible workspace directory.');
-  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/package-version.mjs', 'scripts/install.mjs', 'scripts/server-lock.mjs', 'version.json', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
-  const missing = [];
-  for (const file of files) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
+  const missing = await missingPackageFiles();
   add('package', missing.length ? 'error' : 'ok', missing.length ? `Restore the complete skill package; missing: ${missing.join(', ')}.` : 'Skill scripts, references, and browser assets are accessible.');
   let savedMaps = 0;
   try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && mapFolderPattern.test(entry.name)).length; }
@@ -95,6 +101,13 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const index = process.argv.indexOf('--workspace');
   const workspace = index < 0 ? process.cwd() : process.argv[index + 1];
+  const out = process.argv.includes('--out') ? process.argv[process.argv.indexOf('--out') + 1] : undefined;
   if (index >= 0 && (!workspace || workspace.startsWith('--'))) { console.error('--workspace requires a path.'); process.exitCode = 1; }
-  else console.log(JSON.stringify(await diagnose({ workspace }), null, 2));
+  else if (process.argv.includes('--support')) {
+    const { supportReport, writeSupportReport, leftOut } = await import('./support-report.mjs');
+    try {
+      const report = await supportReport({ workspace });
+      if (out) { await writeSupportReport(report, path.resolve(out)); console.error(leftOut); } else console.log(JSON.stringify(report, null, 2));
+    } catch (error) { console.error(error.message); process.exitCode = 1; }
+  } else console.log(JSON.stringify(await diagnose({ workspace }), null, 2));
 }
