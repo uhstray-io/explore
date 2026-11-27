@@ -60,6 +60,12 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (req.method === 'GET' && url.pathname === '/api/contributor') { const actor = await contributor(); return send(res, 200, actor ? { name: actor.name, source: 'git' } : { name: null }); }
         const briefRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/brief$/);
         if (req.method === 'GET' && briefRoute) return send(res, 200, mapBrief(await store.get(briefRoute[1]), url.searchParams.get('node')));
+        const previewRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/job-preview$/);
+        if (req.method === 'GET' && previewRoute) {
+          let selection;
+          try { selection = url.searchParams.get('selection') ? JSON.parse(url.searchParams.get('selection')) : undefined; } catch { throw new Problem('The selection is not valid JSON.'); }
+          return send(res, 200, await store.previewMapJob(previewRoute[1], url.searchParams.get('type'), selection));
+        }
         // Version history: listing and previewing never write anything.
         const versionsRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions(?:\/([A-Za-z0-9-]+))?$/);
         if (req.method === 'GET' && versionsRoute && !versionsRoute[2]) { await store.get(versionsRoute[1]); return send(res, 200, await store.versions.list(versionsRoute[1])); }

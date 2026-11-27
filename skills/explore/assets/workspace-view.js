@@ -121,6 +121,38 @@ export function appendSuggestion(draft, suggestion) {
   return own ? `${own}\n\n${suggestion}` : suggestion;
 }
 
+// Saved, current answers grouped by idea, root first, for choosing what a map review reads.
+export function answerChoices(map) {
+  const children = new Map(map.nodes.map(node => [node.id, []]));
+  for (const node of map.nodes) children.get(node.parentId)?.push(node);
+  const ordered = [], seen = new Set(), queue = map.nodes.filter(node => node.id === map.rootId);
+  while (queue.length) { const node = queue.shift(); if (seen.has(node.id)) continue; seen.add(node.id); ordered.push(node); queue.push(...children.get(node.id)); }
+  return [...ordered, ...map.nodes.filter(node => !seen.has(node.id))]
+    .map(node => ({ nodeId: node.id, title: node.title, answers: node.questions.filter(q => q.answer && !q.supersededAt).map(q => ({ questionId: q.id, question: q.text })) }))
+    .filter(group => group.answers.length);
+}
+
+const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+// The Check answers panel: what will be read, progress, and the latest points to keep or dismiss.
+export function checkAnswersHtml({ map, preview, listening, esc }) {
+  const records = preview?.records || [], omitted = preview?.omittedRecords || [];
+  const answers = records.filter(r => r.kind === 'answer').length, open = records.filter(r => r.kind === 'open-question').length;
+  const earlier = omitted.filter(r => r.reason === 'earlier premise').length, over = omitted.length - earlier;
+  const reads = preview ? `<p class="form-note">Reads ${plural(answers, 'answer')} and ${plural(open, 'open question')}.${earlier ? ` ${plural(earlier, 'answer')} from an earlier premise ${earlier === 1 ? 'is' : 'are'} left out.` : ''}${over ? ` ${over} didn't fit and ${over === 1 ? 'is' : 'are'} left out.` : ''}</p>` : '';
+  const job = (map.jobs || []).filter(j => j.type === 'check-answers' && ['queued', 'running'].includes(j.status)).at(-1);
+  const progress = job
+    ? `<p class="state-note">${job.status === 'running' ? 'Your agent is checking your answers…' : listening ? 'Your agent will pick this up next.' : 'Saved in the queue. Connect your agent to run the check.'}</p><button class="secondary" data-cancel-job="${esc(job.id)}">Stop</button>`
+    : '<button class="primary" data-check-answers>Check answers</button>';
+  const latest = (map.proposals || []).filter(p => p.type === 'check-answers').at(-1);
+  const label = ref => { const node = map.nodes.find(n => n.id === ref.nodeId), q = node?.questions.find(x => x.id === ref.questionId); return `${node?.title ?? 'A removed idea'}${q ? ` · ${q.text}` : ''}`; };
+  const items = latest ? (latest.items.length ? latest.items.map(item => `<article class="review-item"><strong>${esc(reviewWords[item.category] || item.category)}</strong><p>${esc(item.explanation)}</p><p><strong>What would settle it:</strong> ${esc(item.resolution)}</p><div class="review-refs">${item.refs.map(ref => `<button class="text-button" data-select="${esc(ref.nodeId)}">${esc(label(ref))}</button>`).join('')}</div>${item.review === 'unreviewed'
+      ? `<div class="review-actions"><button class="secondary" data-review-item="${esc(item.id)}" data-proposal="${esc(latest.id)}" data-decision="accepted">Keep</button><button class="text-button" data-review-item="${esc(item.id)}" data-proposal="${esc(latest.id)}" data-decision="dismissed">Dismiss</button></div>`
+      : `<p class="review-decision">${item.review === 'accepted' ? 'Kept' : 'Dismissed'}</p>`}</article>`).join('') : '<p class="form-note">No tensions found in these answers.</p>') : '';
+  const results = latest ? `<h3 class="section-label">Latest check · ${esc(new Date(latest.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}</h3>${latest.stale ? '<p class="state-note warning">Some answers changed since this check. Run it again for a fresh read.</p>' : ''}${latest.summary ? `<p>${esc(latest.summary)}</p>` : ''}${items}` : '';
+  return `<p>Your agent reads your saved answers and points out possible tensions, unresolved choices and untested assumptions. It never changes an answer, and every point waits for you to keep or dismiss it.</p>${reads}${progress}${results}`;
+}
+
 export function briefFilename(title) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}-brief.md`;

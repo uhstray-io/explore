@@ -1,5 +1,8 @@
 import { Problem, hasFindings } from './store.mjs';
 import { isOpen, isBlocking, certaintyText, effectiveAnswerState } from '../assets/questions.js';
+import { proposalOutdated } from './map-jobs.mjs';
+
+const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
 const clip = (value, limit) => {
   const text = String(value ?? '');
@@ -36,6 +39,10 @@ export function mapBrief(map, nodeId = null) {
       const r = n.recommendation, chosen = n.options.find(option => option.id === r?.optionId);
       return entry(n, chosen ? `Recommended: ${chosen.title}. Main trade-off: ${r.mainTradeoff}` : `No recommendation yet: ${r?.missing ?? 'not recorded'}`, { options: n.options.length });
     })],
+    ['reviews', 'Agent reviews waiting for you — not conclusions', (map.proposals || []).filter(proposal => !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
+      const node = nodes.find(n => item.refs.some(ref => ref.nodeId === n.id));
+      return node ? entry(node, `${reviewWords[item.category] || item.category}: ${item.explanation}`, { proposalId: proposal.id, itemId: item.id }) : null;
+    }).filter(Boolean))],
     ['risks', 'Risk investigations — not verified risks', nodes.filter(n => n.kind === 'risk').map(n => entry(n))],
     ['directions', 'Unexplored directions', nodes.filter(n => n.status === 'suggested').map(n => entry(n, n.prompt || n.summary))],
     ['active', 'Queued, running, or interrupted work', nodes.filter(n => ['queued', 'running', 'interrupted'].includes(n.status)).map(n => entry(n))],

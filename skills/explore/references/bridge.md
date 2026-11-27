@@ -79,6 +79,27 @@ Every packet from `next` carries `jobType`. `investigate` is the branch investig
 
 Some work covers the whole map rather than one idea. Its job has `nodeId: null`, and its packet names the map only. Work about one question of an idea records that question as `subjectId`. A repeat request for the same type, idea (or map) and subject reuses the open job. A job type this version of Explore does not know stays queued for a newer version. A job whose idea no longer exists fails with that reason.
 
+## Map jobs: Check answers
+
+A map job reads across many saved answers instead of one branch. Only the user starts one, from the browser's Map tools; an agent never requests a map job, as it never activates a branch. `next` returns it with `jobType: "check-answers"`, `nodeId: null` and:
+
+- `records`: the original idea, then every current answer (with its question, idea title, certainty, work and review state, staleness) and open question, root first. A user may have narrowed the check to chosen answers.
+- `omittedRecords`: IDs left out, with the reason (`earlier premise`, or `over the packet budget`).
+- `resultFormat` and `instruction`.
+
+Deliver with the same `result --job ID --file result.json`:
+
+```json
+{
+  "summary": "Optional overview.",
+  "findings": [
+    {"category": "possible-tension", "explanation": "What does not fit together.", "resolution": "What would settle it.", "refs": [{"nodeId": "…", "questionId": "…"}]}
+  ]
+}
+```
+
+Categories: `possible-tension`, `unresolved-choice`, `untested-assumption`. At most 12 findings; text up to 1,000 characters; each finding cites 1–8 records from `records`. An empty list is a valid result. Report what you notice between saved statements; never call an answer wrong or answer for the user. The result becomes a proposal: each point waits for the user to keep or dismiss it, and nothing in the map changes. A tension that rests on an answer the user has not marked Decided is shown as an unresolved choice. A check whose answers changed meanwhile is marked stale. `GET /api/maps/ID/job-preview?type=check-answers` shows the packet without starting anything.
+
 ## Mutations
 
 An action carries `expectedRevision` and `type`, plus `nodeId` unless the action covers the whole map. Use the current revision returned by `read`. On a conflict, re-read before deciding whether the action still applies; do not blindly overwrite. Map-level actions still need `expectedRevision` and run one at a time like every other action.

@@ -154,3 +154,38 @@ test('a suggested answer is added to the draft, never replacing it', async () =>
   assert.equal(appendSuggestion('', 'I would start hands-on.'), 'I would start hands-on.');
   assert.equal(appendSuggestion('My own thoughts.  ', 'I would start hands-on.'), 'My own thoughts.\n\nI would start hands-on.');
 });
+
+test('the answer chooser lists saved, current answers by idea, with nothing chosen at first', async () => {
+  const { answerChoices } = await import('../skills/explore/assets/workspace-view.js');
+  const map = { rootId: 'a', nodes: [
+    { id: 'a', title: 'Root', parentId: null, questions: [{ id: 'q1', text: 'Budget?', answer: 'None.' }, { id: 'q2', text: 'Old?', answer: 'x', supersededAt: 't' }, { id: 'q3', text: 'Open?', answer: null }] },
+    { id: 'b', title: 'Venue', parentId: 'a', questions: [{ id: 'q4', text: 'Hall?', answer: 'Church.' }] },
+    { id: 'c', title: 'Empty', parentId: 'a', questions: [] },
+  ] };
+  assert.deepEqual(answerChoices(map), [
+    { nodeId: 'a', title: 'Root', answers: [{ questionId: 'q1', question: 'Budget?' }] },
+    { nodeId: 'b', title: 'Venue', answers: [{ questionId: 'q4', question: 'Hall?' }] },
+  ]);
+});
+
+test('the check-answers panel shows what it reads, its progress, and each point to keep or dismiss', async () => {
+  const { checkAnswersHtml } = await import('../skills/explore/assets/workspace-view.js');
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const map = { rootId: 'a', nodes: [{ id: 'a', title: 'Root <i>', parentId: null, questions: [{ id: 'q1', text: 'Budget?', answer: 'None.' }] }], jobs: [], proposals: [] };
+  const preview = { records: [{ kind: 'idea' }, { kind: 'answer' }, { kind: 'answer' }, { kind: 'open-question' }], omittedRecords: [{ reason: 'earlier premise' }] };
+  let html = checkAnswersHtml({ map, preview, listening: false, esc });
+  assert.match(html, /Reads 2 answers and 1 open question/); assert.match(html, /1 answer from an earlier premise is left out/);
+  assert.match(html, /data-check-answers/); assert.match(html, /never changes an answer/);
+  html = checkAnswersHtml({ map: { ...map, jobs: [{ id: 'job-1', type: 'check-answers', status: 'queued' }] }, preview, listening: false, esc });
+  assert.doesNotMatch(html, /data-check-answers/); assert.match(html, /Connect your agent/); assert.match(html, /data-cancel-job="job-1"/);
+  const proposal = { id: 'p1', type: 'check-answers', createdAt: '2026-11-27T10:00:00Z', stale: true, items: [
+    { id: 'i1', category: 'unresolved-choice', explanation: 'Food costs <money>.', resolution: 'Decide on food.', refs: [{ nodeId: 'a', questionId: 'q1' }], review: 'unreviewed' },
+    { id: 'i2', category: 'untested-assumption', explanation: 'Everyone comes.', resolution: 'Ask.', refs: [{ nodeId: 'a', questionId: 'q1' }], review: 'dismissed' },
+  ] };
+  html = checkAnswersHtml({ map: { ...map, proposals: [proposal] }, preview, listening: true, esc });
+  assert.match(html, /Unresolved choice/); assert.match(html, /Food costs &lt;money&gt;/); assert.match(html, /What would settle it/);
+  assert.match(html, /data-review-item="i1"[^>]*data-decision="accepted"[^>]*>Keep/); assert.match(html, /data-decision="dismissed"[^>]*>Dismiss/);
+  assert.match(html, /Dismissed/); assert.match(html, /answers changed since this check/);
+  assert.match(html, /data-select="a"[^>]*>Root &lt;i&gt; · Budget\?/);
+  assert.match(checkAnswersHtml({ map: { ...map, proposals: [{ ...proposal, stale: false, items: [] }] }, preview, listening: true, esc }), /No tensions found/);
+});
