@@ -81,7 +81,15 @@ test('all three project installation paths receive a complete portable package',
     assert.equal(diagnosis.skillDirectory, installed + path.sep);
     assert.equal(diagnosis.workspace, project); assert.equal(diagnosis.state, 'not-started');
     assert.ok(diagnosis.checks.every(check => check.status !== 'error'));
+    await access(path.join(installed, 'scripts/validate.mjs')); await access(path.join(installed, 'scripts/map-validation.mjs'));
   }
+  // The example workflow's own command validates a disposable project's maps from the Codex install path.
+  const { Store } = await import('../skills/explore/scripts/store.mjs');
+  await new Store(path.join(project, 'ideas')).create({ title: 'Checked in CI', idea: 'A map in a pull request.' });
+  const workflow = await readFile(path.resolve('docs/examples/validate-explore-maps.yml'), 'utf8');
+  const command = workflow.match(/^\s+run: (node .+)$/m)[1].split(' ');
+  const { stdout } = await exec(process.execPath, command.slice(1), { cwd: project });
+  assert.match(stdout, /1 map checked: 1 valid, 0 invalid/);
 });
 
 test('CLI resumes a nontechnical exploration from a real saved answer without activating suggestions', async () => {

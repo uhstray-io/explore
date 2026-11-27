@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { mapFolderPattern } from './map-validation.mjs';
 import { fileURLToPath } from 'node:url';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 
@@ -44,12 +45,12 @@ export async function diagnose({ workspace = process.cwd(), timeout = 2500 } = {
   let workspaceExists = false;
   try { workspaceExists = (await stat(workspace)).isDirectory(); } catch { /* Report missing/inaccessible without raw errors. */ }
   add('workspace', workspaceExists ? 'ok' : 'error', workspaceExists ? 'Workspace directory is accessible.' : 'Use an existing, accessible workspace directory.');
-  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
+  const files = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/style.css', 'assets/constellation.css'];
   const missing = [];
   for (const file of files) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
   add('package', missing.length ? 'error' : 'ok', missing.length ? `Restore the complete skill package; missing: ${missing.join(', ')}.` : 'Skill scripts, references, and browser assets are accessible.');
   let savedMaps = 0;
-  try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && /^map-[a-f0-9]{8}$/.test(entry.name)).length; }
+  try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && mapFolderPattern.test(entry.name)).length; }
   catch (error) { if (error.code !== 'ENOENT') add('maps', 'warning', 'Saved-map directory could not be inspected.'); }
   const lock = await inspectLock(workspace);
   const result = { ready: false, state: 'not-started', workspace, skillDirectory, savedMaps, lock, checks,

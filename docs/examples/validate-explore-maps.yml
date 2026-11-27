@@ -1,0 +1,31 @@
+# Validates Explore maps on pull requests that change ideas/. Copy this file to .github/workflows/
+# in a repository that commits its maps; Explore never installs it for you.
+#
+# The run command uses the Codex install path. For other agents, use:
+#   Claude Code:     node .claude/skills/explore/scripts/validate.mjs --workspace .
+#   GitHub Copilot:  node .github/skills/explore/scripts/validate.mjs --workspace .
+#
+# It runs the validator from the pull request's own checkout. If your repository accepts pull requests
+# from people you do not trust, check out a reviewed copy of the skill at a fixed commit instead and run
+# that copy's validate.mjs against the pull request's files.
+# If you make this a required check, remove the paths filter: a filtered workflow never reports on
+# pull requests that leave ideas/ alone, so they would wait for it.
+name: Validate Explore maps
+on:
+  pull_request:
+    paths:
+      - 'ideas/**'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Validate maps
+        run: node .agents/skills/explore/scripts/validate.mjs --workspace .
