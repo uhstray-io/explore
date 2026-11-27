@@ -225,7 +225,9 @@ export class Store {
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
         `Generated from map revision ${map.revision}. Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
       if (n.options?.length) lines.push('', ...comparisonLines(n));
-      if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.');
+      if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
+      if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
+      else if (n.reaffirmedAt) lines.push('', `_Reaffirmed ${n.reaffirmedAt.slice(0, 10)}: the user re-checked it against the change; it was not re-researched._`);
       const dismissedQuestions = n.questions.filter(q => q.dismissedAt);
       if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
         ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []),
@@ -258,7 +260,13 @@ export class Store {
     }
     return affected;
   }
-  invalidatePremises(map, nodeId) {
+  flagForReview(node, { sourceId, kind }) {
+    node.stale = true;
+    const causes = [...(node.reviewCauses || []), { sourceId, kind, at: now() }];
+    if (causes.length > 20) node.earlierCauses = true;
+    node.reviewCauses = causes.slice(-20);
+  }
+  invalidatePremises(map, nodeId, kind = 'premise-revised') {
     const affected = new Set([nodeId]);
     let changed = true;
     while (changed) {
@@ -270,7 +278,7 @@ export class Store {
     }
     const at = now();
     for (const node of map.nodes) if (affected.has(node.id)) {
-      if (hasFindings(map, node) || isCompleted(map, node)) node.stale = true;
+      if (hasFindings(map, node) || isCompleted(map, node)) this.flagForReview(node, { sourceId: nodeId, kind });
       node.contentRevision++;
       for (const question of node.questions) if (!question.supersededAt) question.supersededAt = at;
       if (node.status === 'awaiting-answer') node.status = 'interrupted';
@@ -436,8 +444,8 @@ export class Store {
           if (input.rerun === false) { this.event(map, 'answer-reworded', n.id, q.id); break; } // A wording fix flags, replaces and queues nothing.
           n.contentRevision++; // Work running on this branch, below it or depending on it now delivers a stale result.
           // Findings that relied on the old answer need another look; their questions stay.
-          if (hasFindings(map, n) && (!oldAt || map.jobs.some(j => j.nodeId === n.id && isInvestigation(j) && j.status === 'completed' && !j.stale && j.startedAt > oldAt))) n.stale = true;
-          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && (hasFindings(map, other) || isCompleted(map, other))) other.stale = true; }
+          if (hasFindings(map, n) && (!oldAt || map.jobs.some(j => j.nodeId === n.id && isInvestigation(j) && j.status === 'completed' && !j.stale && j.startedAt > oldAt))) this.flagForReview(n, { sourceId: n.id, kind: 'answer-changed' });
+          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && (hasFindings(map, other) || isCompleted(map, other))) this.flagForReview(other, { sourceId: n.id, kind: 'answer-changed' }); }
           // Follow-ups asked after the old answer no longer fit it.
           for (const other of n.questions) {
             const askedAt = other.askedAt ?? map.jobs.find(j => j.result?.questions?.some(x => x.id === other.id))?.startedAt;
@@ -446,6 +454,14 @@ export class Store {
           this.event(map, 'answer-changed', n.id, q.id);
           if (!n.questions.some(isBlocking)) this.enqueue(map, n, `The user changed their answer to '${q.text.slice(0, 120)}'. Continue from the new answer and ask new follow-ups only where still needed.`);
           break;
+        }
+        case 'reaffirm': case 'clear-finding': {
+          need(n.stale, 'Only a finding flagged for review can be resolved.', 409);
+          n.stale = false; delete n.reviewCauses; delete n.earlierCauses;
+          if (input.type === 'reaffirm') n.reaffirmedAt = now();
+          else Object.assign(n, { reviewState: 'cleared', clearedAt: now() });
+          if (actor?.name) n.resolvedBy = { name: actor.name };
+          this.event(map, input.type === 'reaffirm' ? 'reaffirmed' : 'cleared', n.id); break;
         }
         case 'set-answer-state': {
           const q = n.questions.find(q => q.id === input.questionId);
@@ -505,11 +521,15 @@ export class Store {
           } else { revised = text(input.body, 'Changed premise', 16000); title = `Changed premise: ${n.title}`.slice(0, 100); }
           const child = this.node(input.title ? text(input.title, 'Title', 100) : title, revised, 'research', n.id);
           child.revises = n.id; if (revisesAnswer) child.revisesAnswer = revisesAnswer;
-          this.invalidatePremises(map, n.id);
+          this.invalidatePremises(map, n.id, revisesAnswer ? 'answer-changed' : 'premise-forked');
           const edge = { from: n.id, to: child.id, type: 'contains' };
           map.nodes.push(child); map.edges.push(edge);
           this.recordGrowth(map, [child], [edge]);
           this.event(map, 'revision-suggested', child.id, `Changed ${revisesAnswer ? 'answer' : 'premise'} for ${n.id}; original findings preserved.`);
+          if (input.resolveReview === true) {
+            Object.assign(n, { stale: false, reviewState: 'cleared', clearedAt: now(), replacedBy: child.id }, actor?.name ? { resolvedBy: { name: actor.name } } : {});
+            delete n.reviewCauses; delete n.earlierCauses;
+          }
           // The user choosing to explore it is the go-ahead (decision 6b); agents never set start.
           if (input.start === true) this.enqueue(map, child, `The user explored a changed ${revisesAnswer ? 'answer' : 'premise'}. Explore only this direction.`);
           break;
@@ -670,7 +690,7 @@ export class Store {
       const stale = job.inputSignature !== this.signature(map, n);
       Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
       if (stale) {
-        n.stale = true; n.status = 'interrupted';
+        this.flagForReview(n, { sourceId: n.id, kind: 'result-during-change' }); n.status = 'interrupted';
         this.event(map, 'stale-result', n.id, 'Result retained in job history. A premise changed during research.');
       } else {
         n.summary = normalized.summary; n.body = normalized.body; n.sources = normalized.sources;

@@ -198,6 +198,40 @@ export function menuFocusIndex(index, key, count) {
   return index;
 }
 
+// Review flagged findings (D3): flagged ideas in tree order from the root, then any outside the tree.
+export function reviewQueue(map) {
+  const children = new Map(map.nodes.map(node => [node.id, []]));
+  for (const node of map.nodes) children.get(node.parentId)?.push(node);
+  const ordered = [], seen = new Set();
+  const visit = node => { if (seen.has(node.id)) return; seen.add(node.id); ordered.push(node); for (const child of children.get(node.id)) visit(child); };
+  for (const node of map.nodes.filter(node => node.id === map.rootId)) visit(node);
+  for (const node of map.nodes) visit(node);
+  return ordered.filter(node => node.stale).map(node => node.id);
+}
+const shortDate = at => at ? new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
+// One step of the review: what changed upstream, then Still holds, Re-explore or No longer relevant.
+export function reviewStepHtml({ map, nodeId, index, total, esc }) {
+  const node = map.nodes.find(n => n.id === nodeId);
+  if (!node) return '';
+  const title = id => map.nodes.find(n => n.id === id)?.title ?? 'A removed idea';
+  const source = id => `<button type="button" class="text-button" data-select="${esc(id)}">${esc(title(id))}</button>`;
+  const more = (before, after) => before || after ? `<details class="review-more"><summary>Show what changed</summary>${before ? `<p><strong>Before:</strong> ${esc(before)}</p>` : ''}${after ? `<p><strong>Now:</strong> ${esc(after)}</p>` : ''}</details>` : '';
+  const cause = c => {
+    const from = map.nodes.find(n => n.id === c.sourceId);
+    if (c.kind === 'premise-revised') return `${source(c.sourceId)}: its premise was revised${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(map.history?.filter(e => e.type === 'previous-premise' && e.nodeId === c.sourceId).at(-1)?.detail, from?.prompt)}`;
+    if (c.kind === 'premise-forked') return `${source(c.sourceId)} was explored with a changed premise${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(from?.prompt, map.nodes.filter(n => n.revises === c.sourceId).at(-1)?.prompt)}`;
+    if (c.kind === 'answer-changed') { const q = from?.questions.filter(x => x.previousAnswers?.length).at(-1); return `An answer on ${source(c.sourceId)} changed${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(q?.previousAnswers.at(-1)?.answer, q?.answer)}`; }
+    if (c.kind === 'result-during-change') return `A result arrived while this idea's premise was changing${c.at ? ` (${esc(shortDate(c.at))})` : ''}. It is kept in history, not applied.`;
+    return `${source(c.sourceId)} changed.`;
+  };
+  const causes = node.reviewCauses?.length ? `<ul class="review-causes">${node.reviewCauses.map(c => `<li>${cause(c)}</li>`).join('')}</ul>${node.earlierCauses ? '<p class="form-note">Earlier causes are not shown.</p>' : ''}` : '<p class="form-note">Flagged before causes were recorded.</p>';
+  const id = esc(node.id);
+  return `<section class="review-step" aria-label="Review flagged findings"><div class="review-step-head"><strong aria-live="polite">Item ${index + 1} of ${total}</strong><span class="review-nav"><button type="button" class="text-button" data-review-prev${index === 0 ? ' disabled' : ''}>Previous</button><button type="button" class="text-button" data-review-next${index >= total - 1 ? ' disabled' : ''}>Next</button><button type="button" class="text-button" data-review-exit>Done</button></span></div>`
+    + `<p class="form-note">Something this finding relied on changed. Check whether it still holds.</p>${causes}`
+    + `<div class="review-resolve"><button type="button" class="primary" data-resolve="reaffirm" data-node-id="${id}">Still holds</button><button type="button" class="secondary" data-resolve="reexplore" data-node-id="${id}">Re-explore</button><button type="button" class="text-button" data-resolve="clear" data-node-id="${id}">No longer relevant</button></div>`
+    + `<div class="review-reexplore" data-reexplore-for="${id}" hidden><label for="reexplore-${id}">The premise to explore (edit it if you like)</label><textarea id="reexplore-${id}" rows="3" maxlength="16000">${esc(node.prompt || node.body)}</textarea><button type="button" class="primary" data-reexplore-confirm="${id}">Re-explore</button></div></section>`;
+}
+
 export function briefFilename(title) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}-brief.md`;
