@@ -44,6 +44,7 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
     if (!targets.has(definition.target) || typeof definition.apply !== 'function') throw new Error(`Action ${type} needs a target of node or map and an apply function.`);
   }
   for (const [key, field] of Object.entries(settings)) {
+    if (Object.hasOwn(builtInSettings, key)) throw new Error(`The ${key} setting is built in.`);
     if (['version', 'revision', 'expectedRevision', 'unreadable'].includes(key) || typeof field.validate !== 'function' || !('default' in field))
       throw new Error(`Setting ${key} needs a default and a validate function, and may not reuse a reserved name.`);
   }

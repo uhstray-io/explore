@@ -8,10 +8,12 @@ const presenceMs = 40000, forgetMs = 3 * 60 * 60 * 1000; // Activity outlasts th
 export function createListeners() {
   const records = new Map();
   return {
-    // A poll. Returns the listener, created with its window starting now if it is new.
-    seen(mapId, worker, now = Date.now()) {
+    // A poll. Returns the listener, with its window starting now if it is new, or if it comes back after its
+    // presence lapsed and its window had closed: that is a new agent session, often under the same worker name.
+    seen(mapId, worker, windowMinutes, now = Date.now()) {
       const key = JSON.stringify([mapId, worker]);
-      const record = records.get(key) ?? { mapId, worker, lastActivity: now };
+      const record = records.get(key) ?? { mapId, worker, lastActivity: now, lastSeen: now };
+      if (now - record.lastSeen >= presenceMs && now - record.lastActivity >= windowMinutes * 60000) record.lastActivity = now;
       record.lastSeen = now; records.set(key, record);
       return record;
     },

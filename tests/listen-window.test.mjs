@@ -91,16 +91,16 @@ test('handing out a job resets the listener, packets carry no listening window, 
 
 test('a slow poll never restarts the window, and it closes after a full window without activity', () => {
   const listeners = createListeners();
-  const a = listeners.seen('map-a', 'one', 0);
-  listeners.seen('map-a', 'one', 39_000); listeners.seen('map-a', 'one', 80_000); // A 41-second gap between polls.
+  const a = listeners.seen('map-a', 'one', 2, 0);
+  listeners.seen('map-a', 'one', 2, 39_000); listeners.seen('map-a', 'one', 2, 80_000); // A 41-second gap between polls.
   assert.equal(listeners.status(80_000).listening, true);
   assert.equal(listeners.listen(a, 2, 80_000).idleSeconds, 80, 'counted from the start, not from the late poll');
-  assert.equal(listeners.listen(listeners.seen('map-a', 'one', 120_000), 2, 120_000).keepListening, false);
+  assert.equal(listeners.listen(listeners.seen('map-a', 'one', 2, 110_000), 2, 120_000).keepListening, false, 'a poll within presence keeps counting until the window closes');
   assert.equal(listeners.status(200_000).listening, false, 'presence ends 40 seconds after the last poll');
   listeners.noteActivity('map-b', 200_000);
   assert.equal(listeners.listen(a, 2, 200_000).idleSeconds, 200, 'activity on another map does not count');
   listeners.noteActivity('map-a', 200_000);
-  assert.equal(listeners.listen(listeners.seen('map-a', 'one', 201_000), 2, 201_000).idleSeconds, 1);
+  assert.equal(listeners.listen(listeners.seen('map-a', 'one', 2, 201_000), 2, 201_000).idleSeconds, 1);
 });
 
 test('a server with its own registry still reports the window, and importing a map counts as activity', async () => {
@@ -119,4 +119,16 @@ test('the agent prompt names the open map, or asks which one', () => {
   const session = { skillPath: 'skills/explore/SKILL.md', workspacePath: '/work' };
   assert.match(agentPrompt(session, { id: 'map-1', title: 'Field notebook' }), /Continue only map map-1 \(Field notebook\)/);
   assert.match(agentPrompt(session, null), /Ask me which saved map to continue/);
+});
+
+test('a new agent session after a closed window starts a fresh window, even under the same worker name', () => {
+  const listeners = createListeners();
+  const first = listeners.seen(null, 'codex', 2, 0);
+  assert.equal(listeners.listen(first, 2, 125_000).keepListening, false, 'the first session is told to finish');
+  const next = listeners.seen(null, 'codex', 2, 725_000); // Ten minutes later, nothing saved in between.
+  assert.deepEqual(listeners.listen(next, 2, 725_000), { windowMinutes: 2, idleSeconds: 0, keepListening: true });
+});
+
+test('a registry cannot replace the built-in listening setting', () => {
+  assert.throws(() => createRegistry({ settings: { listenMinutes: { default: 5, validate: value => value } } }), /built in/);
 });

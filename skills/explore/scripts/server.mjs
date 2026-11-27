@@ -92,18 +92,18 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const wait = Math.max(0, Math.min(25, Number(url.searchParams.get('wait')) || 0));
           const deadline = Date.now() + wait * 1000;
           // Claiming a job saves the map, which restarts this listener's window like any other saved change.
-          const listener = listeners.seen(mapId, workerName);
+          // Read on every poll, so a change in the browser applies at the next one. An unreadable settings file
+          // falls back to the default rather than failing the poll.
+          const windowMinutes = await store.getSettings().then(settings => settings.listenMinutes, () => defaultListenMinutes);
+          const listener = listeners.seen(mapId, workerName, windowMinutes);
           do {
             if (res.destroyed || closing) return;
             const packet = await store.claim(workerName, mapId || undefined);
-            worker = workerName; listeners.seen(mapId, workerName);
+            worker = workerName;
             if (packet) return send(res, 200, packet);
             if (Date.now() >= deadline) break;
             await new Promise(resolve => setTimeout(resolve, 500));
           } while (!closing);
-          // Read on every idle response, so a change in the browser applies at the next poll. An unreadable
-          // settings file falls back to the default rather than failing the poll.
-          const windowMinutes = await store.getSettings().then(settings => settings.listenMinutes, () => defaultListenMinutes);
           return send(res, 200, { idle: true, message: 'No activated branches. Do not analyze the map again while waiting.', listen: listeners.listen(listener, windowMinutes) });
         }
         if (req.method !== 'POST') throw new Problem('Route not found.', 404);

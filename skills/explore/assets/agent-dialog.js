@@ -19,6 +19,7 @@ export function agentDialog({ api, toast, session, map }) {
     if (!settings) { status.textContent = 'The listening setting could not be loaded. Close and reopen this dialog to try again.'; return; }
     select.value = String(settings.listenMinutes); revision = settings.revision;
     select.disabled = !!settings.newer; // A newer Explore's settings are left alone.
+    if (settings.newer) status.textContent = 'These settings were saved by a newer version of Explore. Update Explore to change them.';
   }
   select.addEventListener('change', async () => {
     try {
