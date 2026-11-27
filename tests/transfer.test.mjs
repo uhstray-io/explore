@@ -198,3 +198,12 @@ test('a map with more ideas than Explore imports is refused', async () => {
   for (let i = exported.map.nodes.length; i <= maxImportIdeas; i++) exported.map.nodes.push({ ...template, id: `node-${i.toString(16).padStart(8, '0')}`, questions: [], sources: [] });
   await assert.rejects(to.store.importMap(exported), error => error.status === 413);
 });
+
+test('asking for a copy makes one even when the ID is free', async () => {
+  const from = await workspace(), to = await workspace();
+  const { map } = await workedMap(from.store);
+  const result = await to.store.importMap(await exportMap(from.store, map.id), { asCopy: true });
+  assert.notEqual(result.imported, map.id);
+  const saved = await to.store.get(result.imported);
+  assert.match(saved.title, / \(copy\)$/); assert.equal(saved.importedFrom.mapId, map.id);
+});

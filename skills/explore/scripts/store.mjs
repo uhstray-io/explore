@@ -255,8 +255,8 @@ export class Store {
   }
   // Stops open work without running anything. An investigation leaves its idea interrupted; other kinds
   // release what they held, so a pending regeneration gives its question back. Returns the stopped jobs.
-  deactivateOpenWork(map, { error, at, only = isOpenJob } = {}) {
-    const stopped = map.jobs.filter(only);
+  deactivateOpenWork(map, { error, at, runningOnly = false } = {}) {
+    const stopped = map.jobs.filter(job => runningOnly ? job.status === 'running' : isOpenJob(job));
     for (const job of stopped) {
       Object.assign(job, { status: 'interrupted' }, at ? { finishedAt: at } : {}, error ? { error } : {});
       if (!isInvestigation(job)) { this.jobType(jobTypeOf(job))?.release?.({ map, job }); continue; }
@@ -264,7 +264,7 @@ export class Store {
       if (node) node.status = 'interrupted';
     }
     // Once all open work has stopped, no idea can still be waiting or running.
-    if (only === isOpenJob) for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
+    if (!runningOnly) for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
     return stopped;
   }
   event(map, type, nodeId, detail = '') { map.history.push({ at: now(), type, nodeId, detail }); }
@@ -763,7 +763,7 @@ export class Store {
         for (const n of map.nodes) if (isCompleted(map, n) && n.status !== 'explored') {
           this.stopCompletedRepeat(map, n); changed = true;
         }
-        for (const j of this.deactivateOpenWork(map, { at: now(), only: job => job.status === 'running' })) {
+        for (const j of this.deactivateOpenWork(map, { at: now(), runningOnly: true })) {
           changed = true;
           this.event(map, 'interrupted', j.nodeId, isInvestigation(j) ? 'Server restarted. Retry explicitly to continue.' : 'Server restarted. Request this work again to continue.');
         }
@@ -777,16 +777,16 @@ export class Store {
   importMap(data, { asCopy = false } = {}) {
     return this.serial(async () => {
       const { map: incoming, exportedAt } = unwrapExport(data, message => { throw new Problem(message); });
+      need(!Array.isArray(incoming?.nodes) || incoming.nodes.length <= maxImportIdeas, `This map has more than ${maxImportIdeas} ideas, more than Explore imports.`, 413);
       const problems = validateMap(incoming).errors;
       need(!problems.length, `This map cannot be imported: ${problems.slice(0, 5).map(problem => `${problem.message.replace(/[.]$/, '')} (${problem.code} at ${problem.at})`).join('; ')}${problems.length > 5 ? '; and more' : ''}.`);
-      need(incoming.nodes.length <= maxImportIdeas, `This map has more than ${maxImportIdeas} ideas, more than Explore imports.`, 413);
       const map = this.asImported(incoming);
       const taken = mapFolderPattern.test(map.id) && await this.taken(map.id);
       if (taken && !asCopy) {
         if (taken.map && contentHash(this.asImported(taken.map)) === contentHash(map)) return { existing: map.id };
         return { conflict: { mapId: map.id, existing: taken.map ? mapSummary(taken.map) : { unreadable: true }, incoming: mapSummary(map) } };
       }
-      if (taken || !mapFolderPattern.test(map.id)) Object.assign(map, { id: id('map'), title: `${map.title.slice(0, 93)} (copy)`, createdAt: now(), importedFrom: { mapId: incoming.id, revision: incoming.revision, exportedAt } });
+      if (asCopy || !mapFolderPattern.test(map.id)) Object.assign(map, { id: id('map'), title: `${map.title.slice(0, 93)} (copy)`, createdAt: now(), importedFrom: { mapId: incoming.id, revision: incoming.revision, exportedAt } });
       try { this.renderViews(map); } catch { throw new Problem('This map has parts Explore cannot show, so it was not imported.'); }
       await this.save(this.isNew(map), { labels: ['map-imported'] });
       return { imported: map.id };
