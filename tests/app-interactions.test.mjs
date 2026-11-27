@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -514,4 +514,27 @@ test('each question has one ⋯ menu; dismissed ones collapse and a regenerating
   assert.match(markup, /You rated this a good question/);
   assert.match(markup, /<summary>Dismissed \(1\)<\/summary>.*Leading one\?.*data-q-restore/s);
   assert.match(markup, /Getting a new question…/); assert.match(markup, /Queued for your agent/);
+});
+
+test('questions come one at a time with a counter, earlier answers collapse, and Show all lists the batch', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'awaiting-answer';
+  node.questions = [
+    { id: 'q1', text: 'One?', answer: 'Done.', jobId: 'job-2' },
+    { id: 'q2', text: 'Two?', answer: null, jobId: 'job-2' },
+    { id: 'q3', text: 'Three?', answer: null, jobId: 'job-2' },
+  ];
+  h.document.activeElement = null; h.render();
+  let markup = h.markup();
+  assert.match(markup, /aria-live="polite"[^>]*>Question 2 of 3</);
+  assert.match(markup, /data-question="q2"/); assert.doesNotMatch(markup, /data-question="q3"/, 'only the current question');
+  assert.match(markup, /<summary>Your answers \(1\)<\/summary>/);
+  assert.match(markup, /data-show-all-questions/); assert.match(markup, />Save</); assert.doesNotMatch(markup, /Save answer &amp; continue|Save answer & continue/);
+  h.state.showAllQuestions = true; h.render();
+  markup = h.markup();
+  assert.match(markup, /data-question="q2"/); assert.match(markup, /data-question="q3"/); assert.match(markup, /data-show-one-question/);
+  h.state.showAllQuestions = false; h.state.pendingAnswers = { q2: 'Saving…' }; h.render();
+  assert.match(h.markup(), /Question 3 of 3/, 'a saved answer shows the next question before the server replies');
+  assert.match(h.markup(), /data-question="q3"/);
 });

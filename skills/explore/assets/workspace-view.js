@@ -1,4 +1,25 @@
 import { presentation } from './graph.js';
+import { isBlocking } from './questions.js';
+
+// One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
+// a regenerated question takes its original's place). Older maps without jobId treat all open
+// questions as one batch. Handled means answered, saved for later, or dismissed; a regeneration still
+// on its way counts toward the total and waits at the end.
+export function questionSequence(node) {
+  const live = node.questions.filter(q => !q.supersededAt);
+  const byId = new Map(live.map(q => [q.id, q]));
+  const batchOf = q => { let current = q; for (let step = 0; current.replaces && byId.has(current.replaces) && step < 20; step++) current = byId.get(current.replaces); return current.jobId ?? null; };
+  const anchor = [...live].reverse().find(isBlocking) ?? live.at(-1);
+  if (!anchor) return { batch: [], current: null, index: 0, total: 0, answered: [], remaining: 0 };
+  const key = batchOf(anchor);
+  let batch = live.filter(q => batchOf(q) === key && !(q.replacedBy && q.replacedBy !== 'pending'));
+  if (key === null) batch = batch.filter(isBlocking);
+  batch = [...batch.filter(q => q.replacedBy !== 'pending'), ...batch.filter(q => q.replacedBy === 'pending')];
+  const handled = q => !!q.answer || !!q.deferredAt || (!!q.dismissedAt && q.replacedBy !== 'pending');
+  const current = batch.find(q => isBlocking(q) && q.replacedBy !== 'pending') ?? null;
+  return { batch, current, index: current ? batch.filter(handled).length + 1 : batch.length, total: batch.length,
+    answered: batch.filter(q => q.answer), remaining: batch.filter(isBlocking).length };
+}
 
 export const overviewFilters = [
   { id: 'answer', label: 'Needs your answer', empty: 'No questions are waiting for you.', matches: node => node.status === 'awaiting-answer' },

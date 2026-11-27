@@ -30,7 +30,7 @@ These are examples of useful distinctions, not branches to insert into unrelated
 
 A question should resolve a decision-relevant ambiguity that research or the existing map cannot answer. Ask about the user's priorities, constraints, lived context, or a choice reserved for them. Investigate externally answerable factual uncertainty with available tools. If evidence is unavailable, state that limit instead of disguising a factual question as a preference.
 
-Prefer one blocking question; group a few only when their answers are independently necessary. Ask one thing per question. Explain the consequence briefly and offer concrete choices when they help, while allowing an answer outside those choices. Avoid leading questions, vague requests to “tell me more,” false binaries, and bundled questionnaires. Do not ask the user to endorse the agent's preferred conclusion.
+Prefer one blocking question; group a few only when their answers are independently necessary, and ask at most three in one result. The user answers them one at a time, and the branch continues after the last one. Ask one thing per question. Explain the consequence briefly and offer concrete choices when they help, while allowing an answer outside those choices. Avoid leading questions, vague requests to “tell me more,” false binaries, and bundled questionnaires. Do not ask the user to endorse the agent's preferred conclusion.
 
 Example: “For the first workshop, which matters more: reaching many neighbors or keeping preparation under one evening? A third priority is welcome.” This distinguishes a real tradeoff only if the user has not already settled it. A grounded open question is better when the relevant choices are unknown.
 
