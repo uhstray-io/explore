@@ -52,7 +52,7 @@ const versionWords = {
   activated: 'Exploration started', answered: 'Answer saved', result: 'Agent result', suggested: 'Direction added',
   accepted: 'Finding accepted', revised: 'Premise revised', 'revision-suggested': 'Changed premise added', cancelled: 'Exploration stopped',
   failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
-  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'before-outside-change': 'Before a pull or branch switch',
+  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
 };
 export function versionLabel(version) {

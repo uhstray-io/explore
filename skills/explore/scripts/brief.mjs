@@ -1,4 +1,5 @@
 import { Problem, hasFindings } from './store.mjs';
+import { isOpen, isBlocking, certaintyText, effectiveAnswerState } from '../assets/questions.js';
 
 const clip = (value, limit) => {
   const text = String(value ?? '');
@@ -23,11 +24,13 @@ export function mapBrief(map, nodeId = null) {
     status: node.status, reviewState: node.reviewState, stale: !!node.stale, ...extra });
   const definitions = [
     ['stale', 'Findings that need review', nodes.filter(n => n.stale).map(n => entry(n))],
-    ['questions', 'Questions waiting for you', nodes.flatMap(n => n.questions.filter(q => !q.answer && !q.supersededAt && n.status === 'awaiting-answer').map(q => entry(n, q.text, { questionId: q.id })))],
+    ['questions', 'Questions waiting for you', nodes.flatMap(n => n.questions.filter(q => isBlocking(q) && n.status === 'awaiting-answer').map(q => entry(n, q.text, { questionId: q.id })))],
+    ['later', 'Questions saved for later — open, not blocking', nodes.flatMap(n => n.questions.filter(q => isOpen(q) && q.deferredAt).map(q => entry(n, q.text, { questionId: q.id, deferredAt: q.deferredAt })))],
     ['accepted', 'Accepted and current findings', nodes.filter(n => n.reviewState === 'accepted' && !n.stale && n.status === 'explored').map(n => entry(n))],
     ['findings', 'Working findings — not accepted', nodes.filter(n => hasFindings(map, n) && n.reviewState !== 'accepted' && !n.stale).map(n => entry(n, n.summary, { sourceCount: n.sources.length }))],
     ['premises', 'Current premises — not findings', nodes.filter(n => !hasFindings(map, n) && n.status !== 'suggested').map(n => entry(n, n.prompt || n.summary))],
-    ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240) })))],
+    ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
+    ['unsettled', 'Unsettled answers — assumptions, not decisions', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt && effectiveAnswerState(q).state === 'assumption').map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
     ['superseded', 'Earlier questions and answers — previous premises', nodes.flatMap(n => n.questions.filter(q => q.supersededAt).map(q => entry(n, q.answer || 'No answer was recorded.', { questionId: q.id, question: clip(q.text, 240), supersededAt: q.supersededAt })))],
     ['risks', 'Risk investigations — not verified risks', nodes.filter(n => n.kind === 'risk').map(n => entry(n))],
     ['directions', 'Unexplored directions', nodes.filter(n => n.status === 'suggested').map(n => entry(n, n.prompt || n.summary))],
@@ -54,7 +57,7 @@ export function mapBrief(map, nodeId = null) {
     for (const section of brief.sections) {
       lines.push('', `## ${section.label}`, '');
       for (const item of section.items) {
-        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}`);
+        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}`);
       }
       if (!section.total) lines.push('_None recorded in this scope._');
       if (section.omitted) lines.push(`_${section.omitted} more records omitted. Use paged map reads and targeted node sections._`);

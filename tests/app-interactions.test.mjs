@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import * as questionHelpers from '../skills/explore/assets/questions.js';
 import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
-const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary };
+const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, ...questionHelpers };
 function between(start, end) {
   const from = app.indexOf(start), to = app.indexOf(end, from);
   assert.ok(from >= 0 && to > from, 'The actual UI callback boundaries must remain available.');
@@ -55,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }),
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -456,4 +457,26 @@ test('the versions panel offers undo in plain words, then a clear summary before
   assert.match(panel.innerHTML, /Restore this version/); assert.match(panel.innerHTML, /Name this version/);
   state.versionsOpen = false; context.renderVersionsPanel();
   assert.equal(panel.hidden, true);
+});
+
+test('answers show how sure they are, open questions can wait, and waiting ones collapse', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'awaiting-answer';
+  node.questions = [
+    { id: 'q-decided', text: 'Who decides?', answer: 'The owner.', answerState: 'decided' },
+    { id: 'q-old', text: 'Older one?', answer: 'Before certainty existed.' },
+    { id: 'q-open', text: 'What budget?', answer: null },
+    { id: 'q-later', text: 'Which venue?', answer: null, deferredAt: '2026-11-27T10:00:00Z' },
+  ];
+  h.document.activeElement = null; h.render();
+  const markup = h.markup();
+  assert.match(markup, /data-certainty="q-decided"[^>]*>.*<option value="decided" selected>Decided<\/option>/s);
+  assert.match(markup, /data-certainty="q-old"[^>]*title="Certainty not recorded"/);
+  assert.match(markup, /data-answer-later="q-open"/);
+  assert.doesNotMatch(markup, /data-answer-later="q-later"/);
+  assert.match(markup, /<details class="saved-for-later"><summary>Saved for later \(1\)<\/summary>.*data-question="q-later"/s);
+  node.status = 'explored'; node.completed = true; h.render();
+  assert.doesNotMatch(h.markup(), /data-answer-later/);
+  assert.match(h.markup(), /data-certainty="q-decided"/, 'certainty can still be set on a finished branch');
 });
