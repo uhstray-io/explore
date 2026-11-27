@@ -1,5 +1,6 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
+import { agentDialog } from './agent-dialog.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, researchSuggestion } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
@@ -707,14 +708,8 @@ function showWelcome() {
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
 $('#new-map').addEventListener('click', showCreate); $('#start-exploration').addEventListener('click', showCreate);
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
-function showHelp() {
-  const session = state.session || {};
-  const target = state.map ? `Continue only map ${state.map.id} (${state.map.title}). Pick up activated branches for this map only.` : 'Ask me which saved map to continue, then pick up its activated branches.';
-  $('#agent-prompt').value = `Use the Explore skill at ${session.skillPath || 'skills/explore/SKILL.md'} to continue the workspace ${session.workspacePath || session.workspace || ''}. The local app is running. ${target} Use the command bridge, keep context focused, and send findings and questions back to the map.`;
-  $('#agent-copy-status').textContent = ''; $('#help-dialog').showModal();
-}
+const showHelp = agentDialog({ $, api, toast, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
-$('#copy-prompt').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('#agent-prompt').value); $('#agent-copy-status').textContent = 'Prompt copied. Paste it into your coding agent.'; } catch { $('#agent-prompt').focus(); $('#agent-prompt').select(); $('#agent-copy-status').textContent = 'Copy the selected prompt above.'; } });
 $('#create-form').addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.target, button = event.submitter || form.querySelector('button[type="submit"]');

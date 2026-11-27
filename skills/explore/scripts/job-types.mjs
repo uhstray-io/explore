@@ -22,6 +22,7 @@
 import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
 import { questionJobTypes, questionActions } from './question-actions.mjs';
 import { restartActions } from './restart.mjs';
+import { listenChoices, defaultListenMinutes } from '../assets/listening.js';
 
 export const INVESTIGATE = 'investigate';
 
@@ -48,7 +49,12 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions } });
+// How long an agent keeps listening for work (K1), shared by everyone who opens the repo.
+const listenMinutes = { default: defaultListenMinutes, validate: value => {
+  if (!listenChoices.includes(value)) throw Object.assign(new Error(`Keep listening for ${listenChoices.slice(0, -1).join(', ')} or ${listenChoices.at(-1)} minutes.`), { status: 400 });
+  return value;
+} };
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions }, settings: { listenMinutes } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }

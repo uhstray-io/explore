@@ -26,7 +26,7 @@ Read [the bridge reference](references/bridge.md) for commands and result delive
 - A result without questions completes that branch. For new scope, propose a child. For a changed completed premise, use `fork-revision` to preserve earlier work; the user activates its new child separately. Only the user restarts a branch (`restart-branch`). Do not self-activate or self-accept work.
 - Delegate a bounded investigation only if the host supports it and the user permits it. If blocked, use `fail` with a concrete reason; do not loop on the same failure. A host lacking subagents can perform the whole workflow.
 
-Keep listening while the user is exploring, without narrating idle polls. After roughly two minutes with no work, finish with the map, current stopping point, and how to resume. Explicit instructions to keep listening or stop take precedence. Do not create an automation unless asked.
+Keep listening while the user is exploring, without narrating idle polls. Keep calling `next` while idle responses say `listen.keepListening: true`; when one says `false`, the user's chosen window has passed with no work, so finish with the map, current stopping point, and how to resume. Explicit instructions to keep listening or stop take precedence. Do not create an automation unless asked.
 
 ## Keep resumption small and honest
 
