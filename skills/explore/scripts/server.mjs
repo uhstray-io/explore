@@ -98,7 +98,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
       res.writeHead(200, { 'Content-Type': `${types[file.split('.').pop()]}; charset=utf-8`, 'Cache-Control': 'no-cache' });
       res.end(await readFile(path.join(assets, file)));
-    } catch (error) { send(res, error.status || 500, { error: error.message }); }
+    } catch (error) { send(res, error.status || 500, { error: error.message, ...(error instanceof Problem && error.code ? { code: error.code } : {}) }); }
   });
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });

@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { openMapChange, unreadableLabel, outsideChangeNote } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
+const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote };
 function between(start, end) {
   const from = app.indexOf(start), to = app.indexOf(end, from);
   assert.ok(from >= 0 && to > from, 'The actual UI callback boundaries must remain available.');
@@ -245,13 +247,56 @@ test('agent coverage changes refresh queued guidance even without a map revision
     const bridge = covered => ({ listening: true, scopes: [{ mapId: covered ? 'map-a' : 'map-b', listening: true }] });
     const state = { map: { id: 'map-a', revision: 2 }, bridge: bridge(before) };
     let renders = 0;
-    const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null,
+    const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
       api: async () => ({ maps: [{ id: 'map-a', revision: 2 }], bridge: bridge(after) }),
       renderRail() {}, connectionView() {}, renderDetail() { renders++; } });
     vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
     await context.refresh();
     assert.equal(renders, expectedRenders);
   }
+});
+
+function refreshHarness({ listed, fetched, mutateDuringFetch = false }) {
+  const state = { map: { id: 'map-a', revision: 5, fingerprint: 'f1', title: 'Shown' }, bridge: {}, mutations: 0, outsideSeen: {} };
+  const events = { renders: 0, toasts: [], welcome: 0 };
+  const context = vm.createContext({ state, document: { hidden: false }, openVersion: 0, gesture: null, ...viewHelpers,
+    api: async route => {
+      if (route === '/maps') return { maps: listed ? [listed] : [], bridge: {} };
+      if (mutateDuringFetch) state.mutations++;
+      return fetched;
+    },
+    renderRail() {}, connectionView() {}, renderDetail() {}, renderMap() { events.renders++; },
+    toast(message) { events.toasts.push(message); }, showWelcome() { events.welcome++; state.map = null; } });
+  vm.runInContext(between('function agentListening(', '\nfunction connectionView(') + '\n' + between('async function refresh(', '\nasync function openMap('), context);
+  return { state, events, refresh: context.refresh };
+}
+
+test('a pull with the same or an older revision replaces the shown map and says so once', async () => {
+  for (const revision of [5, 3]) {
+    const pulled = { id: 'map-a', revision, fingerprint: 'f2', title: 'Pulled', outsideChange: { at: 't1', preserved: null } };
+    const h = refreshHarness({ listed: { id: 'map-a', revision, fingerprint: 'f2' }, fetched: pulled });
+    await h.refresh();
+    assert.equal(h.state.map.title, 'Pulled', `revision ${revision}`);
+    assert.equal(h.events.renders, 1);
+    assert.deepEqual(h.events.toasts, ['Updated from a change outside Explore, for example a pull.']);
+    await h.refresh();
+    assert.equal(h.events.toasts.length, 1, 'the note appears once');
+  }
+});
+
+test('a fetched map never replaces a save made in this tab meanwhile', async () => {
+  const h = refreshHarness({ listed: { id: 'map-a', revision: 5, fingerprint: 'f2' }, fetched: { id: 'map-a', revision: 5, fingerprint: 'f2', title: 'Older' }, mutateDuringFetch: true });
+  await h.refresh();
+  assert.equal(h.state.map.title, 'Shown'); assert.equal(h.events.renders, 0);
+});
+
+test('a removed or unreadable open map is explained instead of reported as a lost connection', async () => {
+  let h = refreshHarness({ listed: null });
+  await h.refresh();
+  assert.equal(h.events.welcome, 1); assert.match(h.events.toasts[0], /no longer in the workspace/);
+  h = refreshHarness({ listed: { id: 'map-a', unreadable: true, problem: 'conflict-markers' } });
+  await h.refresh();
+  assert.equal(h.events.welcome, 1); assert.match(h.events.toasts[0], /unresolved Git conflict/);
 });
 
 function createHarness() {

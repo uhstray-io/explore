@@ -23,6 +23,30 @@ export function visibleSelection(map, selected) {
   return map.nodes.some(node => node.id === selected) ? selected : null;
 }
 
+// How the open map differs from the copy the browser shows. Content counts, not the revision
+// number alone: a pull can bring the same revision with different content, or an older one.
+export function openMapChange(listed, shown) {
+  if (!shown) return null;
+  if (!listed) return 'removed';
+  if (listed.unreadable) return 'unreadable';
+  return listed.fingerprint !== shown.fingerprint || listed.revision !== shown.revision ? 'changed' : null;
+}
+
+// Plain words for a map Explore cannot open. They never quote the file.
+const unreadableLabels = {
+  'conflict-markers': "Can't open: unresolved Git conflict",
+  'invalid-json': "Can't open: the file is damaged",
+  'unsupported-version': "Can't open: saved by a newer Explore",
+  'invalid-map': "Can't open: the file is incomplete",
+};
+export function unreadableLabel(problem) { return Object.hasOwn(unreadableLabels, problem) ? unreadableLabels[problem] : "Can't open this map"; }
+
+// A quiet, one-time note after a pull or branch switch replaced the open map.
+export function outsideChangeNote(change, seenAt) {
+  if (!change || change.at === seenAt) return null;
+  return `Updated from a change outside Explore, for example a pull.${change.preserved ? ' The earlier version was kept.' : ''}`;
+}
+
 export function briefFilename(title) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}-brief.md`;

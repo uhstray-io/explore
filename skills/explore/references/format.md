@@ -24,7 +24,15 @@ Nodes contain `id`, `title`, `kind`, `parentId`, `prompt`, `summary`, `body`, `s
 - A job's optional `type` names its kind of work; a missing type means `investigate`, the branch investigation, so older maps behave unchanged. Only investigations change an idea's status, findings, questions, completion or growth history. Other types keep their result on the job record. Work covering the whole map has `nodeId: null`; work about one question records it as `subjectId`.
 - `view.positions` is presentation state. A layout change does not alter content fingerprints.
 
-The server serializes mutations and writes/syncs a temporary snapshot before replacing `map.json`. Interrupted temporary files are not read as committed snapshots. This is a local single-writer MVP, not a multi-device synchronization system or a guarantee against every filesystem/power-loss failure. Generated Markdown is not part of the authoritative transaction.
+The server serializes mutations and writes/syncs a temporary snapshot before replacing `map.json`. Interrupted temporary files are not read as committed snapshots. One server writes a workspace; people share maps by committing and pulling them, not by writing the same files at once. This is not a guarantee against every filesystem/power-loss failure. Generated Markdown is not part of the authoritative transaction.
+
+## Changes from outside Explore
+
+Maps are shared through Git, so `map.json` can change underneath a running server, for example after `git pull` or a branch switch. The server remembers a SHA-256 `fingerprint` of the exact bytes it last wrote or adopted for each map. A map's next read adopts what is on disk, even an older revision, and reports `outsideChange: { at, preserved, inGit }`. The first read after the server starts adopts silently. The version that was replaced is kept: if Git does not already have those exact bytes, they are copied to `ideas/<map-id>/preserved/<time>-<fingerprint>.json`, once per version; ordinary pulls of committed work add no files.
+
+An edit made from the replaced version is refused with code `changed-outside` and writes nothing, even when the revision numbers match. The browser sends the `expectedFingerprint` of the version it shows. Every save also checks that the file is still the version the change was based on.
+
+A map that cannot be read is listed as `{ id, unreadable: true, problem }`, where `problem` is `conflict-markers`, `invalid-json`, `unsupported-version` or `invalid-map` (missing parts, or a file copied from another map's folder). It is never rewritten, the other maps still open, and errors never quote its contents. Fix the file, for example by resolving the Git conflict, and it opens again.
 
 ## Growth history
 
