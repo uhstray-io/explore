@@ -2,10 +2,10 @@ import { constellationLayout, connectionPath, presentation, overviewView, focuse
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { questionClick } from './question-clicks.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: false, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -69,6 +69,7 @@ async function refresh({ force = false } = {}) {
       // A pull can bring an older revision, so only a save made meanwhile in this tab outranks the fetched map.
       const mapId = state.map.id, mutations = state.mutations, map = await api(`/maps/${mapId}`);
       if (version === openVersion && state.map?.id === mapId && !state.mutating && !gesture && mutations === state.mutations) {
+        if (tidyArrived(state.map.jobs, map.jobs, state.selected)) toast('Your tidied wording is ready under your answer.');
         state.map = map; renderMap();
         const note = outsideChangeNote(map.outsideChange, state.outsideSeen[mapId]);
         state.outsideSeen[mapId] = map.outsideChange?.at; if (note) toast(note);
@@ -458,6 +459,8 @@ function advanceReview(nodeId, position, message) {
 // A ⋯ menu opens on its button, moves with the arrow keys, and closes with Escape back to its button.
 function openMenu(toggle) {
   const menu = document.getElementById(toggle.getAttribute('aria-controls')); if (!menu) return;
+  // Items that need a draft (Tidy my wording) show only while the answer box has text.
+  for (const item of menu.querySelectorAll('[data-needs-draft]')) item.hidden = !toggle.closest('form')?.querySelector('[data-draft]')?.value.trim();
   menu.hidden = false; toggle.setAttribute('aria-expanded', 'true');
   menu.querySelector('[role="menuitem"]:not([hidden])')?.focus();
 }
@@ -599,7 +602,7 @@ function renderDetail(force = false) {
   const agentWork = q => ({ question: q, jobs: state.visibleMap?.jobs || [], listening: agentListening(), seen: state.helpSeen, esc });
   // Options with a suggested answer can start the user's draft; nothing is saved until they press Save.
   const suggestions = q => { const drafts = (n.options || []).filter(option => option.suggestedAnswer); return drafts.length ? `<div class="suggested-answers"><span>Start from a suggested answer:</span>${drafts.map(option => `<button type="button" class="text-button" data-suggest-answer="${esc(option.id)}" data-question-id="${q.id}">${esc(option.title)}</button>`).join('')}</div>` : ''; };
-  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${questionMenuHtml(q, { nodeId: n.id, kind: waiting ? 'waiting' : 'open', lastBlocking: !waiting && blockingCount === 1, drafting: !!state.drafts[q.id]?.trim(), esc })}${questionHelpHtml(agentWork(q))}${questionResearchHtml(agentWork(q))}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${questionTidyHtml({ ...agentWork(q), draft: state.drafts[q.id], restorable: state.tidyRestore?.[q.id] !== undefined })}${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
+  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${questionMenuHtml(q, { nodeId: n.id, kind: waiting ? 'waiting' : 'open', lastBlocking: !waiting && blockingCount === 1, esc })}${questionHelpHtml(agentWork(q))}${questionResearchHtml(agentWork(q))}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${questionTidyHtml({ ...agentWork(q), draft: state.drafts[q.id], restorable: state.tidyRestore?.[q.id] !== undefined })}${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
   // An answer being saved already counts as answered here, so the next question shows at once.
   const questions = state.pendingAnswers ? n.questions.map(q => !q.answer && state.pendingAnswers[q.id] !== undefined ? { ...q, answer: state.pendingAnswers[q.id], answerState: 'tentative' } : q) : n.questions;
   const live = !completed && !historic, blockingCount = questions.filter(isBlocking).length;
@@ -805,11 +808,7 @@ document.addEventListener('click', async event => {
   }
   const card = event.target.closest('.node'); if (card) focusNode(card.dataset.node);
 });
-$('#detail').addEventListener('input', event => {
-  const key = event.target.dataset.draft; if (!key) return;
-  state.drafts[key] = event.target.value;
-  document.querySelector(`[data-q-tidy][data-question-id="${key}"]`)?.toggleAttribute('hidden', !event.target.value.trim());
-});
+$('#detail').addEventListener('input', event => { if (event.target.dataset.draft) state.drafts[event.target.dataset.draft] = event.target.value; });
 $('#detail').addEventListener('submit', async event => {
   event.preventDefault(); if (state.historyStep !== null) return;
   const submittedMapId = state.map?.id;
@@ -829,6 +828,7 @@ $('#detail').addEventListener('submit', async event => {
       if (!state.showAllQuestions) { renderDetail(true); document.querySelector?.('#detail form.question-box textarea')?.focus(); }
       try { success = await act(node, 'answer', { questionId, answer: data.answer }); }
       finally { delete state.pendingAnswers[questionId]; }
+      if (success) delete state.tidyRestore?.[questionId]; // Saved: nothing left to restore.
       if (!success) renderDetail(true);
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', { title: data.title, body: data.body.trim() || data.title });

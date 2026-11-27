@@ -18,7 +18,8 @@ const need = (condition, message, status) => { if (!condition) throw new Version
 // The map as saved, minus claim data that only works with one machine's running server.
 export function snapshotOf(map) {
   const copy = structuredClone(map);
-  for (const job of copy.jobs || []) { delete job.claimKey; delete job.claimHash; delete job.inputSignature; }
+  // A transient job's texts (a draft being tidied) stay in map.json only: never in versions or exports.
+  for (const job of copy.jobs || []) { delete job.claimKey; delete job.claimHash; delete job.inputSignature; if (job.transient) { delete job.input; delete job.result; } }
   return copy;
 }
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');

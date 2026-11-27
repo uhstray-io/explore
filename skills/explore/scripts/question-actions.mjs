@@ -97,9 +97,11 @@ export const questionActions = {
   'clean-answer': { target: 'node', apply: ({ map, node, input, store }) => {
     const question = openQuestion(map, node, input.questionId, store, 'tidied');
     const text = textField(input.text, 'Your answer', 12000, message => need(false, message));
-    store.enqueueJob(map, { type: TIDY, nodeId: node.id, subjectId: question.id, reason: 'The user asked to tidy the wording of their answer.', input: { text } });
+    need(JSON.stringify(text).length <= 11000, 'This answer is too long to tidy in one go. Tidy part of it, or save it as it is.'); // So the packet fits its budget.
+    store.enqueueJob(map, { type: TIDY, nodeId: node.id, subjectId: question.id, reason: 'The user asked to tidy the wording of their answer.', input: { text }, transient: true });
   } },
-  // The user used the tidied wording or kept their own. Either way the draft and the proposal leave the map.
+  // The user used the tidied wording or kept their own. Either way the draft and the proposal leave the map. No
+  // event is recorded, so neither text reaches the event log.
   'resolve-clean': { target: 'map', apply: ({ map, input }) => {
     need(['applied', 'rejected'].includes(input.outcome), 'Choose whether you used the tidied wording (applied) or kept yours (rejected).');
     const job = map.jobs.find(j => j.id === input.jobId && j.type === TIDY);
@@ -148,6 +150,19 @@ export const questionJobTypes = {
     isStale: ({ job, node }) => { const question = subjectOf(job, node); return !question || !isOpen(question); },
     recheck: true,
     release: ({ job }) => { delete job.input; }, // Stopped, failed or interrupted: the draft leaves the map.
+    // Only the newest unresolved request of a question still open keeps the user's texts. Every other one gives
+    // them up, and a queued one whose question was answered or set aside is stopped before an agent reads it.
+    beforeSave: map => {
+      const newest = new Map();
+      for (const job of map.jobs) if (job.type === TIDY && !job.outcome && ['queued', 'running', 'completed'].includes(job.status)) newest.set(job.subjectId, job);
+      for (const job of map.jobs) {
+        if (job.type !== TIDY || (!job.input && !job.result)) continue;
+        const question = subjectOf(job, map.nodes.find(n => n.id === job.nodeId));
+        if (newest.get(job.subjectId) === job && question && isOpen(question)) continue;
+        if (job.status === 'queued') Object.assign(job, { status: 'cancelled', finishedAt: now() });
+        delete job.input; delete job.result;
+      }
+    },
   },
   [RESEARCH]: {
     label: 'Research a question', target: 'node',

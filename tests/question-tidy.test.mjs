@@ -3,7 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Store, isCompleted } from '../skills/explore/scripts/store.mjs';
-import { questionMenuHtml, questionTidyHtml } from '../skills/explore/assets/workspace-view.js';
+import { questionMenuHtml, questionTidyHtml, tidyArrived } from '../skills/explore/assets/workspace-view.js';
+import { questionClick } from '../skills/explore/assets/question-clicks.js';
+import { readdir } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { writeFile } from 'node:fs/promises';
+import { startServer } from '../skills/explore/scripts/server.mjs';
 
 // Tidy my wording (Z3, #61). Illustrative fixtures under .test-output, never ideas/.
 async function asked(questions = ['Who edits the notes?', 'How long are trips?']) {
@@ -90,12 +96,12 @@ test('only an open question on an unfinished branch can be tidied; one saved for
   assert.ok(store);
 });
 
-test('Tidy my wording sits after Explain this question and shows only while there is a draft', () => {
+test('Tidy my wording sits after Explain this question and waits for a draft', () => {
   const esc = String;
   const labels = html => [...html.matchAll(/role="menuitem"([^>]*)>([^<]+)</g)].map(([, attributes, label]) => `${label}${/ hidden/.test(attributes) ? ' (hidden)' : ''}`);
-  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1' }, { nodeId: 'n', kind: 'open', drafting: true, esc })).slice(0, 4), ['Help me answer', 'Explain this question', 'Tidy my wording', 'Answer later']);
-  assert.equal(labels(questionMenuHtml({ id: 'q-1' }, { nodeId: 'n', kind: 'open', esc }))[2], 'Tidy my wording (hidden)');
-  assert.ok(labels(questionMenuHtml({ id: 'q-1', deferredAt: 'x' }, { nodeId: 'n', kind: 'waiting', drafting: true, esc })).includes('Tidy my wording'));
+  assert.deepEqual(labels(questionMenuHtml({ id: 'q-1' }, { nodeId: 'n', kind: 'open', esc })).slice(0, 4), ['Help me answer', 'Explain this question', 'Tidy my wording (hidden)', 'Answer later'], 'opening the menu shows it while there is a draft');
+  assert.match(questionMenuHtml({ id: 'q-1' }, { nodeId: 'n', kind: 'open', esc }), /data-q-tidy data-needs-draft hidden/);
+  assert.ok(labels(questionMenuHtml({ id: 'q-1', deferredAt: 'x' }, { nodeId: 'n', kind: 'waiting', esc })).includes('Tidy my wording (hidden)'));
   assert.ok(!labels(questionMenuHtml({ id: 'q-1', answer: 'x' }, { nodeId: 'n', kind: 'answered', esc })).some(label => label.startsWith('Tidy')));
 });
 
@@ -106,7 +112,8 @@ test('the tidied wording shows beside the original with Use this wording and Kee
   const html = (jobs, more = {}) => questionTidyHtml({ question, jobs, listening: false, draft: 'me and <her>', esc, ...more });
   assert.match(html([job('queued')]), /Queued for your agent\./);
   assert.match(html([job('queued')]), /data-stop-job="job-queued"/);
-  assert.match(html([job('queued')]), /stored in the map/, 'says the draft sits in map.json while pending');
+  assert.match(html([job('queued')]), /Until you use or keep the result, your draft is stored in the map file/);
+  assert.match(html([job('failed')]), /could not tidy this wording/, 'a failed request says so');
   const done = job('completed', { result: { text: 'She and I.', changes: 'Grammar.' } });
   const shown = html([done]);
   assert.match(shown, /Your wording<\/strong> me and &lt;her>/); assert.match(shown, /Tidied<\/strong> She and I\./); assert.match(shown, /Grammar\./);
@@ -118,4 +125,76 @@ test('the tidied wording shows beside the original with Use this wording and Kee
   assert.equal(html([{ ...done, outcome: 'applied', result: undefined, input: undefined }]), '');
   assert.match(html([], { restorable: true }), /data-tidy-restore="q-1">Restore my wording/);
   assert.equal(html([]), '');
+});
+
+test('only the newest open request keeps the texts, and versions and exports never carry them', async () => {
+  const { store, map, act, question } = await asked();
+  await act({ type: 'clean-answer', questionId: question.id, text: draft });
+  let packet = await store.claim('agent', map.id);
+  await store.complete(map.id, packet.jobId, packet.claimKey, { text: 'First tidy.' });
+  let saved = await act({ type: 'clean-answer', questionId: question.id, text: 'A second draft of mine.' });
+  const [first, second] = tidyJobs(saved);
+  assert.equal(first.result, undefined, 'the older proposal gave up its texts'); assert.equal(first.input, undefined);
+  assert.deepEqual(second.input, { text: 'A second draft of mine.' });
+  // Answering while the second is still queued stops it before an agent reads the draft.
+  saved = await act({ type: 'answer', questionId: question.id, answer: 'Two of us.' });
+  assert.equal(tidyJobs(saved)[1].status, 'cancelled'); assert.equal(tidyJobs(saved)[1].input, undefined);
+  assert.equal(await store.claim('agent', map.id), null, 'nothing about the draft is handed out');
+  const versionsDir = path.join(path.dirname(store.file(map.id)), 'versions');
+  for (const file of await readdir(versionsDir)) assert.doesNotMatch(await readFile(path.join(versionsDir, file), 'utf8'), /edits notes notes|First tidy|second draft/, file);
+});
+
+test('a draft whose packet would not fit is refused when asked, not lost at claim', async () => {
+  const { act, question } = await asked();
+  await assert.rejects(act({ type: 'clean-answer', questionId: question.id, text: '- "an item"\n'.repeat(900) }), error => error.status === 400 && /too long to tidy/.test(error.message));
+});
+
+test('a tidied wording that arrives is noticed for the selected idea only', () => {
+  const job = (id, nodeId, status, result) => ({ id, type: 'clean-answer', nodeId, status, ...(result ? { result } : {}) });
+  assert.equal(tidyArrived([job('a', 'n1', 'running')], [job('a', 'n1', 'completed', { text: 'x' })], 'n1'), true);
+  assert.equal(tidyArrived([job('a', 'n1', 'completed', { text: 'x' })], [job('a', 'n1', 'completed', { text: 'x' })], 'n1'), false);
+  assert.equal(tidyArrived([job('a', 'n2', 'running')], [job('a', 'n2', 'completed', { text: 'x' })], 'n1'), false);
+});
+
+test('the question clicks work outside app.js: dismiss, answer later, and using, keeping and restoring a tidied wording', async () => {
+  const fields = { 'q-1': { value: 'my draft', focus() {} } };
+  globalThis.document = { querySelector: selector => { const match = selector.match(/data-draft="([^"]+)"/); return match ? fields[match[1]] ?? null : null; } };
+  const calls = [], toasts = [];
+  const state = { drafts: { 'q-1': 'my draft' }, tidyRestore: {}, map: { nodes: [{ id: 'n', questions: [] }] },
+    visibleMap: { jobs: [{ id: 'job-t', type: 'clean-answer', subjectId: 'q-1', nodeId: 'n', status: 'completed', result: { text: 'My tidy draft.' }, input: { text: 'my draft' } }] } };
+  let succeed = true;
+  const app = { state, act: async (...args) => { calls.push(args); return succeed; }, toast: message => toasts.push(message), renderDetail() {}, closeMenus() {}, agentListening: () => false, loadRestartPreview() {} };
+  const click = attributes => questionClick({ target: { closest: selector => { const name = selector.match(/^\[data-([a-z-]+)/)?.[1]; return name && attributes[name] !== undefined ? { dataset: attributes.dataset, disabled: false } : null; } } }, app);
+  assert.equal(await click({ 'q-dismiss': '', dataset: { nodeId: 'n', questionId: 'q-1' } }), true);
+  assert.equal(await click({ 'answer-later': '', dataset: { nodeId: 'n', answerLater: 'q-1' } }), true);
+  assert.deepEqual(calls.map(call => call[1]), ['dismiss-question', 'answer-later']); assert.equal(toasts.length, 2, 'both confirm, with no error');
+  succeed = false;
+  assert.equal(await click({ 'tidy-use': '', dataset: { tidyUse: 'job-t', questionId: 'q-1' } }), true);
+  assert.equal(state.drafts['q-1'], 'my draft', 'a failed save leaves the draft alone'); assert.equal(state.tidyRestore['q-1'], undefined);
+  succeed = true;
+  await click({ 'tidy-use': '', dataset: { tidyUse: 'job-t', questionId: 'q-1' } });
+  assert.equal(state.drafts['q-1'], 'My tidy draft.'); assert.equal(state.tidyRestore['q-1'], 'my draft');
+  await click({ 'tidy-restore': '', dataset: { tidyRestore: 'q-1' } });
+  assert.equal(state.drafts['q-1'], 'my draft'); assert.equal(state.tidyRestore['q-1'], undefined);
+  await click({ 'tidy-keep': '', dataset: { tidyKeep: 'job-t', questionId: 'q-1' } });
+  assert.deepEqual(calls.at(-1), [null, 'resolve-clean', { jobId: 'job-t', outcome: 'rejected' }]);
+  delete globalThis.document;
+});
+
+test('the CLI hands out a tidy request and delivers the tidied wording', async () => {
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const workspace = await mkdtemp(path.join(root, 'tidy-cli-'));
+  const app = await startServer({ workspace, port: 0 });
+  const cli = async args => JSON.parse((await promisify(execFile)(process.execPath, [path.resolve('skills/explore/scripts/cli.mjs'), ...args, '--workspace', workspace])).stdout);
+  try {
+    const map = await app.store.create({ title: 'Field notebook', idea: 'Notes that work offline.' });
+    const run = await app.store.claim('setup', map.id);
+    let saved = await app.store.complete(map.id, run.jobId, run.claimKey, { summary: 's', body: 'b', questions: ['Who edits?'] });
+    saved = await app.store.action(map.id, { expectedRevision: saved.revision, nodeId: map.rootId, type: 'clean-answer', questionId: saved.nodes[0].questions[0].id, text: draft });
+    const packet = await cli(['next', '--worker', 'agent']);
+    assert.equal(packet.jobType, 'clean-answer'); assert.equal(packet.draft, draft);
+    const file = path.join(workspace, 'tidy.json'); await writeFile(file, JSON.stringify({ text: 'My partner and I both edit notes.' }));
+    assert.equal((await cli(['result', '--job', packet.jobId, '--file', file])).saved, true);
+    assert.equal(tidyJobs(await app.store.get(map.id))[0].result.text, 'My partner and I both edit notes.');
+  } finally { await app.close(); }
 });

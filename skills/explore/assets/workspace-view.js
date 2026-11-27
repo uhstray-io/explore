@@ -200,13 +200,13 @@ function menuHtml(id, label, items) {
 // Dismiss, Good question / Bad question. `kind` is 'open', 'waiting' (saved for later) or 'answered';
 // `completed` says the branch is finished, where nothing but the rating and Change answer applies. A question
 // saved for later offers only what leaves a queued or running branch alone: research, an explanation, a rating.
-// `drafting` says the answer box has text; app.js shows or hides Tidy my wording as the user types.
-export function questionMenuHtml(question, { nodeId, kind, completed = false, lastBlocking = false, drafting = false, esc }) {
+// Tidy my wording is marked data-needs-draft: opening the menu shows it only while the answer box has text.
+export function questionMenuHtml(question, { nodeId, kind, completed = false, lastBlocking = false, esc }) {
   const id = esc(question.id), node = esc(nodeId);
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
   const items = [
     ...(canResearch(question, { completed }) ? [item('Help me answer', 'data-q-research')] : []),
-    ...(kind === 'answered' ? [] : [item('Explain this question', 'data-q-help'), item('Tidy my wording', `data-q-tidy${drafting ? '' : ' hidden'}`)]),
+    ...(kind === 'answered' ? [] : [item('Explain this question', 'data-q-help'), item('Tidy my wording', 'data-q-tidy data-needs-draft hidden')]),
     ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
     ...(kind === 'answered' ? [item('Change answer', 'data-q-change')] : []),
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
@@ -241,11 +241,19 @@ export function questionResearchHtml({ question, jobs, listening, seen, esc }) {
 // own, with Use this wording and Keep mine. Using it only changes the draft; Restore my wording undoes that.
 export function questionTidyHtml({ question, jobs, listening, draft, restorable = false, esc }) {
   const { pending, latest } = questionJobs(jobs, TIDY, question.id), id = esc(question.id);
-  if (pending) return `<p class="question-help-status">${waitingWords(pending, listening, 'tidying your wording')} <button type="button" class="text-button" data-stop-job="${esc(pending.id)}">Stop</button></p><p class="form-note">Until it is done, your draft is stored in the map file.</p>`;
+  if (pending) return `<p class="question-help-status">${waitingWords(pending, listening, 'tidying your wording')} <button type="button" class="text-button" data-stop-job="${esc(pending.id)}">Stop</button></p><p class="form-note">Until you use or keep the result, your draft is stored in the map file.</p>`;
   const restore = restorable ? `<button type="button" class="text-button" data-tidy-restore="${id}">Restore my wording</button>` : '';
+  const last = jobs.filter(job => job.type === TIDY && job.subjectId === question.id).at(-1);
+  if (last?.status === 'failed' || last?.status === 'interrupted') return `<p class="form-note">Your agent could not tidy this wording. Try again from the ⋯ menu.</p>${restore}`;
   if (!latest || latest.stale || latest.outcome || !latest.result) return restore;
   const changed = (draft ?? '').trim() !== latest.input?.text ? '<p class="form-note">You changed your answer since asking. Using this replaces what you have now.</p>' : '';
   return `<div class="tidy-proposal" role="status"><p><strong>Your wording</strong> ${esc(latest.input?.text ?? '')}</p><p><strong>Tidied</strong> ${esc(latest.result.text)}</p>${latest.result.changes ? `<p class="form-note">${esc(latest.result.changes)}</p>` : ''}${changed}<div class="question-actions"><button type="button" class="secondary" data-tidy-use="${esc(latest.id)}" data-question-id="${id}">Use this wording</button><button type="button" class="text-button" data-tidy-keep="${esc(latest.id)}" data-question-id="${id}">Keep mine</button></div></div>${restore}`;
+}
+// Whether a tidied wording for `nodeId` arrived between two snapshots, so it can be announced while the user types.
+export function tidyArrived(before, after, nodeId) {
+  const done = jobs => new Set((jobs || []).filter(job => job.type === TIDY && job.nodeId === nodeId && job.status === 'completed' && job.result).map(job => job.id));
+  const earlier = done(before);
+  return [...done(after)].some(id => !earlier.has(id));
 }
 // The suggested answer to copy from one option of current research, or null.
 export function researchSuggestion(jobs, jobId, optionId) {

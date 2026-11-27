@@ -203,7 +203,7 @@ test('the question menu lists its items in the agreed order and is labelled for 
   assert.match(open, /role="menu"[^>]*hidden/);
   const labels = [...open.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]);
   assert.deepEqual(labels, ['Help me answer', 'Explain this question', 'Tidy my wording', 'Answer later', 'Regenerate', 'Dismiss', 'Good question', 'Bad question']);
-  assert.match(open, /data-q-tidy hidden/, 'Tidy my wording waits for a draft');
+  assert.match(open, /data-q-tidy data-needs-draft hidden/, 'Tidy my wording waits for a draft');
   assert.match(questionMenuHtml({ id: 'q1', answer: null }, { nodeId: 'n1', kind: 'open', lastBlocking: true, esc }), />Dismiss and continue</);
   const answered = questionMenuHtml({ id: 'q2', answer: 'Yes' }, { nodeId: 'n1', kind: 'answered', completed: true, esc });
   assert.deepEqual([...answered.matchAll(/role="menuitem"[^>]*>([^<]+)</g)].map(match => match[1]), ['Change answer', 'Good question', 'Bad question']);

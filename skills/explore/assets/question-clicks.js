@@ -1,4 +1,5 @@
 import { appendSuggestion, researchSuggestion } from './workspace-view.js';
+import { isBlocking, questionJobs, TIDY } from './questions.js';
 
 // Clicks on a question's controls: starting a draft from a suggestion or research, stopping the agent's work on it,
 // one question at a time or all, changing or restarting from an answer, and the question's ⋯ menu. Resolves true
@@ -92,6 +93,7 @@ export async function questionClick(event, app) {
   if (tidy) {
     closeMenus(); const text = state.drafts[tidy.dataset.questionId]?.trim();
     if (!text) { toast('Write your answer first, then tidy its wording.'); return true; }
+    if (questionJobs(state.visibleMap?.jobs, TIDY, tidy.dataset.questionId).pending) { toast('Your agent is already tidying this answer.'); return true; }
     if (await act(tidy.dataset.nodeId, 'clean-answer', { questionId: tidy.dataset.questionId, text })) toast(agentListening() ? 'Your agent will tidy your wording next.' : 'Queued. Connect your agent to tidy your wording.');
     return true;
   }
@@ -99,9 +101,11 @@ export async function questionClick(event, app) {
   const use = event.target.closest('[data-tidy-use]'), keep = event.target.closest('[data-tidy-keep]');
   if (use || keep) {
     const button = use || keep, questionId = button.dataset.questionId, job = state.visibleMap?.jobs.find(j => j.id === (use ? use.dataset.tidyUse : keep.dataset.tidyKeep));
-    if (use && job?.result?.text) { state.tidyRestore = { ...state.tidyRestore, [questionId]: state.drafts[questionId] ?? '' }; state.drafts[questionId] = job.result.text; }
-    button.disabled = true;
-    await act(null, 'resolve-clean', { jobId: job?.id, outcome: use ? 'applied' : 'rejected' });
+    if (!job?.result) return true;
+    const tidied = job.result.text; button.disabled = true;
+    if (await act(null, 'resolve-clean', { jobId: job.id, outcome: use ? 'applied' : 'rejected' })) {
+      if (use) { state.tidyRestore[questionId] ??= state.drafts[questionId] ?? ''; state.drafts[questionId] = tidied; renderDetail(true); }
+    } else button.disabled = false;
     document.querySelector(`[data-draft="${questionId}"]`)?.focus();
     return true;
   }
