@@ -87,6 +87,22 @@ Some work covers the whole map rather than one idea. Its job has `nodeId: null`,
 
 A `question-help` packet carries the open `question` (`id`, `text`), its idea (`node`: `id`, `title`, `premise`, `summary`) and the `ancestors` up to the root (nearest first; the farthest are dropped first if the packet would be too long, counted in `omittedAncestors`). Explain what the question asks and why it matters, define unfamiliar terms, and give one illustrative example. Never answer it or recommend an answer. Return `{"help": "…"}` (at most 3,000 characters) and nothing else. The help stays on the job and is shown under the question as "Help from your agent, not an answer"; it never fills in the answer. Help that arrives after the question was answered, set aside or reworded is kept as stale and not shown. The user asks for it with `request-help` (`questionId`); never request it on their behalf.
 
+## Researching a question
+
+A `question-research` packet carries the `question` (`id`, `text`, its `why` when given, and `currentAnswer` when the user already answered it), its idea (`node`: `id`, `title`, `premise`, `summary`, `findings`), the same nearby ideas an investigation reads (`context`, each with its latest current answers; the farthest are left out first when the packet would be too long, counted in `omittedContext`) and a `retrieval` hint. Research the question so the user can answer it, then return options and a recommendation in the options format above, plus an optional `summary` (800 characters) and `sources` (as in results, at most 20):
+
+```json
+{
+  "options": [{"id": "merge", "title": "Merge edits automatically", "description": "…", "fit": "…", "pros": ["…"], "cons": ["…"], "suggestedAnswer": "A first-person draft the user may copy."}],
+  "optionsLimit": "Only with exactly one option.",
+  "recommendation": {"optionId": "merge", "rationale": "…", "mainTradeoff": "…"},
+  "summary": "Optional overview.",
+  "sources": [{"title": "…", "url": "https://…", "note": "What it showed."}]
+}
+```
+
+Options and a recommendation are required; when the evidence does not settle it, use `"optionId": null` with `missing`. Any other field, including `questions`, `suggestions`, `links`, `body` or an `answer`, rejects the result. The research stays on the job: it never answers the question, never changes the idea's findings, options or status, and never completes the branch. It is shown under the question as "Research from your agent, not your answer", where the user may copy a suggested answer into their own draft. Research that arrives after the question was set aside, or after the premise or an answer nearby changed, is kept as stale and shown as earlier research. The user asks for it with `request-research` (`questionId`); never request it on their behalf.
+
 ## Regenerating a question
 
 A `regenerate-question` packet carries the `question` to replace, the user's `userReason`, the idea (`node`), its `answeredQuestions` and `openQuestions`, and the map's `questionFeedback`. Return `{"question": {"text": "…", "importance": "…", "why": "…"}}` (text at most 1,600 characters; importance and why are optional, as in results): one question that serves the same purpose better, never the original or a dismissed one, and never its answer. It is added beside the original, linked by `replaces` and `replacedBy`. A replacement for a question that is no longer waiting is kept as stale and not added.

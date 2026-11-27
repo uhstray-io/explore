@@ -5,7 +5,7 @@ import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
 import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
-import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion } from '../assets/questions.js';
+import { answerStates, isOpen, isBlocking, effectiveAnswerState, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, latestResearch } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
@@ -64,6 +64,14 @@ function safeUrl(value) {
   try { need(['https:', 'http:'].includes(new URL(url).protocol), 'Source URLs must use HTTP or HTTPS.'); }
   catch { throw new Problem('Source URL must be a valid HTTP or HTTPS URL.'); }
   return url;
+}
+// Help me answer (B9) in a node's Markdown: the question's latest research, never presented as its answer.
+function researchLines(job) {
+  if (!job) return [];
+  const { summary, sources } = job.result;
+  return ['', job.stale ? '_Earlier agent research, from before the question or its context changed. Not your answer._' : '_Agent research to help you answer, not your answer._',
+    ...(summary ? ['', summary] : []), '', ...comparisonLines(job.result, { level: 4 }),
+    ...(sources.length ? ['', 'Sources:', ...sources.map(s => `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}): ${s.note}`)] : [])];
 }
 export { atomicJson } from './files.mjs';
 
@@ -221,7 +229,8 @@ export class Store {
       if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.importance || q.why ? [`_Importance: ${importanceName(q.importance)}${q.why ? ` — ${q.why}` : ''}_`, ''] : []), ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
         ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []),
         ...(q.previousAnswers || []).map(p => `_Earlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}_`),
-        ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : [])]));
+        ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : []),
+        ...researchLines(latestResearch(map.jobs, q.id))]));
       if (dismissedQuestions.length) lines.push('', '## Dismissed questions', '', '_Set aside by the user; do not ask them again._', '',
         ...dismissedQuestions.map(q => `- ${q.text}${q.ratingReason ? ` — ${q.ratingReason}` : ''}${q.replacedBy === 'pending' ? ' (a replacement is on its way)' : q.replacedBy ? ' (replaced)' : ''}`));
       if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`]));
@@ -604,7 +613,7 @@ export class Store {
   }
   // Packet for a registered job type: shared identifying fields plus the type's own fields.
   async typedPacket(map, job, definition, node, { claimKey, budget = 15500 } = {}) {
-    const packet = { ...await definition.packet({ map, job, node, budget }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
+    const packet = { ...await definition.packet({ map, job, node, budget, store: this }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
       jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
     need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);
     packet.contextCharacters = JSON.stringify(packet).length;
@@ -654,6 +663,16 @@ export class Store {
       return null;
     });
   }
+  // Checks shared with typed job results: required text, and up to 20 sources the agent read.
+  text(value, field, max) { return text(value, field, max); }
+  sources(value) {
+    if (value === undefined) return [];
+    need(Array.isArray(value) && value.length <= 20, 'Sources must be an array of at most 20 items.');
+    return value.map(s => {
+      object(s, 'Source');
+      return { title: text(s.title, 'Source title', 200), url: safeUrl(s.url), note: text(s.note, 'Evidence note', 1500), retrievedAt: now() };
+    });
+  }
   // A result may also compare options and recommend one (C1); that stays the agent's judgement.
   validateResult(result, map, node) {
     object(result, 'Result');
@@ -668,10 +687,7 @@ export class Store {
         object(s, 'Suggestion');
         return { title: text(s.title, 'Suggestion title', 100), body: text(s.body || s.summary, 'Suggestion detail', 4000), kind: nodeKinds.has(s.kind) ? s.kind : 'research' };
       }),
-      sources: list(result.sources, 'Sources', 20).map(s => {
-        object(s, 'Source');
-        return { title: text(s.title, 'Source title', 200), url: safeUrl(s.url), note: text(s.note, 'Evidence note', 1500), retrievedAt: now() };
-      }),
+      sources: this.sources(result.sources),
       links: list(result.links, 'Links', 12).map(e => {
         object(e, 'Relationship');
         const exists = map.nodes.some(n => n.id === e.to);
@@ -691,9 +707,9 @@ export class Store {
         need(definition, 'This version of Explore does not know this kind of work.', 409);
         const node = job.nodeId ? map.nodes.find(n => n.id === job.nodeId) || null : null;
         // The result stays on the job record: only investigations change an idea.
-        const normalized = await definition.validate(object(result, 'Result'), { map, job, node });
+        const normalized = await definition.validate(object(result, 'Result'), { map, job, node, store: this });
         // Like an investigation, work whose idea changed while it ran is kept but marked stale.
-        const stale = definition.isStale ? !!definition.isStale({ map, job, node }) : !!(job.inputSignature && node && job.inputSignature !== this.signature(map, node));
+        const stale = definition.isStale ? !!definition.isStale({ map, job, node, store: this }) : !!(job.inputSignature && node && job.inputSignature !== this.signature(map, node));
         Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
         // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
         if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });

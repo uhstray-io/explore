@@ -9,7 +9,8 @@
 //   Other types: { label, target: 'node' | 'map', packet(context), validate(result, context) }
 //     packet  returns the type-specific fields of the work packet, including `instruction`.
 //     validate returns the normalized result kept on the job record, or throws a Problem.
-//     context is { map, job, node } (node is null for map-level jobs).
+//     context is { map, job, node, store } (node is null for map-level jobs); isStale(context), when
+//     given, decides whether a result is stale, and the Store's shared checks are store.text and store.sources.
 //     A map-level job has `nodeId: null`.
 //
 // Actions: { target: 'node' | 'map', apply({ map, node, input, store }) }

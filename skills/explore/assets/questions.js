@@ -67,3 +67,12 @@ export function replaceAnswer(question, { answer, answerState, actor, at, mark =
   question.previousAnswers = [...(question.previousAnswers || []), { answer: question.answer, ...(question.answerState ? { answerState: question.answerState } : {}), ...(since ? { answeredAt: since } : {}), replacedAt: at, ...mark }];
   Object.assign(question, { answer, changedAt: at }, answerState ? { answerState } : {}, actor?.name ? { answeredBy: { name: actor.name } } : {});
 }
+
+// Help me answer (B9): research the agent did so the user can answer a question. It never answers.
+export const RESEARCH = 'question-research';
+// The question's latest finished research, current or stale; research lives on its jobs, never on the question.
+export function latestResearch(jobs, questionId) {
+  return (jobs || []).filter(job => job.type === RESEARCH && job.subjectId === questionId && job.status === 'completed' && job.result).at(-1) ?? null;
+}
+// Researchable: a question still asked on its idea, answered or not. The branch must also be unfinished.
+export function isResearchable(question) { return !question.supersededAt && !question.dismissedAt && !question.replacedBy; }

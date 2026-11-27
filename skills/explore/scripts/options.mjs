@@ -56,18 +56,18 @@ export function normalizeComparison(result, fail) {
 }
 
 // Plain-text lines for Markdown and section reads; the recommendation is always labelled as judgement.
-export function comparisonLines(node) {
+export function comparisonLines(node, { level = 2 } = {}) {
   if (!node.options?.length) return [];
-  const lines = ['## Options', ''];
+  const heading = '#'.repeat(level), lines = [`${heading} Options`, ''];
   if (node.optionsLimit) lines.push(`_Only one real option: ${node.optionsLimit}_`, '');
   for (const option of node.options) {
-    lines.push(`### ${option.title} (${option.id})`, '', option.description, '', `Fits when: ${option.fit}`);
+    lines.push(`${heading}# ${option.title} (${option.id})`, '', option.description, '', `Fits when: ${option.fit}`);
     if (option.pros.length) lines.push(`Pros: ${option.pros.join('; ')}`);
     if (option.cons.length) lines.push(`Cons: ${option.cons.join('; ')}`);
     if (option.suggestedAnswer) lines.push(`Suggested answer (a draft, not the user's answer): ${option.suggestedAnswer}`);
     lines.push('');
   }
-  lines.push('## Recommendation', '', '_The agent\'s judgement, not a decision._', '');
+  lines.push(`${heading} Recommendation`, '', '_The agent\'s judgement, not a decision._', '');
   const r = node.recommendation;
   if (!r || r.optionId === null) lines.push(`No recommendation yet. Missing: ${r?.missing ?? 'not recorded'}`);
   else {

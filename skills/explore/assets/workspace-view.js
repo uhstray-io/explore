@@ -1,5 +1,5 @@
 import { presentation } from './graph.js';
-import { isBlocking, importanceLabel, highestImportance } from './questions.js';
+import { isBlocking, importanceLabel, highestImportance, RESEARCH, latestResearch } from './questions.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
@@ -141,13 +141,17 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
 // whole section says it is the agent's view: the user still decides.
 export function optionsHtml(node, esc) {
   if (!node.options?.length) return '';
-  const r = node.recommendation, list = (label, items) => items?.length ? `<p class="option-list"><strong>${label}</strong> ${items.map(esc).join(' · ')}</p>` : '';
-  const cards = node.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ' <span class="option-badge">Recommended</span>' : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}</article>`).join('');
-  const chosen = node.options.find(option => option.id === r?.optionId);
+  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${optionCardsHtml(node, esc)}`;
+}
+// The cards and the recommendation for any comparison; `extra(option)` adds controls to a card.
+function optionCardsHtml(comparison, esc, extra = () => '') {
+  const r = comparison.recommendation, list = (label, items) => items?.length ? `<p class="option-list"><strong>${label}</strong> ${items.map(esc).join(' · ')}</p>` : '';
+  const cards = comparison.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ' <span class="option-badge">Recommended</span>' : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}${extra(option)}</article>`).join('');
+  const chosen = comparison.options.find(option => option.id === r?.optionId);
   const advice = chosen
     ? `<p><strong>Why ${esc(chosen.title)}:</strong> ${esc(r.rationale)}</p><p><strong>Main trade-off:</strong> ${esc(r.mainTradeoff)}</p>${r.reconsiderIf ? `<p><strong>Reconsider if:</strong> ${esc(r.reconsiderIf)}</p>` : ''}`
     : `<p><strong>No recommendation yet.</strong> ${esc(r?.missing ?? '')}</p>`;
-  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${node.optionsLimit ? `<p class="state-note">Only one real option: ${esc(node.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${advice}</div>`;
+  return `${comparison.optionsLimit ? `<p class="state-note">Only one real option: ${esc(comparison.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${advice}</div>`;
 }
 // A suggested answer is added after the user's own draft, never replacing it.
 export function appendSuggestion(draft, suggestion) {
@@ -192,12 +196,14 @@ function menuHtml(id, label, items) {
   return `<div class="item-more-wrap"><button type="button" class="item-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-${id}" data-menu="${id}" aria-label="${label}">⋯</button><div class="item-menu" role="menu" id="menu-${id}" aria-label="${label}" hidden>${items.join('')}</div></div>`;
 }
 // The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
-// Help me answer, Explain this question, Tidy my wording (later issues), Answer later, Regenerate,
-// Dismiss, Good question / Bad question. Answered questions offer only the rating.
-export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false, esc }) {
+// Help me answer, Explain this question, Tidy my wording (a later issue), Answer later, Regenerate,
+// Dismiss, Good question / Bad question. Answered questions offer Help me answer while their branch is
+// unfinished (`research`), Change answer and the rating.
+export function questionMenuHtml(question, { nodeId, kind, lastBlocking = false, research = false, esc }) {
   const id = esc(question.id), node = esc(nodeId);
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
   const items = [
+    ...(kind === 'open' || research ? [item('Help me answer', 'data-q-research')] : []),
     ...(kind === 'open' ? [item('Explain this question', 'data-q-help'), item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
     ...(kind === 'answered' ? [item('Change answer', 'data-q-change')] : []),
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
@@ -245,6 +251,24 @@ export function gitCheckDelay({ last, mapId, now, force = false, every = 10000 }
   return force || last?.mapId !== mapId ? 0 : Math.max(0, every - (now - last.at));
 }
 
+// Help me answer (B9): what the agent is doing about it, or its latest research, under the question. Research
+// is never an answer: an option's suggested answer is only copied into the user's draft when they ask, and
+// research from before the question or its context changed stays visible as earlier research, without copy.
+export function questionResearchHtml({ question, jobs, listening, seen, esc }) {
+  const pending = jobs.find(job => job.type === RESEARCH && job.subjectId === question.id && (job.status === 'queued' || job.status === 'running'));
+  if (pending) return `<p class="question-help-status">${listening ? 'Your agent is researching this question.' : 'Research queued for your agent.'} <button type="button" class="text-button" data-stop-job="${esc(pending.id)}">Stop</button></p>`;
+  const job = latestResearch(jobs, question.id);
+  if (!job) return '';
+  const { summary, sources = [] } = job.result;
+  const copy = option => option.suggestedAnswer ? `<button type="button" class="text-button" data-copy-answer="${esc(option.id)}" data-research-job="${esc(job.id)}" data-question-id="${esc(question.id)}"${job.stale ? ' disabled title="The question or its context changed since this research."' : ''}>Copy to my answer</button>` : '';
+  const cited = sources.length ? `<ul class="research-sources">${sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> · ${esc(s.note)}</li>`).join('')}</ul>` : '';
+  return `<details class="question-help question-research" data-help="${esc(job.id)}" data-editor="help-${esc(job.id)}"${seen.has(job.id) ? '' : ' open'}><summary>${job.stale ? 'Earlier research' : 'Research from your agent, not your answer'}</summary>${job.stale ? '<p class="form-note">The question or its context changed since. Ask again for current research.</p>' : ''}${summary ? `<p class="question-help-text">${esc(summary)}</p>` : ''}${optionCardsHtml(job.result, esc, copy)}${cited}</details>`;
+}
+// The suggested answer to copy from one option of current research, or null.
+export function researchSuggestion(jobs, jobId, optionId) {
+  const job = (jobs || []).find(item => item.id === jobId && item.type === RESEARCH && item.status === 'completed' && !item.stale);
+  return job?.result?.options?.find(option => option.id === optionId)?.suggestedAnswer ?? null;
+}
 // The idea ⋯ menu (H2): Copy link.
 export function nodeMenuHtml(node, { esc }) {
   const id = esc(node.id);
