@@ -47,6 +47,44 @@ export function outsideChangeNote(change, seenAt) {
   return `Updated from a change outside Explore, for example a pull.${change.preserved ? ' The earlier version was kept.' : ''}`;
 }
 
+// Version history in plain words. The first label of a change describes it best.
+const versionWords = {
+  activated: 'Exploration started', answered: 'Answer saved', result: 'Agent result', suggested: 'Direction added',
+  accepted: 'Finding accepted', revised: 'Premise revised', 'revision-suggested': 'Changed premise added', cancelled: 'Exploration stopped',
+  failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
+  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'before-outside-change': 'Before a pull or branch switch',
+  preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
+};
+export function versionLabel(version) {
+  if (version.name) return version.name;
+  const label = (version.labels || []).find(item => Object.hasOwn(versionWords, item));
+  return label ? versionWords[label] : 'Saved change';
+}
+
+// Undo goes back to the version before my latest change. Anything saved after it, such as work
+// merged from someone else, is undone too, so it is named for the user to confirm.
+export function undoTarget(versions, me) {
+  const mine = me ? versions.findIndex(version => version.author === me) : -1;
+  const index = mine >= 0 ? mine : 0;
+  if (!versions[index] || !versions[index + 1]) return null;
+  return { target: versions[index + 1], undoing: versions[index], alsoUndone: versions.slice(0, index) };
+}
+
+const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+export function restoreSummary({ counts, reopened }, { undo = false } = {}) {
+  const verb = undo ? 'Undoing' : 'Restoring';
+  const parts = [
+    counts.nodesRemoved && `removes ${count(counts.nodesRemoved, 'idea')}`,
+    counts.nodesAdded && `brings back ${count(counts.nodesAdded, 'idea')}`,
+    counts.nodesChanged && `changes ${count(counts.nodesChanged, 'idea')}`,
+    counts.linksRemoved && `removes ${count(counts.linksRemoved, 'connection')}`,
+    counts.linksAdded && `brings back ${count(counts.linksAdded, 'connection')}`,
+  ].filter(Boolean);
+  const changes = parts.length ? `${verb} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}.` : `${verb} changes no ideas or connections.`;
+  const reopens = reopened.length ? ` It reopens ${count(reopened.length, 'finished branch', 'finished branches')}.` : '';
+  return `${changes}${reopens} Nothing is explored until you choose Retry, and you can undo ${undo ? 'this too' : 'the restore'}.`;
+}
+
 export function briefFilename(title) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}-brief.md`;

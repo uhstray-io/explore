@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { openMapChange, unreadableLabel, outsideChangeNote } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
-const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote };
+const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary };
 function between(start, end) {
   const from = app.indexOf(start), to = app.indexOf(end, from);
   assert.ok(from >= 0 && to > from, 'The actual UI callback boundaries must remain available.');
@@ -429,4 +429,31 @@ test('after an edit is refused because of a pull, the pull is not announced agai
   assert.equal(state.map.fingerprint, 'f2');
   assert.equal(state.outsideSeen['map-a'], 't1');
   assert.equal(toasts.length, 1);
+});
+
+test('the versions panel offers undo in plain words, then a clear summary before restoring', () => {
+  const panel = { hidden: true, innerHTML: '' }, toggle = { attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const state = { map: { id: 'map-a' }, versionsOpen: true, contributor: 'Ana', versionChoice: null, versionPreview: null,
+    versions: { versions: [{ id: 'v3', at: '2026-11-27T10:03:00Z', labels: ['result'] }, { id: 'v2', at: '2026-11-27T10:02:00Z', labels: ['answered'], author: 'Ana <b>' }, { id: 'v1', at: '2026-11-27T10:01:00Z', labels: ['activated'] }], earlierMissing: false } };
+  state.contributor = 'Ana <b>';
+  const context = vm.createContext({ state, esc, ...viewHelpers, $: selector => selector === '#versions-panel' ? panel : toggle });
+  vm.runInContext(between('function renderVersionsPanel(', '\nasync function loadVersions('), context);
+  context.renderVersionsPanel();
+  assert.equal(panel.hidden, false); assert.equal(toggle.attributes['aria-expanded'], 'true');
+  assert.match(panel.innerHTML, /Undo last change: Answer saved/);
+  assert.match(panel.innerHTML, /data-version="v3"/); assert.match(panel.innerHTML, /Agent result/);
+  assert.match(panel.innerHTML, /Ana &lt;b&gt;/); assert.doesNotMatch(panel.innerHTML, /Ana <b>/, 'names are literal text');
+  assert.doesNotMatch(panel.innerHTML, /\banswered\b|\bactivated\b/, 'internal event names never show');
+  state.versionChoice = { version: state.versions.versions[2], counts: { nodesAdded: 0, nodesRemoved: 1, nodesChanged: 1, linksAdded: 0, linksRemoved: 1 }, reopened: [],
+    undo: { target: state.versions.versions[2], undoing: state.versions.versions[1], alsoUndone: [state.versions.versions[0]] } };
+  context.renderVersionsPanel();
+  assert.match(panel.innerHTML, /Undo “Answer saved”/);
+  assert.match(panel.innerHTML, /removes 1 idea/); assert.match(panel.innerHTML, /also undoes a newer change/);
+  assert.match(panel.innerHTML, /data-version-restore>Undo</);
+  state.versionChoice = { ...state.versionChoice, undo: null };
+  context.renderVersionsPanel();
+  assert.match(panel.innerHTML, /Restore this version/); assert.match(panel.innerHTML, /Name this version/);
+  state.versionsOpen = false; context.renderVersionsPanel();
+  assert.equal(panel.hidden, true);
 });

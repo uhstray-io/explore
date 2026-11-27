@@ -362,7 +362,7 @@ export class Store {
           for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
           // Today's layout wins for ideas that still exist; the event log and growth history only grow.
           map.view = { ...map.view, positions: Object.fromEntries(map.nodes.map(node => [node.id, positions[node.id] ?? snapshot.view?.positions?.[node.id]]).filter(([, point]) => point)) };
-          this.event(map, 'version-restored', null, input.version);
+          this.event(map, input.undo ? 'change-undone' : 'version-restored', null, input.version);
           break;
         }
         case 'cancel-job': {

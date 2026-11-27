@@ -236,3 +236,12 @@ test('the browser lists versions, previews one without writing, and restores it'
     }
   } finally { await app.close(); }
 });
+
+test('an undo is recorded as an undo, not as another restore', async () => {
+  const { store, map } = await fixture();
+  const job = await store.claim('test'); await store.fail(map.id, job.jobId, job.claimKey, 'Stopped for the test.');
+  await suggest(store, map, 'Undo removes me');
+  const before = (await store.versions.list(map.id)).versions[1];
+  await act(store, map.id, { type: 'restore-version', version: before.id, undo: true });
+  assert.deepEqual((await store.versions.list(map.id)).versions[0].labels, ['change-undone']);
+});
