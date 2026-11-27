@@ -38,6 +38,10 @@ Put required questions in the result's `questions` array so the browser can save
 
 Each saved answer says how sure the user is (`answerState`). Build on **Decided** answers; if evidence contradicts one, report the conflict instead of overriding it. Treat **Tentative** answers, the default and the reading of older answers marked `certaintyRecorded: false`, as usable but provisional, and say what depends on them. Treat an **Assumption** as an unverified premise: check it when it matters and say what would disprove it. A question marked `deferred` was saved for later: do not rely or wait on it and do not ask it again; proceed on a stated assumption, or propose an inactive direction if it is essential.
 
+## Offer options only for real choices
+
+When a branch is really a choice, return 2–4 substantively different, feasible options rather than burying the comparison in the body. Never pad the list; if only one option is realistic, give it with `optionsLimit` saying why. Recommend one option conditionally, with its main trade-off and what would change your mind, or use `optionId: null` and say what is missing. A recommendation is your judgement, not a decision. A `suggestedAnswer` is a draft the user may adopt, never their answer; when the choice is theirs, also ask one question so the suggestion has somewhere to go.
+
 ## Preserve the status of each claim
 
 Keep four things distinguishable in concise prose:

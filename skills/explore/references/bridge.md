@@ -55,6 +55,20 @@ To create a map, the input file is `{ "title": "Short name", "idea": "The user's
 
 This format is for `jobType: "investigate"`, the branch investigation. Other job types are described below.
 
+When the branch is really a choice, a result can also compare options and recommend one. All of these are optional and need each other:
+
+```json
+{
+  "options": [
+    {"id": "hands-on", "title": "Hands-on session", "description": "What it involves.", "fit": "When it is the better choice.", "pros": ["…"], "cons": ["…"], "suggestedAnswer": "A first-person draft the user may adopt."}
+  ],
+  "optionsLimit": "Only with exactly one option: why there is no real alternative.",
+  "recommendation": {"optionId": "hands-on", "rationale": "Why.", "mainTradeoff": "What it costs.", "reconsiderIf": "What would change it."}
+}
+```
+
+Give 1–4 options with unique `id`s (a letter, then letters, digits, `_` or `-`; at most 32) and titles that differ. Limits: title 150, description 600, fit 400, at most 4 pros and 4 cons of 240 each, suggested answer 1,000. With options, a recommendation is required: an existing `optionId` with `rationale` (800) and `mainTradeoff` (600), and optionally `reconsiderIf` (600); or `optionId: null` with `missing` (600), which is "No recommendation yet". A current result replaces the idea's options; a result without options clears them. The whole result must stay under 150,000 characters.
+
 `summary` and `body` are required. Omit unused arrays. The example URL and ID are illustrative; real results require actual consulted sources and existing node IDs. Do not cite a source you have not read.
 
 Limits: summary 800 characters; body 24,000; at most 5 questions, 8 suggestions, 20 sources, 12 links. Suggestion kinds: `research`, `question`, `decision`, `risk`, `idea`. Link types: `depends_on`, `supports`, `contradicts`, `related_to`. `contains` is created by the server for suggested children. All results remain unreviewed until the user accepts them.

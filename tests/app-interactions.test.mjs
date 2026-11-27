@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
-import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary } from '../skills/explore/assets/workspace-view.js';
+import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion } from '../skills/explore/assets/workspace-view.js';
 
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
-const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, ...questionHelpers };
+const viewHelpers = { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, ...questionHelpers };
 function between(start, end) {
   const from = app.indexOf(start), to = app.indexOf(end, from);
   assert.ok(from >= 0 && to > from, 'The actual UI callback boundaries must remain available.');
@@ -56,7 +56,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, optionsHtml, appendSuggestion,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -479,4 +479,19 @@ test('answers show how sure they are, open questions can wait, and waiting ones 
   node.status = 'explored'; node.completed = true; h.render();
   assert.doesNotMatch(h.markup(), /data-answer-later/);
   assert.match(h.markup(), /data-certainty="q-decided"/, 'certainty can still be set on a finished branch');
+});
+
+test('an open question offers each option’s suggested answer as a starting point', () => {
+  const h = harness();
+  const node = h.state.visibleMap.nodes[0];
+  node.status = 'awaiting-answer';
+  node.options = [{ id: 'hands-on', title: 'Hands-on', description: 'd', fit: 'f', pros: [], cons: [], suggestedAnswer: 'I would start hands-on.' },
+    { id: 'talk', title: 'Discussion', description: 'd', fit: 'f', pros: [], cons: [] }];
+  node.recommendation = { optionId: null, missing: 'Budget.' };
+  node.questions = [{ id: 'q-format', text: 'Which format?', answer: null }];
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /Start from a suggested answer/);
+  assert.match(h.markup(), /data-suggest-answer="hands-on" data-question-id="q-format"/);
+  assert.doesNotMatch(h.markup(), /data-suggest-answer="talk"/, 'only options with a draft are offered');
+  assert.match(h.markup(), /No recommendation yet/);
 });
