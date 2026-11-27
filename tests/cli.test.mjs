@@ -21,7 +21,7 @@ test('the public CLI claims work, delivers results, and gives compact idle outpu
     const job = await cli(['next', '--worker', 'test']);
     assert.equal(job.mapId, created.mapId); assert.equal(job.claimKey, undefined); assert.equal(job.jobType, 'investigate');
     const resultFile = path.join(workspace, 'result.json'); await writeFile(resultFile, JSON.stringify({ summary: 'Scope clarified.', body: 'Shared notes need explicit ownership.' }));
-    const saved = await cli(['result', '--job', job.jobId, '--file', resultFile]); assert.equal(saved.saved, true);
+    const saved = await cli(['result', '--job', job.jobId, '--file', resultFile]); assert.equal(saved.saved, true); assert.deepEqual(saved.warnings, []);
     const idle = await cli(['next', '--wait', '0']); assert.equal(idle.idle, true); assert.ok(JSON.stringify(idle).length < 200);
     const read = await cli(['read', '--map', created.mapId]); assert.equal(read.nodes[0].summary, 'Scope clarified.');
     const excerpt = await cli(['read', '--map', created.mapId, '--node', created.rootId, '--section', 'findings']);

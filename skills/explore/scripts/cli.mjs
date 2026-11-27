@@ -48,7 +48,7 @@ try {
         headers: { Authorization: `Bearer ${connection.token}`, ...(data ? { 'Content-Type': 'application/json' } : {}) },
         ...(data ? { body: JSON.stringify(data) } : {}), redirect: 'error', signal: AbortSignal.timeout(35000) });
       const value = await response.json();
-      if (!response.ok) throw new Error([value.error, ...(value.errors || []).map(e => `- ${e.code}${e.field ? ` ${e.field}` : ''}: ${e.message}`)].join('\n'));
+      if (!response.ok) throw new Error([value.error, ...(value.errors || []).map(e => `- ${e.code} ${e.field}: ${e.message}`)].join('\n'));
       return value;
     }
     const input = async () => JSON.parse(await readFile(path.resolve(required('file')), 'utf8'));
@@ -83,9 +83,9 @@ try {
         const check = command === 'result' && args.includes('--check');
         const payload = command === 'result' ? { ...claim, result: await input(), ...(check ? { check: true } : {}) } : { ...claim, reason: required('reason') };
         const m = await api(`/api/maps/${claim.mapId}/${command}`, payload);
-        if (check) { output = { mapId: claim.mapId, ...m }; break; }
+        if (check) { output = { mapId: claim.mapId, ...m }; if (!m.ok) process.exitCode = 1; break; } // So `result --check && result` stops.
         output = { saved: true, mapId: m.id, revision: m.revision, job: m.jobs.find(j => j.id === claim.jobId)?.status,
-          stale: m.jobs.find(j => j.id === claim.jobId)?.stale || false, ...(m.warnings ? { warnings: m.warnings } : {}) };
+          stale: m.jobs.find(j => j.id === claim.jobId)?.stale || false, warnings: m.warnings ?? [] };
         break;
       }
       case 'read': {

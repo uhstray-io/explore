@@ -121,7 +121,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'result') {
           if (body.check === true) return send(res, 200, await store.checkResult(match[1], body.jobId, body.claimKey, body.result));
           const { map, warnings } = await store.deliver(match[1], body.jobId, body.claimKey, body.result);
-          return send(res, 200, { ...store.view(map), ...(warnings.length ? { warnings } : {}) });
+          return send(res, 200, { ...store.view(map), warnings });
         }
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
@@ -132,7 +132,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
       res.writeHead(200, { 'Content-Type': `${types[file.split('.').pop()]}; charset=utf-8`, 'Cache-Control': 'no-cache' });
       res.end(await readFile(path.join(assets, file)));
-    } catch (error) { send(res, error.status || 500, { error: error.message, ...(error instanceof Problem && error.code ? { code: error.code } : {}), ...(error instanceof Problem && error.errors ? { errors: error.errors } : {}) }); }
+    } catch (error) { send(res, error.status || 500, { error: error.message, ...(error instanceof Problem ? { code: error.code, errors: error.errors } : {}) }); }
   });
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
