@@ -1,43 +1,53 @@
-import { inboxHtml, openThoughts } from './inbox.js';
+import { inboxHtml, openThoughts, SORT_THOUGHTS } from './inbox.js';
 
 // The inbox dialog (K8), opened from Map tools: jot a thought, edit or discard one, ask the agent where they belong
-// (after a preview of what it reads), and accept or dismiss each proposal. Capturing works with no agent connected.
-// `act(nodeId, type, input)` is the app's action call; `map()` the map shown; `live()` false (history) is read-only.
-// `mapChanged()` redraws the open dialog unless a thought is being edited, and keeps the Map tools line current.
-export function inboxDialog({ map, act, esc, toast, live, listening, focusNode }) {
+// (after F1's preview of what it reads), and accept or dismiss each suggestion. Capturing works with no agent connected.
+// `act(nodeId, type, input)` is the app's action call and `api(route)` its read; `map()` the map shown; `live()` false
+// (history) is read-only, with `readOnly()` saying why. `mapChanged()` redraws the open dialog unless a thought is being
+// edited, and keeps the Map tools line current.
+export function inboxDialog({ map, act, api, esc, toast, live, readOnly = () => '', listening, focusNode }) {
   const $ = selector => document.querySelector(selector), dialog = $('#inbox-dialog'), body = $('#inbox-body'), capture = $('#inbox-capture'), text = $('#inbox-capture-text');
-  let editing = null, preview = false, written = null;
+  let editing = null, preview = null, written = null;
   const summary = () => { const shown = map(); if (!shown) return; const count = openThoughts(shown).length; $('#inbox-summary').textContent = count ? `${count === 1 ? '1 open thought' : `${count} open thoughts`} in the inbox.` : 'No open thoughts.'; };
   const render = () => {
     const shown = map(); if (!shown) return;
-    const html = inboxHtml({ map: shown, esc, live: live(), editing, preview, listening: listening() });
+    if (preview && preview.mapRevision !== shown.revision) preview = null; // A preview describes the map it was made for.
+    const html = inboxHtml({ map: shown, esc, live: live(), editing, preview, listening: listening(), readOnly: readOnly() });
     if (html !== written) body.innerHTML = written = html; // Never compare with innerHTML read back.
+    text.disabled = !live(); // Growth history and saved versions are read-only.
     summary();
   };
-  $('#inbox-open').addEventListener('click', () => { editing = null; preview = false; written = null; render(); $('#tools-dialog').close(); dialog.showModal(); text.focus(); });
+  // After a redraw, focus stays in the dialog: on the first of `selectors` found and enabled, else the capture field.
+  const focus = (...selectors) => { (selectors.map(selector => body.querySelector(selector)).find(target => target && !target.disabled) ?? text)?.focus(); };
+  // The thought after (or else before) `id` in the list as it was, to move focus to once `id` leaves the list.
+  const neighbour = id => { const ids = openThoughts(map()).map(thought => thought.id), at = ids.indexOf(id); return ids[at + 1] ?? ids[at - 1] ?? null; };
+  // One action: send it, say so, redraw, and move focus.
+  const run = async (type, input, done, ...focusOn) => { const ok = await act(null, type, input); if (ok && done) toast(done); render(); focus(...focusOn); return ok; };
+  $('#inbox-open').addEventListener('click', () => { editing = null; preview = null; written = null; render(); $('#tools-dialog').close(); dialog.showModal(); (live() ? text : $('#inbox-title'))?.focus(); });
   capture.addEventListener('submit', async event => {
     event.preventDefault();
     if (!live()) { toast('Return to the live map to add a thought.'); return; }
-    if (await act(null, 'inbox-add', { text: text.value })) { text.value = ''; render(); toast('Added to the inbox.'); }
+    if (await act(null, 'inbox-add', { text: text.value })) { text.value = ''; render(); toast('Added to the inbox.'); text.focus(); }
   });
   body.addEventListener('click', async event => {
     const target = event.target.closest('button'); if (!target) return;
     const data = target.dataset;
     if (data.focusNode) { dialog.close(); focusNode(data.focusNode); return; }
-    if (data.thoughtEdit) { editing = data.thoughtEdit; render(); body.querySelector('textarea')?.focus(); return; }
-    if (data.thoughtCancel !== undefined) { editing = null; render(); return; }
-    if (data.thoughtSave) { if (await act(null, 'inbox-edit', { thoughtId: data.thoughtSave, text: $('#thought-edit').value })) { editing = null; render(); } return; }
-    if (data.thoughtDiscard) { if (await act(null, 'inbox-discard', { thoughtId: data.thoughtDiscard })) { render(); toast('Discarded.'); } return; }
-    if (data.inboxSort !== undefined) { preview = true; render(); return; }
-    if (data.inboxCancel !== undefined) { preview = false; render(); return; }
-    if (data.inboxSend !== undefined) {
-      preview = false;
-      if (await act(null, 'request-map-job', { jobType: 'sort-thoughts' })) toast(listening() ? 'Your agent will sort these next.' : 'Queued. Connect your agent to sort these.');
-      render(); return;
+    if (data.thoughtEdit) { editing = data.thoughtEdit; render(); focus('#thought-edit'); return; }
+    if (data.thoughtCancel !== undefined) { editing = null; render(); focus(`[data-thought-edit="${data.thoughtCancel}"]`); return; }
+    if (data.thoughtSave) { if (await act(null, 'inbox-edit', { thoughtId: data.thoughtSave, text: $('#thought-edit').value })) { editing = null; render(); focus(`[data-thought-edit="${data.thoughtSave}"]`); } return; }
+    if (data.thoughtDiscard) { const next = neighbour(data.thoughtDiscard); await run('inbox-discard', { thoughtId: data.thoughtDiscard }, 'Discarded.', `[data-thought-edit="${next}"]`); return; }
+    if (data.inboxSort !== undefined) {
+      const shown = map(); target.disabled = true;
+      try { preview = await api(`/maps/${shown.id}/job-preview?type=${SORT_THOUGHTS}`); } catch (error) { toast(error.message); }
+      target.disabled = false; render(); focus('[data-inbox-send]', '[data-inbox-sort]'); return;
     }
-    if (data.inboxStop) { if (await act(null, 'cancel-job', { jobId: data.inboxStop })) toast('Stopped.'); render(); return; }
-    if (data.placeThought) { if (await act(null, 'place-thought', { proposalId: data.proposal, itemId: data.placeThought })) toast('Placed.'); render(); return; }
-    if (data.dismissItem) { if (await act(null, 'review-proposal', { proposalId: data.proposal, itemId: data.dismissItem, decision: 'dismissed' })) toast('Dismissed; the thought stays in the inbox.'); render(); }
+    if (data.inboxCancel !== undefined) { preview = null; render(); focus('[data-inbox-sort]'); return; }
+    if (data.inboxSend !== undefined) { preview = null; await run('request-map-job', { jobType: SORT_THOUGHTS }, listening() ? 'Your agent will sort these next.' : 'Queued. Connect your agent to sort these.', '[data-inbox-stop]', '[data-inbox-sort]'); return; }
+    if (data.inboxStop) { await run('cancel-job', { jobId: data.inboxStop }, 'Stopped.', '[data-inbox-sort]'); return; }
+    // A placed thought leaves the list, so focus goes to the next one; a dismissed one stays, with its Edit.
+    if (data.placeThought) { const next = neighbour(data.thought); await run('place-thought', { proposalId: data.proposal, itemId: data.placeThought }, 'Placed.', `[data-thought-edit="${next}"]`); return; }
+    if (data.dismissItem) { await run('review-proposal', { proposalId: data.proposal, itemId: data.dismissItem, decision: 'dismissed' }, 'Dismissed; the thought stays in the inbox.', `[data-thought-edit="${data.thought}"]`); }
   });
   return { mapChanged() { if (dialog.open && !editing) render(); else summary(); } };
 }

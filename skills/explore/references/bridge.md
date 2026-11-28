@@ -194,7 +194,7 @@ Categories: `possible-tension`, `unresolved-choice`, `untested-assumption`. At m
 
 ## Map jobs: Sort thoughts
 
-The user jots rough thoughts into the map's inbox and, when they ask, a `sort-thoughts` packet carries them: `thoughts` (`{ id, text }`, at most 20, in full) and `ideas`, an index of the map in reading order (`{ id, title, kind, status, completed, summary }`, summaries shortened), with `omittedIdeas` counted; use `read --map ID --query TEXT` for more. Propose a place for each thought; never activate anything:
+The user jots rough thoughts into the map's inbox and, when they ask, a `sort-thoughts` packet carries them: `thoughts` (`{ id, text }`, whole thoughts only, at most 20, those never sorted before first; `remainingThoughts` counts the open ones left for a later sort) and `ideas`, an index of the map in reading order (`{ id, title, kind, status, completed, summary }`, summaries shortened), with `omittedIdeas` counted; use `read --map ID --query TEXT` for more. Propose a place for each thought; never activate anything:
 
 ```json
 {
@@ -206,7 +206,7 @@ The user jots rough thoughts into the map's inbox and, when they ask, a `sort-th
 }
 ```
 
-Give exactly one placement per thought; `parentId` and `nodeId` must exist. Titles are at most 100 characters, bodies 4,000, reasons 600; `kind` follows the suggestion kinds. Prefer a note when a thought adds to an existing branch, and a new branch when it opens a separate question; a thought that changes a finished premise becomes a new branch, not a note. The result is stored as a proposal: only the user accepts a placement. A note keeps the user's own words, and a later branch packet carries an idea's notes as `selected.userNotes`: the user's context, not findings or answers.
+Give exactly one placement per thought; `parentId` and `nodeId` must exist. Titles are at most 100 characters, bodies 4,000, reasons 600; `kind` is `research` (the default) or `hypothesis`. Any other field rejects the result, and a new branch whose title its parent already has is refused when accepted. Prefer a note when a thought adds to an existing branch, and a new branch when it opens a separate question; a thought that changes a finished premise becomes a new branch, not a note. The result is stored as a proposal: only the user accepts a placement. A note keeps the user's own words, and a later branch packet carries an idea's newest notes as `selected.userNotes` (within 1,500 characters, each at most 600 and marked when shortened, the rest counted in `omittedNotes`; `read --section notes` has them all): the user's context, not findings or answers.
 
 ## Mutations
 
@@ -220,6 +220,7 @@ If someone pulled or switched branches since you last read the map, an action fa
 - `record-outcome`: `outcome` (`supported`, `refuted` or `inconclusive`), optional `note` (at most 1,000 characters). User-only, on a hypothesis: never record an outcome, even when asked in a result. It works on a finished hypothesis and changes no findings. A first refuted or inconclusive outcome, or any change of outcome, is like a changed answer: work running on the hypothesis or on the ideas resting on it (below it or depending on it) becomes stale, and their findings are flagged for review (`hypothesis-outcome`); their questions stay answerable. A first supported does neither. Nearby ideas in packets carry `kind` and `outcome` for a hypothesis. Event `outcome-recorded`.
 - `suggest` may carry `kind`: `research` (the default) or `hypothesis`, with an optional `test`.
 - `set-disprove-if`: `questionId`, `text` (at most 1,000 characters; empty removes it). User-only: the user's note on what would show one of their own current answers marked Assumption is wrong. It is an annotation like `set-answer-state`: allowed on finished branches, and it never changes content; a change that changes nothing is refused. Event `disprove-if-set`. A packet shows the note as `disproveIf` on that answer.
+- `inbox-add` (`text`), `inbox-edit` (`thoughtId`, `text`) and `inbox-discard` (`thoughtId`), no `nodeId`: the user's own inbox. `place-thought` (`proposalId`, `itemId`): user-only; it accepts one suggestion from a sort. Never take these on the user's behalf.
 - `set-criteria`: `criteria` (up to 8 `{ id?, label, priority }`, labels at most 120 characters and each once; an empty list clears them). User-only: the user's own criteria for an idea's options. It queues nothing and changes no findings.
 - `reconsider`, `adopt-reconsideration` and `dismiss-reconsideration` (`jobId`): user-only. Asking queues a `reconsider` job; using a result or keeping the original changes only which recommendation leads, never the idea's own options, findings or status. Never take these on the user's behalf.
 - `set-answer-state`: `questionId`, `answerState`. Changes how sure a saved, current answer is. It is an annotation: allowed on finished branches, and it never re-runs research, flags findings or changes content. User-only.
