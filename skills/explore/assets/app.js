@@ -665,7 +665,7 @@ function renderDetail(force = false) {
     ${!historic ? linkEditorHtml(n, state.visibleMap, { esc, drafts: state.drafts, shown: state.editors[`${n.id}:link`] === true }) : ''}
     <details data-editor="revise"><summary data-command="revise" data-command-editor="revise" data-node-id="${n.id}">${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new branch and starts exploring it. Affected findings are flagged for review; the original is preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
     ${!historic && n.id === state.map?.rootId ? goalEditorHtml(state.map, { esc, drafts: state.drafts }) : ''}
-    ${runNoteHtml(job)}`;
+    ${runNoteHtml(job, state.visibleMap)}`;
   // The user's open or closed choice wins; otherwise a disclosure stays as rendered (closed, or new help open).
   for (const editor of detail.querySelectorAll('details[data-editor]')) editor.open = state.editors[`${n.id}:${editor.dataset.editor}`] ?? editor.open;
   // Only help the user can actually see counts as seen, not help inside a collapsed section.
