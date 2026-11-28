@@ -28,7 +28,6 @@ export function treeOrder(map) {
   for (const node of map.nodes) walk(node);
   return out;
 }
-// An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.
 // What builds on these ideas: their `contains` descendants and, transitively, ideas linked as depending on them.
 // Includes the ideas themselves.
 export function downstreamOf(map, nodeIds) {
@@ -43,6 +42,7 @@ export function downstreamOf(map, nodeIds) {
   }
   return affected;
 }
+// An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.
 export function branchIds(map, nodeId) {
   const children = new Map();
   for (const node of map.nodes) { if (!children.has(node.parentId)) children.set(node.parentId, []); children.get(node.parentId).push(node.id); }
