@@ -82,6 +82,7 @@ const oneOf = (values, options) => rule(value => values.has(value), { code: 'unk
 const anId = ({ unreadable = false, ...options } = {}) => rule(validId, { code: 'invalid-id', ...options, unreadable: unreadable ? value => !isText(value) : false });
 const shapes = {
   map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
+    library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
     history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.

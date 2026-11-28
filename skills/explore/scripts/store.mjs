@@ -4,7 +4,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
-import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
+import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
@@ -118,6 +118,7 @@ export class Store {
     const known = this.adopted.get(mapId);
     this.adopted.set(mapId, { fingerprint, bytes });
     if (!known || known.fingerprint === fingerprint) return; // The first read after start adopts silently.
+    if (presentationOnly(known.bytes, bytes)) return; // Pin and archive state alone is not news (I1).
     const change = { at: now(), preserved: null, inGit: false };
     this.outside.set(mapId, change);
     // Keep the version that was replaced as a version, unless version history or Git already has it,
@@ -153,22 +154,30 @@ export class Store {
     await rm(dir, { recursive: true, force: true });
   }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
-  async list() {
+  // Every map folder, loaded or with the reason it could not be: one broken map never stops a reader (I1 search).
+  async eachMap() {
     await mkdir(this.directory, { recursive: true });
-    const entries = await readdir(this.directory, { withFileTypes: true });
+    const out = [];
+    for (const entry of (await readdir(this.directory, { withFileTypes: true })).filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
+      try { out.push({ id: entry.name, map: await this.get(entry.name) }); }
+      catch (error) { if (!(error instanceof Problem && error.code === 'not-found')) out.push({ id: entry.name, error }); } // A folder left behind by a branch switch is not a map.
+    }
+    return out;
+  }
+  async list() {
     const maps = [], readable = [];
-    for (const entry of entries.filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
-      let m;
-      try { m = await this.get(entry.name); }
-      catch (error) {
-        if (error instanceof Problem && error.code === 'not-found') continue; // A folder left behind by a branch switch is not a map.
-        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; }
+    for (const { id, map: m, error } of await this.eachMap()) {
+      if (error) {
+        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id, unreadable: true, problem: error.code }); continue; }
         throw error;
       }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
-        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length });
+        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length,
+        pinned: !!m.library?.pinned, archived: !!m.library?.archived, busy: m.jobs.some(j => j.status === 'queued' || j.status === 'running'),
+        changedAt: m.history.at(-1)?.at ?? m.updatedAt });
     }
-    return [...readable.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), ...maps];
+    // Pinned maps first, then the most recently changed (I1).
+    return [...readable.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.changedAt.localeCompare(a.changedAt)), ...maps];
   }
   // A save writes only over the version its change was based on; otherwise someone changed the file meanwhile.
   // Each content change is recorded as a version just before map.json is replaced; moving ideas and the

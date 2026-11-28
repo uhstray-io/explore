@@ -1,5 +1,6 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
+import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
@@ -55,10 +56,7 @@ function connectionView(offline = false) {
   hint.classList.toggle('hidden', !state.map || state.historyStep !== null || connected || !state.map.jobs.some(j => j.status === 'queued' && !j.unsupported));
   hint.textContent = 'Queued safely. Use the agent button above to continue.';
 }
-function renderRail() {
-  const html = state.maps.length ? state.maps.map(m => m.unreadable ? `<button class="map-link unreadable" data-map="${m.id}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.id)}</strong><small>${esc(unreadableLabel(m.problem))}</small></span></button>` : `<button class="map-link ${state.map?.id === m.id ? 'current' : ''}" data-map="${m.id}" ${state.map?.id === m.id ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(m.title)}</strong><small>${m.demo ? 'Example map' : `${m.count} ${m.count === 1 ? 'idea' : 'ideas'}`}${m.pending ? ` · ${m.pending} queued` : ''}</small></span></button>`).join('') : '<p class="empty-list">Your ideas will find a home here.</p>';
-  if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
-}
+function renderRail() { rail.render(); }
 // One refresh at a time: a caller waits for the one already running instead of skipping it, so a tab shown again
 // sees what that refresh brings.
 function refresh() {
@@ -77,7 +75,7 @@ async function refreshOnce() {
   const version = openVersion;
   const previouslyListening = agentListening();
   try {
-    const data = await api('/maps'); state.maps = data.maps; state.bridge = data.bridge; renderRail(); connectionView();
+    const data = await api('/maps?archived=include'); state.maps = data.maps; state.bridge = data.bridge; renderRail(); connectionView();
     // A list requested before another map opened says nothing about the map open now.
     const current = version === openVersion ? state.map : null;
     const listed = current && data.maps.find(m => m.id === current.id), change = openMapChange(listed, current);
@@ -132,7 +130,7 @@ function renderMap(fit = false, preserveView = false) {
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
   $('#map-title').textContent = state.map.title; $('#canvas-title').textContent = state.map.title;
   const overview = mapOverview(state.visibleMap);
-  $('#canvas-subtitle').textContent = `${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
+  $('#canvas-subtitle').textContent = `${state.map.library?.archived ? 'Archived · ' : ''}${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
   showGitStatus();
   $('#workspace').classList.toggle('history-mode', historic);
   $('#canvas').setAttribute('aria-label', historic ? 'Map growth history. Read-only. Drag the background to pan; select an idea to view today’s findings.' : 'Constellation. Drag a node to move it or the background to pan. Focus a node and use Alt plus arrow keys to move it.');
@@ -749,6 +747,18 @@ $('#new-map').addEventListener('click', showCreate); $('#start-exploration').add
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
 // Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
+// The rail (I1): Pin and Archive act on any map through the action queue; the open map uses its own revision.
+const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference,
+  // The open map goes through the action queue, except while growth history shows (act() refuses then);
+  // either way the rail is refreshed at once, so its labels and order are never a poll behind.
+  act: async (mapId, input) => {
+    if (state.map?.id === mapId && state.historyStep === null) { if (!await act(null, input.type, input)) return false; }
+    else {
+      const listed = state.maps.find(map => map.id === mapId); if (!listed) return false;
+      try { await api(`/maps/${mapId}/action`, { ...input, expectedRevision: listed.revision }); } catch (error) { toast(error.message); return false; }
+    }
+    await refresh(); return true;
+  } });
 const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
 $('#storage-open').addEventListener('click', storageDialog({ api, esc, titleOf: id => state.maps.find(map => map.id === id)?.title ?? id }));
