@@ -270,12 +270,12 @@ test('queued work whose idea no longer exists fails with that reason instead of 
 
 test('settings are shared in the repo next to the maps and validated per field', async () => {
   const { dir, store } = await fixture();
-  assert.deepEqual(await store.getSettings(), { version: 1, revision: 0, listenMinutes: 2, 'test-minutes': 2 });
+  assert.deepEqual(await store.getSettings(), { version: 1, revision: 0, listenMinutes: 2, researchModelHint: '', 'test-minutes': 2 });
   await assert.rejects(store.updateSettings({ expectedRevision: 0, unknown: true }), /Unknown setting/);
   await assert.rejects(store.updateSettings({ expectedRevision: 0, 'test-minutes': 7 }), /2 or 10/);
   await assert.rejects(store.updateSettings({ 'test-minutes': 10 }), error => error.status === 409);
   const saved = await store.updateSettings({ expectedRevision: 0, 'test-minutes': 10 });
-  assert.deepEqual(saved, { version: 1, revision: 1, listenMinutes: 2, 'test-minutes': 10 });
+  assert.deepEqual(saved, { version: 1, revision: 1, listenMinutes: 2, researchModelHint: '', 'test-minutes': 10 });
   assert.deepEqual(JSON.parse(await readFile(path.join(dir, 'ideas', 'settings.json'), 'utf8')), { 'test-minutes': 10, version: 1, revision: 1 }, 'only chosen values are written; the rest keep their defaults');
   await assert.rejects(store.updateSettings({ expectedRevision: 0, 'test-minutes': 2 }), error => error.status === 409);
   await assert.rejects(access(path.join(dir, '.explore')), 'settings never go to the local runtime folder');

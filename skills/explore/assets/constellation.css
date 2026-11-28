@@ -66,3 +66,4 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 .overview-idea>.overview-detail{color:var(--ink);margin-top:2px}
 .overview-idea.next-question{border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:6px;padding:10px 12px;margin-bottom:8px;background:var(--soft)}.next-question small{color:var(--teal);font-weight:600}.next-question ul{margin:6px 0;padding-left:16px;font-size:11px;line-height:1.5;color:var(--muted)}.next-question-actions{display:flex;gap:12px;align-items:center;margin-top:6px}
 .next-question>strong{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.research-model-row{display:flex;gap:8px;align-items:center}.research-model-row input{flex:1;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:7px;background:var(--paper);color:var(--ink);font:inherit;font-size:13px}

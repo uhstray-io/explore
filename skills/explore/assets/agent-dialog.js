@@ -11,16 +11,28 @@ export function agentPrompt(session, map) {
 // applies while the agent's session stays open.
 export function agentDialog({ api, toast, alerts, session, map }) {
   const $ = selector => document.querySelector(selector), select = $('#listen-minutes'), status = $('#agent-copy-status');
+  const model = $('#research-model'), modelButtons = [$('#save-research-model'), $('#clear-research-model')];
   let revision = null;
   select.innerHTML = listenChoices.map(minutes => `<option value="${minutes}">${minutes} minutes</option>`).join('');
   async function loadSetting() {
-    select.disabled = true; // Until the current value is known, so a change never carries a stale revision.
+    for (const control of [select, model, ...modelButtons]) control.disabled = true; // Until the current values are known, so a change never carries a stale revision.
     const settings = await api('/settings').catch(() => null);
-    if (!settings) { status.textContent = 'The listening setting could not be loaded. Close and reopen this dialog to try again.'; return; }
-    select.value = String(settings.listenMinutes); revision = settings.revision;
-    select.disabled = !!settings.newer; // A newer Explore's settings are left alone.
+    if (!settings) { status.textContent = 'These settings could not be loaded. Close and reopen this dialog to try again.'; return; }
+    select.value = String(settings.listenMinutes); model.value = settings.researchModelHint; revision = settings.revision;
+    for (const control of [select, model, ...modelButtons]) control.disabled = !!settings.newer; // A newer Explore's settings are left alone.
     if (settings.newer) status.textContent = 'These settings were saved by a newer version of Explore. Update Explore to change them.';
   }
+  // The research model (Z5): a hint the agent follows only when its host can run research on that model.
+  async function saveModel(value) {
+    try {
+      const saved = await api('/settings', { researchModelHint: value, expectedRevision: revision });
+      revision = saved.revision; model.value = saved.researchModelHint;
+      status.textContent = saved.researchModelHint ? `Research jobs now suggest ${saved.researchModelHint}. Only some agents can follow it.` : 'No research model is suggested. Your agent researches with its own model.';
+    } catch (error) { toast(error.message); loadSetting(); }
+  }
+  modelButtons[0].addEventListener('click', () => saveModel(model.value));
+  modelButtons[1].addEventListener('click', () => saveModel(''));
+  model.addEventListener('keydown', event => { if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); saveModel(model.value); } });
   select.addEventListener('change', async () => {
     try {
       const saved = await api('/settings', { listenMinutes: Number(select.value), expectedRevision: revision });

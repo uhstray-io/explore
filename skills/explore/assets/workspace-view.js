@@ -2,6 +2,8 @@ import { presentation, treeOrder, branchComplete } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY, answerStateLabels, effectiveAnswerState, certaintyText,
   hasCurrentAnswer, isOpen, isSavedForLater, importanceLevels, importanceName } from './questions.js';
 
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
 // questions as one batch. Handled means answered, saved for later, or dismissed; a regeneration still
@@ -90,9 +92,11 @@ export const topicProfileLabel = value => (typeof value === 'string' && Object.h
 // Under an idea's findings: how much map context its last investigation used, and which guidance it followed.
 export function runNoteHtml(job) {
   if (!job) return '';
-  // Numbers and fixed labels only: nothing from the file reaches the page as markup.
+  // Numbers, fixed labels and the agent's escaped report: nothing from the file reaches the page as markup.
   const characters = Number.isFinite(job.contextCharacters) ? job.contextCharacters : 0, guidance = topicProfileLabel(job.result?.topicProfile);
-  const parts = [characters ? `Last investigation used ${characters.toLocaleString()} characters of map context. Only relevant context is sent.` : '', guidance ? `Guidance: ${guidance}.` : ''].filter(Boolean);
+  const parts = [characters ? `Last investigation used ${characters.toLocaleString()} characters of map context. Only relevant context is sent.` : '', guidance ? `Guidance: ${guidance}.` : '',
+    // The agent's own report of how it ran, shown only when it has the expected shape.
+    typeof job.execution?.model === 'string' && typeof job.execution.delegated === 'boolean' ? `Your agent reported: ${escapeHtml(job.execution.model)}, ${job.execution.delegated ? 'delegated' : 'not delegated'}.` : ''].filter(Boolean);
   return parts.length ? `<p class="run-note">${parts.join(' ')}</p>` : '';
 }
 
@@ -469,12 +473,11 @@ export function importConflictHtml({ existing, incoming }, { esc }) {
 }
 
 export function briefPreview(brief) {
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
   const counts = brief.counts;
   // Show questions and answers separately so long prompts cannot hide the answer.
   const itemsWithAnswers = brief.sections.map(section => ({ ...section, items: section.items.map(item => item.question ? { ...item, text: `Question: ${item.question}\nAnswer: ${item.text}` } : item) }));
   brief = { ...brief, sections: itemsWithAnswers };
-  return `${brief.originalIdea ? `<h3>Original idea</h3><blockquote>${esc(brief.originalIdea)}</blockquote>` : ''}<h3>Progress</h3><p>${counts.nodes} ideas; ${counts.explored} explored; ${counts.accepted} accepted and current; ${counts.stale} need review; ${counts.awaitingAnswer} awaiting answers.</p><p class="brief-scope-note">A bounded summary of saved material. Sections may overlap; explored findings have not necessarily been verified.</p>${brief.sections.map(section => `<section class="brief-section"><h3>${esc(section.label)}</h3>${section.items.length ? section.items.map(item => `<article class="brief-item"><strong>${esc(item.title)}</strong><small class="brief-item-state">${esc(presentation(item).label)}</small><p>${esc(item.text)}</p><small class="brief-reference">${esc(item.nodeId)}${item.questionId ? ` · ${esc(item.questionId)}` : ''}</small></article>`).join('') : '<p class="brief-empty">None recorded in this scope.</p>'}${section.omitted ? `<p class="brief-omitted">${section.omitted} more ${section.omitted === 1 ? 'record' : 'records'} in this section. Open the map to inspect the rest.</p>` : ''}</section>`).join('')}`;
+  return `${brief.originalIdea ? `<h3>Original idea</h3><blockquote>${escapeHtml(brief.originalIdea)}</blockquote>` : ''}<h3>Progress</h3><p>${counts.nodes} ideas; ${counts.explored} explored; ${counts.accepted} accepted and current; ${counts.stale} need review; ${counts.awaitingAnswer} awaiting answers.</p><p class="brief-scope-note">A bounded summary of saved material. Sections may overlap; explored findings have not necessarily been verified.</p>${brief.sections.map(section => `<section class="brief-section"><h3>${escapeHtml(section.label)}</h3>${section.items.length ? section.items.map(item => `<article class="brief-item"><strong>${escapeHtml(item.title)}</strong><small class="brief-item-state">${escapeHtml(presentation(item).label)}</small><p>${escapeHtml(item.text)}</p><small class="brief-reference">${escapeHtml(item.nodeId)}${item.questionId ? ` · ${escapeHtml(item.questionId)}` : ''}</small></article>`).join('') : '<p class="brief-empty">None recorded in this scope.</p>'}${section.omitted ? `<p class="brief-omitted">${section.omitted} more ${section.omitted === 1 ? 'record' : 'records'} in this section. Open the map to inspect the rest.</p>` : ''}</section>`).join('')}`;
 }
 
 export function historyStepLabel(step, total) {
