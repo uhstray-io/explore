@@ -4,24 +4,32 @@ import { effectiveAnswerState, isAssumption } from '../assets/questions.js';
 
 // The ideas an agent reads around one idea: the root, the path up to it, semantic neighbours of those, and
 // transitive dependencies, without expanding other branches' children. Shared by every packet that reads
-// nearby ideas and by the signature that tells whether work became stale while it ran.
-function neighbourhood(map, node) {
-  const ids = new Set([node.id, map.rootId]);
+// nearby ideas and by the signature that tells whether work became stale while it ran. `reachedBy` says how each idea
+// outside the path came in: the link that touched the neighbourhood (`edge`), or the idea it is a prerequisite of
+// (`prerequisiteOf`), so a ranking can say why without walking the map again (C13).
+export function neighbourhoodWalk(map, node) {
+  const ids = new Set([node.id, map.rootId]), reachedBy = new Map();
   let parent = node.parentId;
   while (parent && !ids.has(parent)) { ids.add(parent); parent = map.nodes.find(n => n.id === parent)?.parentId; }
-  for (const e of map.edges.filter(e => e.type !== 'contains')) if (ids.has(e.from) || ids.has(e.to)) { ids.add(e.from); ids.add(e.to); }
+  for (const e of map.edges.filter(e => e.type !== 'contains')) if (ids.has(e.from) || ids.has(e.to)) {
+    for (const end of [e.from, e.to]) if (!ids.has(end)) { ids.add(end); reachedBy.set(end, { edge: e }); }
+  }
   let changed = true;
   while (changed) {
     changed = false;
-    for (const e of map.edges.filter(e => e.type === 'depends_on')) if (ids.has(e.from) && !ids.has(e.to)) { ids.add(e.to); changed = true; }
+    for (const e of map.edges.filter(e => e.type === 'depends_on')) if (ids.has(e.from) && !ids.has(e.to)) { ids.add(e.to); reachedBy.set(e.to, { prerequisiteOf: e.from }); changed = true; }
   }
-  return ids;
+  return { ids, reachedBy };
 }
+const neighbourhood = (map, node) => neighbourhoodWalk(map, node).ids;
 // The idea and its neighbourhood, in map order.
 export function contextNodes(map, node) {
   const ids = neighbourhood(map, node);
   return map.nodes.filter(n => ids.has(n.id));
 }
+// The answers a packet sends for a nearby idea: its latest three. Ranking reads the same ones, so no reason rests on
+// an answer the agent never sees.
+export const sentAnswers = n => n.questions.filter(q => q.answer).slice(-3);
 // Changes when any idea in the neighbourhood changes content (premise, findings or an answer), or when a link
 // touching the neighbourhood is added or removed: work reading it would then read a different map.
 export function signature(map, node) {
@@ -61,7 +69,7 @@ export function certaintyFields(question) {
 export const answerBrief = (q, { question = 200, answer = 300 } = {}) => ({ question: clip(q.text, question), answer: clip(q.answer, answer), ...certaintyFields(q), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) });
 // One nearby idea in a packet: enough to keep accepted, provisional and stale material apart.
 export const nearbyBrief = n => ({ id: n.id, title: n.title, summary: clip(n.summary, 500), premise: clip(n.prompt || n.body, 600),
-  answers: n.questions.filter(q => q.answer).slice(-3).map(q => answerBrief(q)), status: n.status, reviewState: n.reviewState, stale: n.stale,
+  answers: sentAnswers(n).map(q => answerBrief(q)), status: n.status, reviewState: n.reviewState, stale: n.stale,
   ...(hypothesisOf(n) ? { kind: 'hypothesis', outcome: outcomeOf(hypothesisOf(n).outcome) } : {}) });
 // An idea's researched findings, or '' while its body is still only the premise.
 export const ownFindings = node => node.body === node.prompt ? '' : node.body;

@@ -53,10 +53,10 @@ test('every packet carries the goal, even when context is trimmed or the glossar
   const expected = { mode: 'diagnose', modeFocus: modes.diagnose.focus, objective: 'Find why sync drops edits.', successCriteria: 'A reproduced cause.' };
   for (let i = 0; i < 4; i++) await act({ type: 'suggest', title: `Direction ${i}`, body: 'A long premise. '.repeat(200) });
   let saved = await store.get(map.id);
-  // A direction's packet carries the starting idea as context; a small budget trims it, and the goal stays.
+  // A direction's packet carries the starting idea as context; a small budget shortens it, and the goal stays.
   const direction = saved.nodes.find(node => node.id !== map.rootId);
   const small = store.packet(saved, { id: 'job-trim', nodeId: direction.id, reason: 'Test.' }, { claimKey: 'k', budget: 4000 });
-  assert.ok(small.omittedContext > 0, 'context was trimmed'); assert.deepEqual(small.goal, expected);
+  assert.equal(small.context[0].id, map.rootId, 'the path stays (C13)'); assert.deepEqual(small.goal, expected);
   const packet = await store.claim('agent', map.id);
   assert.deepEqual(packet.goal, expected); assert.match(packet.instruction, /Shape the work by the goal/);
   saved = await store.get(map.id);
