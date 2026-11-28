@@ -20,6 +20,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
+import { outlinePanel } from './outline.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
@@ -160,7 +161,7 @@ function renderMap(fit = false, preserveView = false) {
     return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span><span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span><span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span>${major ? `<span class="node-caption">${esc(n.title)}</span>` : ''}</button>`;
   }).join('');
   renderEdges();
-  renderDetail(); renderOverview(); renderHistory(); renderVersionsPanel(); if (state.toolsOpen) renderTools();
+  renderDetail(); renderOverview(); outline.render(); renderHistory(); renderVersionsPanel(); if (state.toolsOpen) renderTools();
   if (state.versionsOpen && !state.versionChoice && state.versions?.revision !== state.map.revision) loadVersions();
   if (focusedNode) $(`[data-node="${focusedNode}"]`)?.focus({ preventScroll: true });
   if (!$('#node-results').hidden) searchNodes();
@@ -171,7 +172,7 @@ function renderMap(fit = false, preserveView = false) {
 function transform() { $('#world').style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`; $('#world').style.setProperty('--graph-scale', state.scale); $('#zoom-value').textContent = `${state.scale < .1 ? (state.scale * 100).toFixed(1) : Math.round(state.scale * 100)}%`; }
 function viewport() { return { width: $('#canvas').clientWidth, height: $('#canvas').clientHeight }; }
 function fitMap() {
-  if (!state.map) return;
+  if (!state.map || !$('#canvas').clientWidth) return; // Hidden behind the outline: the return to the map fits it.
   state.overview = true;
   Object.assign(state, overviewView(visiblePositions(), viewport()));
   transform();
@@ -186,7 +187,7 @@ function selectNode(nodeId) {
   state.selected = visibleSelection(state.visibleMap, nodeId);
   showAddress();
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
-  $('#focus-selected').disabled = !state.selected; renderDetail();
+  $('#focus-selected').disabled = !state.selected; renderDetail(); outline.showSelection();
 }
 // Git status of the open map (H9). Checked when a map opens, when the user asks, and at most every 10 seconds
 // after this browser saves or a fetch brings a changed map (a pull or an agent's result); never on every poll.
@@ -251,14 +252,15 @@ async function followAddress() {
 function focusNode(nodeId) {
   if (!state.positions[nodeId] || !state.visibleMap.nodes.some(node => node.id === nodeId)) return;
   selectNode(nodeId);
-  centerSelected();
   $('#node-results').hidden = true;
   closeOverview();
+  if (outline.active()) { outline.focusRow(nodeId); return; }
+  centerSelected();
   $(`[data-node="${nodeId}"]`)?.focus({ preventScroll: true });
 }
 function centerSelected() {
   const node = state.visibleMap?.nodes.find(n => n.id === state.selected);
-  if (!node) return;
+  if (!node || !$('#canvas').clientWidth) return;
   const neighbors = state.visibleMap.nodes.filter(n => n.parentId === node.id || n.id === node.parentId).map(n => state.positions[n.id]);
   state.overview = false;
   Object.assign(state, focusedView(state.positions[node.id], viewport(), 1, neighbors)); transform();
@@ -305,6 +307,7 @@ function renderOverview() {
   const group = overview.groups.find(item => item.id === state.filter);
   $('#overview-panel').hidden = !group;
   for (const card of document.querySelectorAll('.node')) card.classList.toggle('filter-muted', Boolean(group) && !group.nodes.some(node => node.id === card.dataset.node));
+  outline.dim(group ? new Set(group.nodes.map(node => node.id)) : null);
   if (!group) return;
   $('#overview-title').textContent = `${group.label} (${group.nodes.length})`;
   $('#overview-explanation').textContent = state.historyStep === null ? 'Choose an idea to inspect it. Opening this list never starts work.' : 'Today’s state of ideas visible at this growth step.';
@@ -719,6 +722,12 @@ const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
 commandPalette({ $, $$: selector => [...document.querySelectorAll(selector)], esc, state, focusNode, openEditor, toast });
+// Back on the map the canvas is shown again, so it measures now. Focus that was in the outline goes to the selected idea.
+const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(selector)], esc, glyphs, state, select: selectNode, showMap: ({ refocus }) => {
+  if (!state.map) return;
+  (state.selected ? centerSelected : fitMap)();
+  if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
+} });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
 const showBrief = briefDialog({ api, map: () => state.map, download });
 $('#show-brief').addEventListener('click', () => showBrief());
