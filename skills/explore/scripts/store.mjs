@@ -28,7 +28,7 @@ import { questionFeedback } from './question-actions.mjs';
 import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
 import { sourceList } from './fields.mjs';
-import { reuseKey } from './reuse.mjs';
+import { reuseKey, contentKey } from './reuse.mjs';
 import { signature, signatureMatches, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap, unreadableReasons } from './map-validation.mjs';
 
@@ -659,18 +659,21 @@ export class Store {
     packet.approximateTokens = Math.ceil(packet.contextCharacters / 4);
     return packet;
   }
-  // Packet for a registered job type: shared identifying fields plus the type's own fields.
+  // Packet for a registered job type: its content (the type's own fields, goal and glossary), then the fields that identify
+  // the work, measured with a fixed-width revision and claim key so a map gives the same content each time (Z4 compares it).
   async typedPacket(map, job, definition, node, { claimKey, budget = 15500 } = {}) {
     const goal = definition.goal === false ? {} : goalForPacket(map);
-    const packet = { ...await definition.packet({ map, job, node, budget: packetBudget(map, { goal: definition.goal !== false, budget }) }), ...goal,
-      mapId: map.id, mapTitle: map.title, mapRevision: map.revision, jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
-    need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);
-    packet.instruction = `${packet.instruction.trim()}${packet.goal ? ` ${goalUse}` : ''}`; // Before the glossary measures its room.
+    const content = { ...await definition.packet({ map, job, node, budget: packetBudget(map, { goal: definition.goal !== false, budget }) }), ...goal };
+    need(typeof content.instruction === 'string' && content.instruction.trim(), `${definition.label} work has no instruction.`, 500);
+    content.instruction = `${content.instruction.trim()}${content.goal ? ` ${goalUse}` : ''}`; // Before the glossary measures its room.
     // Typed work reads the agreed glossary too (K9), unless its type opts out. Like an investigation, the work's own
     // content comes first: the glossary gets only the room left, so it can never cut that content or fail the job.
-    const shared = definition.glossary === false ? null : glossaryForPacket(map, node, budget - JSON.stringify(packet).length - searchPrivacy.length - glossaryRoom);
-    if (shared?.glossary.length) Object.assign(packet, shared); // With no room or no terms, nothing is added.
-    packet.instruction = `${packet.instruction}${shared?.glossary.length ? ` ${glossaryUse}` : ''} ${searchPrivacy}`;
+    const identity = { mapId: map.id, mapTitle: map.title, mapRevision: map.revision, jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
+    const identityRoom = JSON.stringify({ ...identity, mapRevision: 1e9, claimKey: 'k'.repeat(36) }).length;
+    const shared = definition.glossary === false ? null : glossaryForPacket(map, node, budget - JSON.stringify(content).length - identityRoom - searchPrivacy.length - glossaryRoom);
+    if (shared?.glossary.length) Object.assign(content, shared); // With no room or no terms, nothing is added.
+    content.instruction = `${content.instruction}${shared?.glossary.length ? ` ${glossaryUse}` : ''} ${searchPrivacy}`;
+    const packet = { ...content, ...identity, [contentKey]: content };
     packet.contextCharacters = JSON.stringify(packet).length;
     need(packet.contextCharacters <= budget, `${definition.label} work is larger than the ${budget}-character packet budget.`, 500);
     packet.approximateTokens = Math.ceil(packet.contextCharacters / 4);
@@ -710,7 +713,7 @@ export class Store {
           }
           if (investigation) n.status = 'running';
           if (packet[includedKey]) job.included = packet[includedKey]; // What a map job read, for checking its result.
-          if (definition.reusable && n) job.reuseKey = reuseKey(packet); // What it read, so asking again can reuse it (Z4).
+          if (definition.reusable && n) job.reuseKey = reuseKey(packet[contentKey]); // What it read, so asking again can reuse it (Z4).
           if (packet.goal && map.guidanceUpdatedAt) job.guidanceUpdatedAt = map.guidanceUpdatedAt; // The goal it was given (A1).
           job.contextCharacters = packet.contextCharacters;
           this.event(map, 'started', job.nodeId, `${worker}; ${investigation ? '' : `${definition.label}; `}context packet ${packet.contextCharacters} characters`);

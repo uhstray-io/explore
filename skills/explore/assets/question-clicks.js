@@ -6,7 +6,7 @@ import { isBlocking, questionJobs, TIDY, EXPLAIN, RESEARCH } from './questions.j
 // when the click was one of these. `app` passes what the handlers need from app.js.
 const helpKinds = { research: { type: RESEARCH, action: 'request-research', doing: 'research', got: 'research' }, help: { type: EXPLAIN, action: 'request-help', doing: 'explain', got: 'explanation' } };
 export async function questionClick(event, app) {
-  const { state, act, api, toast, renderDetail, closeMenus, agentListening, loadRestartPreview } = app;
+  const { state, act, api, refresh, toast, renderDetail, closeMenus, agentListening, loadRestartPreview } = app;
   const suggested = event.target.closest('[data-suggest-answer]');
   if (suggested) {
     const option = state.map?.nodes.find(node => node.id === state.selected)?.options?.find(item => item.id === suggested.dataset.suggestAnswer);
@@ -89,7 +89,8 @@ export async function questionClick(event, app) {
     closeMenus();
     const query = new URLSearchParams({ type: kind.type, node: nodeId, question: questionId });
     const found = again || !state.map ? null : await api(`/maps/${state.map.id}/reusable?${query}`).catch(() => null);
-    const earlier = found?.jobId ? state.visibleMap?.jobs.find(job => job.id === found.jobId) : null;
+    const shown = () => state.visibleMap?.jobs.find(job => job.id === found.jobId);
+    const earlier = found?.jobId ? (shown() ?? (await refresh?.(), shown())) : null; // It may have arrived since the last poll.
     if (earlier) { // Read-only: nothing is written.
       state.helpSeen?.delete(earlier.id); renderDetail(true);
       const details = document.querySelector(`[data-help="${earlier.id}"]`);

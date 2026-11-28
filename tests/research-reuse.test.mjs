@@ -6,7 +6,8 @@ import { Store } from '../skills/explore/scripts/store.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { snapshotOf } from '../skills/explore/scripts/versions.mjs';
 import { exportMap } from '../skills/explore/scripts/transfer.mjs';
-import { reuseKey, reusableResult } from '../skills/explore/scripts/reuse.mjs';
+import { reuseKey, reusableResult, contentKey } from '../skills/explore/scripts/reuse.mjs';
+import { questionJobTypes } from '../skills/explore/scripts/question-actions.mjs';
 import { RESEARCH, EXPLAIN } from '../skills/explore/assets/questions.js';
 import { questionResearchHtml, questionHelpHtml } from '../skills/explore/assets/workspace-view.js';
 import { questionClick } from '../skills/explore/assets/question-clicks.js';
@@ -43,7 +44,8 @@ test('the claim keys what the agent read from the packet it built, and the key s
   const { store, map, ask, reusable, questions } = await setup();
   const packet = await ask(questions[0].id);
   const saved = await store.get(map.id), stored = saved.jobs.find(job => job.id === packet.jobId);
-  assert.equal(stored.reuseKey, reuseKey(packet), 'the packet the agent got, without the claim key and other identifying fields');
+  const identifying = ['mapId', 'mapTitle', 'mapRevision', 'jobId', 'jobType', 'claimKey', 'reason', 'contextCharacters', 'approximateTokens'];
+  assert.equal(stored.reuseKey, reuseKey(Object.fromEntries(Object.entries(packet).filter(([key]) => !identifying.includes(key)))), 'exactly what the agent got, without the fields that identify the work');
   assert.equal(await reusable(questions[0].id), packet.jobId);
   assert.equal(Object.hasOwn(store.view(saved).jobs.find(job => job.id === packet.jobId), 'reuseKey'), false, 'views leave it out');
   assert.equal(JSON.stringify(store.view(saved)).includes('contextUnchanged'), false, 'and views carry no mark: the check runs only when asked');
@@ -66,11 +68,19 @@ test('anything the research packet shows ends reuse, even what leaves the resear
     'a linked dependency': async ({ act, storage }) => act({ type: 'link', to: (await storage()).id, relation: 'depends_on' }),
     'the goal': ({ act }) => act({ type: 'set-guidance', mode: 'decide', objective: 'Pick a sync model.' }),
     'the glossary': ({ act }) => act({ type: 'glossary-add', term: 'Sync', definition: 'Sharing changes between devices.' }),
+    'an existing goal': ({ act }) => act({ type: 'set-guidance', objective: 'Pick a sync model by spring.' }),
+    'an agreed term\'s meaning': async ({ act, store, map }) => act({ type: 'glossary-edit', termId: (await store.get(map.id)).glossary[0].id, definition: 'Sharing edits between phones.' }),
+  };
+  // What a case changes must exist before the research.
+  const before = {
+    'an existing goal': ({ act }) => act({ type: 'set-guidance', mode: 'decide', objective: 'Pick a sync model.' }),
+    'an agreed term\'s meaning': ({ act }) => act({ type: 'glossary-add', term: 'Sync', definition: 'Sharing changes between devices.' }),
   };
   for (const [what, change] of Object.entries(cases)) {
     const context = await setup(), { act, ask, reusable, questions } = context;
     // An answer to change first, the same in every case: an assumption, so it can carry a note.
     await act({ type: 'answer', questionId: questions[1].id, answer: 'The field team.', answerState: 'assumption' });
+    await before[what]?.(context);
     const { jobId } = await ask(questions[0].id);
     assert.equal(await reusable(questions[0].id), jobId, what);
     await change(context);
@@ -94,9 +104,35 @@ test('Explain this question reads only the question, its idea and the path up, s
   assert.equal(await reusable(questions[0].id, EXPLAIN), null, 'its packet carries the goal');
 });
 
+test('the content is the same at claim and at check, even when the glossary is cut by room', async () => {
+  const { store, map, act } = await setup();
+  for (let i = 0; i < 60; i++) await act({ type: 'glossary-add', term: `T${i}`, definition: `Short meaning ${i}.` });
+  const saved = await store.get(map.id), job = { id: 'job-probe', type: 'probe', reason: 'Test.' };
+  // A type whose own content uses nearly all its room, as trimmed research does.
+  const definition = { label: 'Probe', packet: ({ budget }) => ({ filler: 'x'.repeat(budget - 1300), instruction: 'Do the probe work.' }) };
+  const claimed = await store.typedPacket(saved, job, definition, null, { claimKey: 'c'.repeat(36) });
+  const checked = await store.typedPacket({ ...saved, revision: saved.revision + 991 }, job, definition, null);
+  assert.ok(claimed.glossary.length > 0 && claimed.glossary.length < 60, `the glossary was cut by room (${claimed.glossary.length} of 60)`);
+  assert.equal(JSON.stringify(checked[contentKey]), JSON.stringify(claimed[contentKey]), 'no claim key and a longer revision change nothing');
+});
+
+test('nearby ideas give way in one pass exactly as measuring after each removal would', () => {
+  const nodes = [{ id: 'root', title: 'Root', prompt: 'The idea.', body: 'The idea.', summary: 'Short.', questions: [{ id: 'q1', text: 'Which sync model fits?' }], status: 'explored', reviewState: 'unreviewed' },
+    ...Array.from({ length: 90 }, (_, i) => ({ id: `n${i}`, title: `Idea ${i}`, prompt: 'p'.repeat(40 + (i * 37) % 500), body: 'b', summary: 's'.repeat(20 + (i * 53) % 400), questions: [], status: 'explored', reviewState: 'unreviewed', parentId: 'root' }))];
+  const map = { rootId: 'root', nodes, edges: nodes.slice(1).map(node => ({ from: 'root', to: node.id, type: 'related_to' })) };
+  const { packet } = questionJobTypes[RESEARCH], job = { subjectId: 'q1' };
+  for (let budget = 2500; budget <= 40000; budget += 250) {
+    const fast = packet({ map, job, node: nodes[0], budget }), slow = packet({ map, job, node: nodes[0], budget: 1e9 });
+    while (JSON.stringify(slow).length > budget - 800 && slow.context.length) { slow.context.pop(); slow.omittedContext++; }
+    assert.equal(fast.context.length, slow.context.length, `budget ${budget}`);
+  }
+});
+
 test('each question keeps its own result; only the newest is offered; waiting, stale, cancelled and pre-feature work never is', async () => {
   const { store, map, act, ask, reusable, questions, rewrite } = await setup();
+  const failing = Object.assign(Object.create(store), { typedPacket: async () => { throw new Error('Too long now.'); } });
   const first = await ask(questions[0].id), other = await ask(questions[1].id);
+  assert.equal((await reusableResult(failing, map.id, { type: RESEARCH, nodeId: map.rootId, questionId: questions[0].id })).jobId, null, 'a packet that cannot be built now is no match');
   assert.equal(await reusable(questions[0].id), first.jobId); assert.equal(await reusable(questions[1].id), other.jobId, 'two questions on one idea');
   const second = await ask(questions[0].id); // Ask again: new work on the same map.
   assert.equal(await reusable(questions[0].id), second.jobId, 'only the newest');
@@ -145,15 +181,15 @@ test('the browser asks the server only when the user asks again, and the answer 
   } finally { await app.close(); }
 });
 
-test('a current result ends with a quiet Ask again; earlier research and pending work do not', () => {
+test('every result ends with a quiet Ask again, named for what it asks', () => {
   const question = { id: 'q1', text: 'Which sync model fits?', answer: null };
   const job = { id: 'job-r1', type: RESEARCH, nodeId: 'n1', subjectId: 'q1', status: 'completed', finishedAt: '2026-03-04T10:00:00.000Z', result: research };
   const html = questionResearchHtml({ question, jobs: [job], listening: false, seen: new Set(), esc });
   assert.match(html, /<summary>Research from your agent, not your answer · [^<]*2026<\/summary><p class="question-help-text">Two workable models\.<\/p>/, 'the content comes first');
-  assert.match(html, /<p class="reuse-again"><button type="button" class="text-button" data-reuse-again="research" data-node-id="n1" data-question-id="q1">Ask again<\/button><\/p><\/details>$/);
-  assert.doesNotMatch(questionResearchHtml({ question, jobs: [{ ...job, stale: true }], listening: false, seen: new Set(), esc }), /data-reuse-again/, 'earlier research asks again from the menu');
+  assert.match(html, /<p class="reuse-again"><button type="button" class="text-button" data-reuse-again="research" data-node-id="n1" data-question-id="q1" aria-label="Ask again for research">Ask again<\/button><\/p><\/details>$/);
+  assert.match(questionResearchHtml({ question, jobs: [{ ...job, stale: true }], listening: false, seen: new Set(), esc }), /Ask again for current research\.<\/p>[\s\S]*data-reuse-again="research"/, 'earlier research says Ask again, and has it');
   const explained = { id: 'job-h1', type: EXPLAIN, nodeId: 'n1', subjectId: 'q1', status: 'completed', finishedAt: '2026-03-04T10:00:00.000Z', result: help };
-  assert.match(questionHelpHtml({ question, jobs: [explained], listening: false, seen: new Set(), esc }), /<summary>Help from your agent, not an answer · [^<]*2026<\/summary><p class="question-help-text">It asks how edits combine\.<\/p><p class="reuse-again"><button [^>]*data-reuse-again="help" data-node-id="n1" data-question-id="q1">Ask again<\/button><\/p><\/details>$/);
+  assert.match(questionHelpHtml({ question, jobs: [explained], listening: false, seen: new Set(), esc }), /<summary>Help from your agent, not an answer · [^<]*2026<\/summary><p class="question-help-text">It asks how edits combine\.<\/p><p class="reuse-again"><button [^>]*data-reuse-again="help" data-node-id="n1" data-question-id="q1" aria-label="Ask again for an explanation">Ask again<\/button><\/p><\/details>$/);
 });
 
 test('asking again opens and focuses the earlier result and writes nothing; Ask again queues new work and keeps focus on the question', async () => {
@@ -185,6 +221,13 @@ test('asking again opens and focuses the earlier result and writes nothing; Ask 
     assert.equal(toasts.at(-1), 'Queued. Connect your agent to get the research.');
     await click({ reuseAgain: 'help', nodeId: 'n1', questionId: 'q1' });
     assert.deepEqual(calls.at(-1).slice(0, 3), ['n1', 'request-help', { questionId: 'q1' }]); assert.equal(toasts.at(-1), 'Queued. Connect your agent to get the explanation.');
+    // A result that arrived since the last poll: the browser refreshes once and opens it.
+    const arrived = { ...job, id: 'job-r2' }, later = { ...details, open: false };
+    answer = { jobId: 'job-r2' }; const before = calls.length;
+    app.refresh = async () => { state.visibleMap = { jobs: [job, arrived] }; };
+    globalThis.document = { querySelector: selector => (selector === '[data-help="job-r2"]' ? later : selector === '[data-menu="q1"]' ? { focus() {} } : null) };
+    await click({ qResearch: '', nodeId: 'n1', questionId: 'q1' });
+    assert.equal(calls.length, before, 'nothing queued'); assert.equal(later.open, true, 'the new result opens');
     answer = { jobId: null };
     await click({ qHelp: '', nodeId: 'n1', questionId: 'q1' });
     assert.match(asked.at(-1), /type=question-help/); assert.deepEqual(calls.at(-1).slice(0, 3), ['n1', 'request-help', { questionId: 'q1' }], 'nothing to reuse: it queues as before');
