@@ -1,6 +1,6 @@
-import { presentation, treeOrder } from './graph.js';
-import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY } from './questions.js';
-import { questionFilters } from './more-filters.js';
+import { presentation, treeOrder, branchComplete } from './graph.js';
+import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY, answerStateLabels, effectiveAnswerState, certaintyText,
+  hasCurrentAnswer, isOpen, isSavedForLater, importanceLevels, importanceName } from './questions.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
@@ -32,6 +32,32 @@ export const overviewFilters = [
   { id: 'unexplored', label: 'Unexplored', empty: 'Every suggested direction has been explored or started.', matches: node => node.status === 'suggested' },
   { id: 'stale', label: 'Needs review', empty: 'No findings are flagged by a changed premise.', matches: node => Boolean(node.stale) },
 ].map(filter => ({ ...filter, kind: 'progress', lines: summaryLine }));
+
+// More filters (Z9): how settled answers are and how much open questions matter. `lines(node)` lists that idea's
+// matching questions, each { text, detail } (detail: the start of the answer).
+const oneLine = (text, length) => { const flat = String(text).replace(/\s+/g, ' ').trim(); return flat.length > length ? `${flat.slice(0, length).trimEnd()}…` : flat; };
+const definition = ({ questions, line, ...rest }) => ({ ...rest, matches: node => questions(node).length > 0, lines: node => questions(node).map(line) });
+const asked = q => ({ text: oneLine(q.text, 200) });
+
+const stateFilters = [
+  ...['decided', 'tentative', 'assumption'].map(state => definition({ id: `state:${state}`, kind: 'state', short: answerStateLabels[state], name: answerStateLabels[state],
+    label: `Ideas with answers marked ${answerStateLabels[state]}`, empty: `No current answers are marked ${answerStateLabels[state]}.`,
+    questions: node => node.questions.filter(q => hasCurrentAnswer(q) && effectiveAnswerState(q).state === state),
+    // Older answers have no recorded state; they count as Tentative and say so.
+    line: q => ({ ...asked(q), detail: `${oneLine(q.answer, 200)}${effectiveAnswerState(q).recorded ? '' : ` · ${certaintyText(q)}`}` }) })),
+  definition({ id: 'state:later', kind: 'state', short: 'Saved for later', name: 'Saved for later', label: 'Ideas with questions saved for later',
+    empty: 'No open questions are saved for later.', questions: node => node.questions.filter(isSavedForLater), line: asked }),
+];
+// Importance helps choose what to answer next, so only open questions on unfinished branches count.
+const importanceFilters = [...importanceLevels, 'unranked'].map(level => {
+  const word = importanceName(level), unranked = level === 'unranked';
+  return definition({ id: `importance:${level}`, kind: 'importance', short: word, name: unranked ? 'Unranked' : `${word} importance`,
+    label: unranked ? 'Ideas with unranked open questions' : `Ideas with open questions of ${word} importance`,
+    empty: unranked ? 'No open questions are unranked.' : `No open questions have ${word} importance.`,
+    questions: node => (branchComplete(node) ? [] : node.questions.filter(q => isOpen(q) && (unranked ? !importanceLevels.includes(q.importance) : q.importance === level))),
+    line: asked });
+});
+export const questionFilters = [...stateFilters, ...importanceFilters];
 
 export function mapOverview(map) {
   const nodes = map?.nodes || [];

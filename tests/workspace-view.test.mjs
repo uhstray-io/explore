@@ -4,11 +4,11 @@ import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStep
 
 test('overview distinguishes awaiting input, queue, inactive ideas and stale findings without editing the map', () => {
   const map = { nodes: [
-    { id: 'answer', status: 'awaiting-answer' }, { id: 'queued', status: 'queued' },
-    { id: 'future', status: 'suggested' }, { id: 'running', status: 'running' },
-    { id: 'accepted', status: 'explored', reviewState: 'accepted' },
-    { id: 'changed', status: 'explored', reviewState: 'accepted', stale: true },
-    { id: 'retry', status: 'interrupted' },
+    { id: 'answer', status: 'awaiting-answer', questions: [] }, { id: 'queued', status: 'queued', questions: [] },
+    { id: 'future', status: 'suggested', questions: [] }, { id: 'running', status: 'running', questions: [] },
+    { id: 'accepted', status: 'explored', reviewState: 'accepted', questions: [] },
+    { id: 'changed', status: 'explored', reviewState: 'accepted', stale: true, questions: [] },
+    { id: 'retry', status: 'interrupted', questions: [] },
   ] };
   const before = structuredClone(map), result = mapOverview(map);
   assert.deepEqual(result.groups.filter(group => group.kind === 'progress').map(group => [group.id, group.nodes.map(node => node.id)]), [
