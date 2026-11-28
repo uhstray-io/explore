@@ -1,5 +1,5 @@
 import { modes, goalMax } from '../assets/guidance.js';
-import { stanceWords } from '../assets/sources.js';
+import { stanceWords } from '../assets/stance.js';
 // Map validation (H1): the one place that decides what a map.json may contain. The Store reads every map
 // through decodeMap and readProblem, so it refuses exactly the problems marked `unreadable`; the validate
 // command reports all of them. Pure and dependency-free. Each problem has a code, a location such as

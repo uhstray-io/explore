@@ -4,7 +4,7 @@ import { certaintyText, importanceName } from '../assets/questions.js';
 import { comparisonLines } from './options.mjs';
 import { limitationRecord } from './limitations.mjs';
 import { claimRecord } from './claims.mjs';
-import { stanceOf } from '../assets/sources.js';
+import { stanceOf } from '../assets/stance.js';
 
 // Pages are tied to a map revision so a resumed read cannot silently mix versions.
 export function contextExcerpt(map, nodeId, options = {}) {

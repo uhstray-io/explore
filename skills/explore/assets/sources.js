@@ -1,12 +1,11 @@
 import { isEarlierResult } from './workspace-view.js';
 import { questionJobs, RESEARCH } from './questions.js';
+import { stanceWords, stanceOf } from './stance.js';
 
 // The map-wide source library (K10): every source cited on the map, grouped by page, with the ideas that cite it and
 // how (supports, challenges or gives context), and a flag when it backs ideas that contradict each other. Pure and
 // read-only: it never fetches a source and never changes the map. The dialog is sources-dialog.js.
-export const stanceWords = { supports: 'Supports', challenges: 'Challenges', context: 'Context' };
-// A source's recorded stance, or null: none recorded, or a value that is not one (a hand edit the validator reports).
-export const stanceOf = source => (typeof source?.stance === 'string' && Object.hasOwn(stanceWords, source.stance) ? source.stance : null);
+export { stanceWords, stanceOf };
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // One key per page: the fragment, an empty query and a trailing slash (except on the root path) are dropped.
@@ -24,7 +23,7 @@ const hostOf = url => { try { return new URL(url).host; } catch { return ''; } }
 // Where a citation comes from: the idea's current result, an earlier investigation result (the one Node Markdown lists
 // as earlier), or Help me answer research on one of its questions. Only the first counts, by stance, or flags.
 const order = { idea: 0, help: 1, earlier: 2 };
-const fromWords = { earlier: 'earlier result', help: 'Help me answer' };
+const fromWords = { earlier: 'earlier result', help: 'Help me answer' }, staleHelpWords = 'Help me answer, for an earlier premise';
 
 // The library: [{ url, href, host, titles, citations, ideas, earlier, help, counts: { supports, challenges, context,
 // unrecorded }, flags: [{ nodeIds, text }], forAndAgainst }], flagged first, then by the number of citing ideas, then
@@ -46,7 +45,10 @@ export function sourceLibrary(map) {
     const cites = { nodeId: node.id, title: node.title };
     for (const raw of node.sources ?? []) add(raw, { ...cites, from: 'idea', claims: claimsCiting(node, normalizeSourceUrl(raw.url)) });
     for (const job of jobsOf.get(node.id) ?? []) if (isEarlierResult(job, node)) for (const raw of job.result.sources ?? []) add(raw, { ...cites, from: 'earlier' });
-    for (const question of node.questions ?? []) for (const raw of questionJobs(map.jobs, RESEARCH, question.id).latest?.result.sources ?? []) add(raw, { ...cites, from: 'help', question: question.text });
+    for (const question of (node.questions ?? []).filter(q => !q.dismissedAt)) { // As node Markdown lists it.
+      const job = questionJobs(map.jobs, RESEARCH, question.id).latest;
+      for (const raw of job?.result.sources ?? []) add(raw, { ...cites, from: 'help', question: question.text, ...(job.stale ? { staleHelp: true } : {}) });
+    }
   }
   const pairs = new Map();
   for (const edge of map.edges ?? []) if (edge.type === 'contradicts' && edge.from !== edge.to) { const ids = [edge.from, edge.to].sort(); pairs.set(ids.join(' '), ids); }
@@ -84,7 +86,7 @@ export function sourcesHtml(entries, { esc, query = '', flaggedOnly = false, not
     const meta = [entry.host, entry.ideas ? count(entry.ideas, 'idea', 'ideas') : '', entry.earlier ? count(entry.earlier, 'earlier result', 'earlier results') : '', entry.help ? `${entry.help} in Help me answer` : '', ...counts];
     const flags = entry.flags.map(flag => `<p class="source-flag">${esc(flag.text)}: ${esc(titleOf(entry, flag.nodeIds[0]))} and ${esc(titleOf(entry, flag.nodeIds[1]))}</p>`).join('');
     const citations = entry.citations.map(citation => {
-      const label = [citation.stance ? stanceWords[citation.stance] : citation.from === 'help' ? '' : 'Stance not recorded', fromWords[citation.from] ?? ''].filter(Boolean).join(' · ');
+      const label = [citation.stance ? stanceWords[citation.stance] : citation.from === 'help' ? '' : 'Stance not recorded', citation.staleHelp ? staleHelpWords : fromWords[citation.from] ?? ''].filter(Boolean).join(' · ');
       return `<li><button type="button" class="relationship" data-focus-node="${esc(citation.nodeId)}">${esc(label)}<strong>${esc(citation.title)}</strong></button>`
         + `${citation.question ? `<p class="source-claim">Question: ${esc(citation.question)}</p>` : ''}${citation.note ? `<p>${esc(citation.note)}</p>` : ''}${citation.claims.map(claim => `<p class="source-claim">Claim: ${esc(claim)}</p>`).join('')}</li>`;
     }).join('');

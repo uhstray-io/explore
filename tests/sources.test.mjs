@@ -203,7 +203,41 @@ test('a result can say whether each source supports, challenges or gives context
   assert.match(read.excerpt, /Stance: supports/); assert.match(read.excerpt, /Stance: not recorded/);
 });
 
-test('Help me answer research ignores a stance, which has no meaning there', () => {
+test('Help me answer research ignores a stance, which has no meaning there', async () => {
   const fail = message => { throw new Error(message); };
-  assert.deepEqual(sourceList([{ title: 'T', url: 'https://e.org/x', note: 'N.', stance: 'agrees' }], fail, 'at', { stance: false }), [{ title: 'T', url: 'https://e.org/x', note: 'N.', retrievedAt: 'at' }]);
+  assert.deepEqual(sourceList([{ title: 'T', url: 'https://e.org/x', note: 'N.', stance: 'agrees' }], fail, { at: 'at', stance: false }), [{ title: 'T', url: 'https://e.org/x', note: 'N.', retrievedAt: 'at' }]);
+  // Through the Store: a result that sends any stance is accepted, and none is kept.
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const store = new Store(path.join(await mkdtemp(path.join(root, 'sources-')), 'ideas'));
+  const map = await store.create({ title: 'Field notebook', idea: 'Notes that work offline.' });
+  const first = await store.claim('agent', map.id);
+  let saved = await store.complete(map.id, first.jobId, first.claimKey, { summary: 'S.', body: 'B.', questions: ['Which sync model fits?'] });
+  const question = saved.nodes[0].questions[0];
+  await store.action(map.id, { type: 'request-research', nodeId: map.rootId, questionId: question.id, expectedRevision: saved.revision });
+  const research = await store.claim('agent', map.id);
+  saved = await store.complete(map.id, research.jobId, research.claimKey, { summary: 'Two models.',
+    options: [{ id: 'crdt', title: 'Merge edits automatically', description: 'Each device merges changes.', fit: 'Several people edit offline.' }, { id: 'lock', title: 'One editor at a time', description: 'A note is locked while edited.', fit: 'One person edits each note.' }],
+    recommendation: { optionId: 'crdt', rationale: 'Field teams edit together.', mainTradeoff: 'More engineering.' }, sources: [{ title: 'Local-first', url: 'https://e.org/lf', note: 'Compares them.', stance: 'agrees' }, { title: 'Docs', url: 'https://e.org/d', note: 'N.', stance: 'supports' }] });
+  const sources = saved.jobs.find(job => job.id === research.jobId).result.sources;
+  assert.deepEqual(sources.map(s => Object.hasOwn(s, 'stance')), [false, false]);
+});
+
+test('node Markdown never prints a stance that is not one', async () => {
+  const root = path.resolve('.test-output'); await mkdir(root, { recursive: true });
+  const store = new Store(path.join(await mkdtemp(path.join(root, 'sources-')), 'ideas'));
+  const map = await store.create({ title: 'Field notebook', idea: 'Notes that work offline.' });
+  const edited = structuredClone(map);
+  edited.nodes[0].sources = [source('https://e.org/x', { stance: 'agrees' }), source('https://e.org/y', { stance: 'challenges' })]; // A hand edit.
+  const page = store.renderViews(edited).nodes.get(map.rootId);
+  assert.match(page, /\(https:\/\/e\.org\/x\) \(retrieved /); assert.doesNotMatch(page, /agrees/); assert.match(page, /\(https:\/\/e\.org\/y\) \(challenges; retrieved /);
+});
+
+test('Help me answer for a dismissed question is left out, research for an earlier premise is labelled, and a question\'s words find it', () => {
+  const research = (id, subjectId, extra = {}) => ({ id, type: 'question-research', subjectId, nodeId: 'a', status: 'completed', result: { summary: 'S', sources: [source(`https://e.org/${id}`)] }, ...extra });
+  const nodes = [idea('root'), idea('a', [], { questions: [{ id: 'q1', text: 'Which phones first?', answer: null }, { id: 'q2', text: 'Set aside?', answer: null, dismissedAt: '2026-01-01' }, { id: 'q3', text: 'Older?', answer: null }] })];
+  const entries = library({ nodes, jobs: [research('r1', 'q1'), research('r2', 'q2'), research('r3', 'q3', { stale: true })] });
+  assert.deepEqual(entries.map(entry => entry.url).sort(), ['https://e.org/r1', 'https://e.org/r3']);
+  assert.match(html(entries), /data-focus-node="a">Help me answer, for an earlier premise<strong>Idea a<\/strong>/);
+  assert.deepEqual(matchingSources(entries, { query: 'phones', flaggedOnly: false }).map(entry => entry.url), ['https://e.org/r1']);
+  assert.match(html(entries, { note: 'Read <only>.' }), /^<p class="form-note">Read &lt;only&gt;\.<\/p>/, 'the note is escaped too');
 });

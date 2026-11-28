@@ -28,7 +28,7 @@ import { outlinePanel } from './outline.js';
 import { foldsPanel, foldMenuItems, hiddenLabel } from './folds.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
+import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml, isInvestigationJob } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
@@ -597,7 +597,7 @@ function renderDetail(force = false) {
   if (!n) { detail.innerHTML = `<div class="detail-empty"><span>◇</span>${historic ? 'Select an idea visible at this growth step to read today’s findings.' : 'Select an idea to look closer.'}</div>`; return; }
   const completed = branchComplete(n);
   const pending = ['suggested', 'queued', 'running', 'awaiting-answer', 'interrupted'].includes(n.status);
-  const job = state.visibleMap.jobs.filter(j => j.nodeId === n.id && (!j.type || j.type === 'investigate')).at(-1);
+  const job = state.visibleMap.jobs.filter(j => j.nodeId === n.id && isInvestigationJob(j)).at(-1);
   const nearby = state.visibleMap.nodes.filter(node => node.id === n.parentId || node.parentId === n.id);
   // Answered questions show how sure the answer is; open ones can wait; waiting ones collapse together.
   const answeredBy = q => q.answeredBy?.name ? `<small class="answered-by">Answered by ${esc(q.answeredBy.name)}${answeredSince(q) ? ` · ${esc(new Date(answeredSince(q)).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }))}` : ''}</small>` : '';

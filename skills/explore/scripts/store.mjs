@@ -7,7 +7,7 @@ import { normalizeDoneWhen, doneWhenMax } from '../assets/done-when.js';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
 import { topicProfiles, topicProfileLabel, isEarlierResult } from '../assets/workspace-view.js';
-import { stanceOf } from '../assets/sources.js';
+import { stanceOf } from '../assets/stance.js';
 import { Versions, presentationOnly, compareVersion, restorableHash, restorableContent, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';

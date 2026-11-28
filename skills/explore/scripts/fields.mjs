@@ -1,7 +1,7 @@
 // Field checks shared by the validators of agent results. Each takes `fail(message)`, which throws the
 // caller's own error, so the Store, options and job types report problems the same way.
 
-import { stanceOf } from '../assets/sources.js';
+import { stanceOf } from '../assets/stance.js';
 
 // Trimmed text of at most `max` characters. An optional field that is undefined, null or '' is absent.
 export function textField(value, field, max, fail, { optional = false } = {}) {
@@ -36,7 +36,7 @@ export function safeUrl(value, fail) {
 // whether the source supports the finding, challenges it or gives context (stanceWords). Left out, null or empty is
 // none, stored as nothing, as for other optional fields; any other value rejects the result. `stance` false ignores
 // it: Help me answer research has no finding for a source to support.
-export function sourceList(value, fail, at = new Date().toISOString(), { stance: keepStance = true } = {}) {
+export function sourceList(value, fail, { at = new Date().toISOString(), stance: keepStance = true } = {}) {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 20) fail('Sources must be an array of at most 20 items.');
   return value.map(s => {
