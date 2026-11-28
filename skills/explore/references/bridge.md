@@ -146,6 +146,20 @@ A `question-research` packet carries the `question` (`id`, `text`, its `why` whe
 
 Options and a recommendation are required; when the evidence does not settle it, use `"optionId": null` with `missing`. Any other field, including `questions`, `suggestions`, `links`, `body` or an `answer`, rejects the result. The research stays on the job: it never answers the question, never changes the idea's findings, options or status, and never completes the branch. It is shown under the question as "Research from your agent, not your answer", where the user may copy a suggested answer into their own draft. Research is earlier research, with nothing to copy, once the question is set aside or the premise or an answer nearby changes, whether that happens while you work or later. The user asks for it with `request-research` (`questionId`); never request it on their behalf.
 
+## Reconsidering with the user's criteria
+
+A `reconsider` packet carries an idea's comparison (C1) and the criteria the user gave it, each `{ id, label, priority }` with priority `high`, `normal` or `low`: `node` (premise, summary and the user's answers), `options`, the original `recommendation`, `criteria`, and the idea's `claims` and `limitations` if any. Do no new research: judge from the saved evidence. Return:
+
+```json
+{
+  "assessments": [{"optionId": "crdt", "criterionId": "crit-1a2b3c4d", "text": "Works with no signal: each device keeps editing.", "basis": "evidence"}],
+  "recommendation": {"optionId": "lock", "rationale": "Why, against the user's priorities", "mainTradeoff": "What it costs"},
+  "changed": "What changed from the original recommendation, and why"
+}
+```
+
+Give exactly one assessment (at most 300 characters) for every option and criterion, with `basis` `evidence`, `reasoning` or `unknown`. The recommendation follows the same rules as a comparison, `optionId: null` with `missing` included; if a limitation on the idea blocks a recommendation, it must stay null. `changed` is at most 600 characters. Anything else rejects the result. The result stays on its job: the idea's own options, recommendation, status and findings never change, and the user chooses to use it or keep the original.
+
 ## Tidying an answer
 
 A `clean-answer` packet carries the `question` (`id`, `text`) and the user's `draft`, and nothing else: no nearby ideas, findings or file paths. Fix punctuation, spelling and grammar, make it clearer and remove repetition, keeping the meaning, any uncertainty, names, numbers and the user's voice. Add nothing, answer nothing new, and do no research. Return `{"text": "…", "changes": "…"}` (text at most 12,000 characters; `changes` an optional note of at most 300). The result stays on the job and is shown beside the user's own wording; only the user can use it, and only Save makes it an answer. Until they use it or keep theirs, the draft and the tidied text stay in `map.json` only, never in versions or exports; then both are removed, as they are when the request is stopped, fails, is superseded by a newer one, or its question is answered or set aside. The user asks with `clean-answer` (`questionId`, `text`); never request it on their behalf.

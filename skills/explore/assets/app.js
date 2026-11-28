@@ -7,6 +7,8 @@ import { glossaryDialog } from './glossary-dialog.js';
 import { sourcesDialog } from './sources-dialog.js';
 import { assumptionsDialog } from './assumptions-dialog.js';
 import { answersDialog } from './answers-dialog.js';
+import { criteriaDialog } from './criteria-dialog.js';
+import { criteriaEntryHtml, reconsideredHtml } from './criteria.js';
 import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
 import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, pinClick } from './pinned-answers.js';
@@ -148,7 +150,7 @@ function renderMap(fit = false, preserveView = false) {
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
-  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged();
+  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged();
   const topologyChanged = state.layoutMap !== state.map.id || state.layoutCount !== state.map.nodes.length;
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
@@ -654,7 +656,7 @@ function renderDetail(force = false) {
     // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
     if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
   }
-  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic }), foldMenuItems(n, { esc, map: state.visibleMap, view: state.view, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? goalSectionHtml(state.visibleMap, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc))}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic }), foldMenuItems(n, { esc, map: state.visibleMap, view: state.view, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? goalSectionHtml(state.visibleMap, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc), reconsideredHtml(state.visibleMap, n, { esc }))}${criteriaEntryHtml(n, { esc, live: !historic })}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
     ${historic ? `<p class="state-note history-detail-note">${esc(readOnlyNote(state))}</p>` : ''}
     ${state.versionPreview && n.id !== state.versionPreview.map.rootId ? branchRestore.html(n.id) : ''}
     ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
@@ -748,6 +750,7 @@ const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(
   if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
 } });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
+const criteria = criteriaDialog({ map: () => state.visibleMap, act, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Criteria (C9).
 answersDialog({ map: () => state.map, live: () => state.historyStep === null, act, esc, download }); // Answer in a file (K11).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).

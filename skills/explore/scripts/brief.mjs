@@ -10,6 +10,7 @@ import { findingsBasis, unsupportedClaimCount, basisNote } from '../assets/claim
 import { agreedTerms, proposedTerms } from '../assets/glossary.js';
 import { goalOf } from '../assets/guidance.js';
 import { goalLines } from './guidance.mjs';
+import { reconsideredBriefText } from './reconsider.mjs';
 import { assumptionRegister } from '../assets/assumptions.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
@@ -44,7 +45,8 @@ export function mapBrief(map, nodeId = null) {
     ['superseded', 'Earlier questions and answers — previous premises', nodes.flatMap(n => n.questions.filter(q => q.supersededAt).map(q => entry(n, q.answer || 'No answer was recorded.', { questionId: q.id, question: clip(q.text, 240), supersededAt: q.supersededAt })))],
     ['recommendations', 'Agent recommendations — not decisions', nodes.filter(n => n.options?.length).map(n => {
       const r = n.recommendation, chosen = n.options.find(option => option.id === r?.optionId);
-      return entry(n, chosen ? `Recommended: ${chosen.title}. Main trade-off: ${r.mainTradeoff}` : `No recommendation yet: ${r?.missing ?? 'not recorded'}`, { options: n.options.length });
+      // A reconsideration the user adopted (C9) leads, with the original beside it.
+      return entry(n, reconsideredBriefText(map, n) ?? (chosen ? `Recommended: ${chosen.title}. Main trade-off: ${r.mainTradeoff}` : `No recommendation yet: ${r?.missing ?? 'not recorded'}`), { options: n.options.length, ...(reconsideredBriefText(map, n) ? { reconsidered: true } : {}) });
     })],
     // Older results could not record these, so an empty section never reads as "none found".
     ['limitations', 'Conflicts and evidence gaps — unresolved', nodes.flatMap(n => (n.limitations || []).map(record => entry(n, `${limitationLabel(record.kind)}: ${clip(record.summary, 180)} Next step: ${clip(record.nextStep, 100)}`, { limitationId: record.id, kind: record.kind }))),

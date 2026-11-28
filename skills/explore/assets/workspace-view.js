@@ -205,19 +205,21 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
 
 // Options the agent compared (C1), as compact cards. Only the recommended one is labelled, and the
 // whole section says it is the agent's view: the user still decides. `extra(option)` adds to a card (C3's notes).
-export function optionsHtml(node, esc, extra = () => '') {
+// `lead` is shown first, above the cards: a reconsideration the user adopted (C9), after which the comparison's own
+// recommendation reads as the original.
+export function optionsHtml(node, esc, extra = () => '', lead = '') {
   if (!node.options?.length) return '';
-  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${optionCardsHtml(node, esc, extra)}`;
+  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${lead}${optionCardsHtml(node, esc, extra, { original: !!lead })}`;
 }
 // The cards and the recommendation for any comparison; `extra(option)` adds controls to a card.
-function optionCardsHtml(comparison, esc, extra = () => '') {
+function optionCardsHtml(comparison, esc, extra = () => '', { original = false } = {}) {
   const r = comparison.recommendation, list = (label, items) => items?.length ? `<p class="option-list"><strong>${label}</strong> ${items.map(esc).join(' · ')}</p>` : '';
   const cards = comparison.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ' <span class="option-badge">Recommended</span>' : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}${extra(option)}</article>`).join('');
   const chosen = comparison.options.find(option => option.id === r?.optionId);
   const advice = chosen
     ? `<p><strong>Why ${esc(chosen.title)}:</strong> ${esc(r.rationale)}</p><p><strong>Main trade-off:</strong> ${esc(r.mainTradeoff)}</p>${r.reconsiderIf ? `<p><strong>Reconsider if:</strong> ${esc(r.reconsiderIf)}</p>` : ''}`
     : `<p><strong>No recommendation yet.</strong> ${esc(r?.missing ?? '')}</p>`;
-  return `${comparison.optionsLimit ? `<p class="state-note">Only one real option: ${esc(comparison.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${advice}</div>`;
+  return `${comparison.optionsLimit ? `<p class="state-note">Only one real option: ${esc(comparison.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${original ? '<p class="option-original">Original recommendation</p>' : ''}${advice}</div>`;
 }
 // A suggested answer is added after the user's own draft, never replacing it.
 export function appendSuggestion(draft, suggestion) {

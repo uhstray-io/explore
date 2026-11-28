@@ -4,6 +4,7 @@ import { certaintyText, importanceName } from '../assets/questions.js';
 import { comparisonLines } from './options.mjs';
 import { limitationRecord } from './limitations.mjs';
 import { claimRecord } from './claims.mjs';
+import { reconsiderationLines } from './reconsider.mjs';
 import { assumptionRecord } from './assumptions.mjs';
 import { interpretationsOf } from '../assets/assumptions.js';
 import { stanceOf } from '../assets/stance.js';
@@ -26,7 +27,7 @@ export function contextExcerpt(map, nodeId, options = {}) {
     case 'findings': records = [node.body]; break;
     case 'questions': records = node.questions.filter(q => !options.question || q.id === options.question).map(q => `## ${q.id}\nQuestion: ${q.text}\nImportance: ${importanceName(q.importance)}${q.why ? `\nWhy: ${q.why}` : ''}\nAnswer: ${q.answer ?? (q.supersededAt ? '[Superseded after a premise changed; no answer recorded]' : '[Awaiting answer]')}${q.answer ? `\nCertainty: ${certaintyText(q)}` : ''}${(q.previousAnswers || []).map(p => `\nEarlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}`).join('')}${q.deferredAt && !q.answer ? `\nSaved for later: ${q.deferredAt}` : ''}${q.rating ? `\nRated: ${q.rating}${q.ratingReason ? ` — ${q.ratingReason}` : ''}` : ''}${q.dismissedAt ? `\nDismissed: ${q.dismissedAt}; do not ask it again` : ''}${q.replacedBy && q.replacedBy !== 'pending' ? `\nReplaced by: ${q.replacedBy}` : ''}${q.answeredAt ? `\nAnswered: ${q.answeredAt}` : ''}${q.supersededAt ? `\nSuperseded: ${q.supersededAt}` : ''}`); break;
     case 'sources': records = node.sources.map(s => `## ${s.title}\nURL: ${s.url}\nRetrieved: ${s.retrievedAt}\nStance: ${stanceOf(s) ?? 'not recorded'}\nEvidence: ${s.note}`); break;
-    case 'options': records = node.options?.length ? [comparisonLines(node).join('\n')] : []; break;
+    case 'options': records = node.options?.length ? [[...comparisonLines(node), ...reconsiderationLines(map, node, { format: text => text })].join('\n')] : []; break;
     case 'limitations': records = (node.limitations || []).map(record => limitationRecord(node, record).join('\n')); break;
     case 'assumptions': records = interpretationsOf(node).map(item => assumptionRecord(item).join('\n')); break;
     case 'claims': records = (node.claims || []).map(claim => claimRecord(node, claim).join('\n')); break;
