@@ -1,28 +1,36 @@
-// Reuse earlier research answers (Z4): when the user asks for the same help again and nothing it used has changed,
-// the browser offers the earlier result instead of queueing new work. A job type opts in with `reusable: true` and
-// `requestInput({ node, subjectId })`, the input a request would send now. The keys stay on the job in map.json;
-// public views carry only the derived `contextUnchanged`. Reuse never involves the agent.
+// Reuse earlier research answers (Z4): when the user asks for the same help again and nothing it read has changed, the
+// browser opens the earlier result instead of queueing new work. A job type opts in with `reusable: true`; its packet
+// must be built synchronously from the map. Reuse never involves the agent.
 import { createHash } from 'node:crypto';
-import { signature } from './neighbourhood.mjs';
-import { goalForPacket } from './guidance.mjs';
-import { glossaryForPacket } from './glossary.mjs';
+import { goalForPacket, packetBudget } from './guidance.mjs';
+import { agreedTerms } from '../assets/glossary.js';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-// Request inputs compare after trimming outer whitespace; a paraphrase is a different request.
-const trimmed = value => (typeof value === 'string' ? value.trim() : Array.isArray(value) ? value.map(trimmed)
-  : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => [key, trimmed(item)])) : value ?? null);
 
-// The same request: the kind of work, its idea, what it is about and its inputs. Stored when the job is queued.
-export const requestKey = ({ type, nodeId, subjectId, input }) => hash([type, nodeId ?? null, subjectId ?? null, trimmed(input)]);
-// What the work read: the idea's context (ancestors, links and their content revisions), and the map's goal and
-// glossary when its packet carries them. Stored when the job is claimed, as its packet is built.
-export const reuseKey = (map, node, definition) => hash([signature(map, node), definition.goal === false ? null : goalForPacket(map), definition.glossary === false ? null : glossaryForPacket(map, node)]);
+// What a reusable job read: its type's own packet for the idea and question, rebuilt from the map, with the goal and
+// the agreed glossary when its packet carries them. Stored when the job is claimed, as the agent's packet is built,
+// and compared with the map as it is now; the key stays in map.json only, never in views, versions or exports.
+export function reuseKey(map, job, node, definition) {
+  const packet = definition.packet({ map, job, node, budget: packetBudget(map, { goal: definition.goal !== false }) });
+  if (packet && typeof packet.then === 'function') throw new Error(`${definition.label} builds its packet asynchronously, so it cannot be reused.`);
+  return hash([packet, definition.goal === false ? null : goalForPacket(map), definition.glossary === false ? null : agreedTerms(map).map(({ term, definition: meaning }) => [term, meaning])]);
+}
 
-// Whether a finished job's result can be offered again now: a reusable type, completed with its result and not
-// stale, keys stored (jobs saved before this feature have none), and the same request and context as now.
-export function contextUnchanged(map, job, definition, { stale }) {
-  if (!definition?.reusable || job.status !== 'completed' || stale || !job.result || !job.requestKey || !job.reuseKey) return false;
-  const node = map.nodes.find(item => item.id === job.nodeId);
-  const input = node ? definition.requestInput({ node, subjectId: job.subjectId }) : undefined;
-  return input !== undefined && requestKey({ type: job.type, nodeId: job.nodeId, subjectId: job.subjectId, input }) === job.requestKey && reuseKey(map, node, definition) === job.reuseKey;
+// The jobs whose result can be offered again now: for each reusable type, idea and question, only the newest finished
+// job with a result, when nothing for it is waiting, it is not stale and it reads the same as the map now. Jobs from
+// before this feature have no key and are never offered. `stale(job)` is the Store's own check.
+export function reusableJobIds(map, { jobType, stale }) {
+  const newest = new Map(), open = new Set(), ids = new Set();
+  for (const job of map.jobs) {
+    if (!jobType(job.type)?.reusable) continue;
+    const key = `${job.type} ${job.nodeId} ${job.subjectId ?? ''}`;
+    if (job.status === 'queued' || job.status === 'running') open.add(key);
+    if (job.status === 'completed' && job.result) newest.set(key, job);
+  }
+  for (const [key, job] of newest) {
+    if (open.has(key) || !job.reuseKey || stale(job)) continue;
+    const node = map.nodes.find(item => item.id === job.nodeId);
+    if (node && reuseKey(map, job, node, jobType(job.type)) === job.reuseKey) ids.add(job.id);
+  }
+  return ids;
 }

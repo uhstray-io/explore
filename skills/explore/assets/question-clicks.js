@@ -4,6 +4,7 @@ import { isBlocking, questionJobs, reusableResult, TIDY, EXPLAIN, RESEARCH } fro
 // Clicks on a question's controls: starting a draft from a suggestion or research, stopping the agent's work on it,
 // one question at a time or all, changing or restarting from an answer, and the question's ⋯ menu. Resolves true
 // when the click was one of these. `app` passes what the handlers need from app.js.
+const helpKinds = { research: { type: RESEARCH, action: 'request-research', doing: 'research', got: 'research' }, help: { type: EXPLAIN, action: 'request-help', doing: 'explain', got: 'explanation' } };
 export async function questionClick(event, app) {
   const { state, act, toast, renderDetail, closeMenus, agentListening, loadRestartPreview } = app;
   const suggested = event.target.closest('[data-suggest-answer]');
@@ -79,32 +80,26 @@ export async function questionClick(event, app) {
     if (done) toast(row.dataset.action === 'regenerate' ? (agentListening() ? 'Your agent will write a better question.' : 'Queued. Connect your agent for a new question.') : 'Thanks. Your agent will ask fewer questions like this.');
     send.disabled = false; return true;
   }
-  // Asking again for help nothing has changed since offers the earlier result instead of queueing work (Z4).
-  const offerEarlier = (button, type) => {
-    const job = reusableResult(state.visibleMap?.jobs, type, button.dataset.questionId); if (!job) return false;
-    state.reuseOffers = { ...state.reuseOffers, [button.dataset.questionId]: job.id }; renderDetail(true);
-    document.querySelector(`[data-reuse-show="${job.id}"]`)?.focus(); return true;
-  };
-  const show = event.target.closest('[data-reuse-show]');
-  if (show) {
-    const { reuseShow: jobId, questionId } = show.dataset;
-    delete state.reuseOffers?.[questionId]; state.helpSeen?.delete(jobId); renderDetail(true); // Read-only: nothing is written.
-    const details = document.querySelector(`[data-help="${jobId}"]`);
-    if (details) { details.open = true; details.scrollIntoView?.({ block: 'nearest' }); details.querySelector('summary')?.focus(); }
+  // Help me answer and Explain this question. Asking again for help nothing has changed since opens the earlier
+  // result instead of queueing work (Z4); its Ask again queues new work.
+  const ask = event.target.closest('[data-q-research], [data-q-help], [data-reuse-again]');
+  if (ask) {
+    const again = ask.dataset.reuseAgain !== undefined, { nodeId, questionId } = ask.dataset;
+    const kind = helpKinds[again ? ask.dataset.reuseAgain : 'qResearch' in ask.dataset ? 'research' : 'help'];
+    closeMenus();
+    const earlier = again ? null : reusableResult(state.visibleMap?.jobs, kind.type, questionId);
+    if (earlier) { // Read-only: nothing is written.
+      state.helpSeen?.delete(earlier.id); renderDetail(true);
+      const details = document.querySelector(`[data-help="${earlier.id}"]`);
+      if (details) { details.open = true; details.scrollIntoView?.({ block: 'nearest' }); details.querySelector('summary')?.focus(); }
+      toast('Nothing it used has changed since you asked, so here is the earlier result.');
+      return true;
+    }
+    ask.disabled = true;
+    if (await act(nodeId, kind.action, { questionId })) toast(agentListening() ? `Your agent will ${kind.doing} this question next.` : `Queued. Connect your agent to get the ${kind.got}.`);
+    ask.disabled = false;
     return true;
   }
-  const again = event.target.closest('[data-reuse-again]');
-  if (again) {
-    delete state.reuseOffers?.[again.dataset.questionId];
-    const research = again.dataset.reuseAgain === 'research';
-    if (await act(again.dataset.nodeId, research ? 'request-research' : 'request-help', { questionId: again.dataset.questionId })) toast(agentListening() ? `Your agent will ${research ? 'research' : 'explain'} this question next.` : `Queued. Connect your agent to get the ${research ? 'research' : 'explanation'}.`);
-    else renderDetail(true);
-    return true;
-  }
-  const help = event.target.closest('[data-q-help]');
-  if (help) { closeMenus(); if (offerEarlier(help, EXPLAIN)) return true; if (await act(help.dataset.nodeId, 'request-help', { questionId: help.dataset.questionId })) toast(agentListening() ? 'Your agent will explain this question next.' : 'Queued. Connect your agent to get the explanation.'); return true; }
-  const research = event.target.closest('[data-q-research]');
-  if (research) { closeMenus(); if (offerEarlier(research, RESEARCH)) return true; if (await act(research.dataset.nodeId, 'request-research', { questionId: research.dataset.questionId })) toast(agentListening() ? 'Your agent will research this question next.' : 'Queued. Connect your agent to get the research.'); return true; }
   const dismiss = event.target.closest('[data-q-dismiss]');
   if (dismiss) { closeMenus(); if (await act(dismiss.dataset.nodeId, 'dismiss-question', { questionId: dismiss.dataset.questionId })) toast(state.map?.nodes.find(node => node.id === dismiss.dataset.nodeId)?.questions.some(isBlocking) ? 'Dismissed.' : 'Dismissed. The branch continues without it.'); return true; }
   const restore = event.target.closest('[data-q-restore]');
