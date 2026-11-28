@@ -231,6 +231,14 @@ Successful CLI commands append content-free counts to `.explore/context-usage.js
 
 No additional provider connection is required to open a saved map. Existing format-1 snapshots remain readable. On restart, historical repeat jobs on already completed branches are cancelled while stored content and job history are retained; unfinished investigations remain retryable.
 
+## Answering in a file
+
+The user can answer open questions in a Markdown file, in any editor, and import the answers. Only text between a question's `<!-- answer -->` and `<!-- end answer -->` markers is read, matched by the question ID; an optional first line `state: decided`, `state: tentative` or `state: assumption` says how sure the answer is (Tentative without one); any other "state:" line is part of the answer. Only the user answers: never write into an answers file, and run these only when the user asks.
+
+- `answers export --map ID --out FILE` writes every open question (saved-for-later ones too) on unfinished branches; it refuses to overwrite a file.
+- `answers import --map ID --file FILE` prints a preview: each answer's question and a status (`ready`, `answered`, `superseded`, `dismissed`, `completed`, `unknown` or `too-long`). It changes nothing. A file for another map, with a question twice or with a marker out of place is rejected with its line number.
+- Add `--apply` to save each ready answer as its own `answer` action. It saves in two passes: first every answer that does not finish its idea, then each idea's last waiting answer, since that one queues the branch. Answers to an idea linked to a branch an agent has already claimed can still make that run stale, as answering them in the browser would. When an answer is refused (for instance because a listening agent claimed a branch and the map moved on), the map is read again and the answer, if still ready, is sent once more. The result lists `saved` and `failed`, and `notAttempted` if the server stopped. A failure never undoes an earlier save, and an already answered question keeps its saved answer.
+
 ## Export and import
 
 Only when the user asks: `export --map ID --out FILE` writes the complete map as JSON (no claim data) and refuses to overwrite a file. Add `--format mermaid|canvas|svg|print` for a Mermaid flowchart, a JSON Canvas 1.0 file (Obsidian), a standalone SVG or a script-free printable HTML page (the user prints it and saves a PDF), and `--node ID` for that idea and everything below it. These show each idea's work and review state, never jobs, workers or paths, and refuse more than 500 ideas or 4 MiB rather than cut anything: export a branch instead. `import --file FILE [--as-copy]` imports an export or a `map.json`. An identical map returns `{ existing }`; a different map with the same ID returns `{ conflict }` and writes nothing, so ask the user whether to import a copy. An imported map never starts work.

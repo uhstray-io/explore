@@ -9,7 +9,7 @@ import { hasContent, mapGitStatus } from './git.mjs';
 import { topicProfiles, topicProfileLabel, isEarlierResult, markdownText } from '../assets/workspace-view.js';
 import { stanceOf } from '../assets/stance.js';
 import { Versions, presentationOnly, compareVersion, restorableHash, restorableContent, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
-import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH, isAssumption } from '../assets/questions.js';
+import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH, isAssumption, answerRefusal, answerMax } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
@@ -486,15 +486,12 @@ export class Store {
           if (input.doneWhen !== undefined) applyDoneWhen(this, map, n, input.doneWhen);
           this.enqueue(map, n, 'User activated this branch. Explore only this direction.'); break;
         case 'answer': {
-          need(!isCompleted(map, n), 'This branch is complete. Add a new direction instead.', 409);
           const q = n.questions.find(q => q.id === input.questionId);
-          need(q, 'Question not found.', 404);
-          need(!q.supersededAt, 'This question belongs to an earlier premise. Activate the revised branch to continue.', 409);
-          need(!q.answer, 'This question was already answered. Refresh the map.', 409);
-          need(!q.dismissedAt, 'This question was dismissed. Bring it back to answer it.', 409);
+          const refusal = answerRefusal({ completed: isCompleted(map, n), question: q ?? null }); // Shared with an answers file's preview (K11).
+          if (refusal) throw new Problem(refusal.message, refusal.code);
           const answerState = input.answerState ?? 'tentative';
           need(answerStates.includes(answerState), 'Choose Tentative, Decided or Assumption.');
-          q.answer = text(input.answer, 'Answer', 12000); q.answerState = answerState; q.answeredAt = now(); delete q.deferredAt; n.contentRevision++;
+          q.answer = text(input.answer, 'Answer', answerMax); q.answerState = answerState; q.answeredAt = now(); delete q.deferredAt; n.contentRevision++;
           if (actor?.name) q.answeredBy = { name: actor.name };
           this.event(map, 'answered', n.id, q.id);
           if (!n.questions.some(isBlocking)) this.enqueue(map, n, 'User answered the branch questions. Continue this investigation.');

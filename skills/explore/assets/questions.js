@@ -53,6 +53,18 @@ export function normalizeQuestion(value, fail) {
   }
   return question;
 }
+// Why the answer action would refuse an answer, or null when it would save it: the one rule the Store and an answers
+// file's preview (K11) share. `completed` says whether the branch is finished; `question` is null when unknown.
+export const answerMax = 12000;
+export function answerRefusal({ completed, question, answer }) {
+  if (completed) return { status: 'completed', message: 'This branch is complete. Add a new direction instead.', code: 409 };
+  if (!question) return { status: 'unknown', message: 'Question not found.', code: 404 };
+  if (question.supersededAt) return { status: 'superseded', message: 'This question belongs to an earlier premise. Activate the revised branch to continue.', code: 409 };
+  if (question.answer) return { status: 'answered', message: 'This question was already answered. Refresh the map.', code: 409 };
+  if (question.dismissedAt) return { status: 'dismissed', message: 'This question was dismissed. Bring it back to answer it.', code: 409 };
+  if (typeof answer === 'string' && answer.length > answerMax) return { status: 'too-long', message: `Answer must be at most ${answerMax} characters.`, code: 400 };
+  return null;
+}
 // A saved answer that still stands: not from an earlier premise and not set aside.
 export function hasCurrentAnswer(question) { return !!question.answer && !question.supersededAt && !question.dismissedAt; }
 // A current answer the user marked Assumption (K6): the only kind that takes a note on what would disprove it.
