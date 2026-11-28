@@ -103,16 +103,19 @@ export function openMapChange(listed, shown) {
 export const topicProfiles = { general: 'General', 'software-versions': 'Software and versions', 'products-services': 'Products and services', 'concepts-tradeoffs': 'Concepts and design trade-offs' };
 export const topicProfileLabel = value => (typeof value === 'string' && Object.hasOwn(topicProfiles, value) ? topicProfiles[value] : null);
 // Why context was left out of a packet (C13), in words.
-const leftOutWords = { budget: 'no room left in the packet', limit: 'past the most ideas one packet carries' };
+const leftOutWords = { budget: 'no room left in the packet', limit: 'past the most ideas one packet carries', path: 'on the path here, but too far up to fit' };
 // What the last investigation was sent (C13): each idea with why, and what was left out, so not read. Each idea selects
-// itself; one no longer on the map says so. Jobs saved before this record only the size note.
+// itself; one no longer on the map says so. Jobs saved before this record only the size note, and a record pulled in
+// a changed shape shows only the entries it can read.
 function contextSentHtml(sent, map) {
+  const entries = list => (Array.isArray(list) ? list.filter(item => item && typeof item.id === 'string') : []);
   const idea = id => { const node = map?.nodes.find(n => n.id === id); return node ? `<button type="button" class="text-button" data-select="${escapeHtml(id)}">${escapeHtml(node.title)}</button>` : 'A removed idea'; };
-  const included = (sent.included ?? []).map(item => `<li>${idea(item.id)} <span class="form-note">${escapeHtml((item.reasons ?? []).join('; '))}</span></li>`).join('');
-  const omitted = (sent.omitted ?? []).map(item => `<li>${idea(item.id)} <span class="form-note">${escapeHtml(leftOutWords[item.reason] ?? 'left out')}</span></li>`).join('');
-  const more = (sent.omittedTotal ?? 0) - (sent.omitted ?? []).length;
+  const words = item => (Array.isArray(item.reasons) ? item.reasons.filter(reason => typeof reason === 'string').join('; ') : '');
+  const included = entries(sent.included).map(item => `<li>${idea(item.id)} <span class="form-note">${escapeHtml(words(item))}</span></li>`).join('');
+  const left = entries(sent.omitted), total = Number.isSafeInteger(sent.omittedTotal) ? sent.omittedTotal : left.length;
+  const omitted = left.map(item => `<li>${idea(item.id)} <span class="form-note">${escapeHtml(Object.hasOwn(leftOutWords, item.reason) ? leftOutWords[item.reason] : 'left out')}</span></li>`).join('');
   return `<details class="context-sent" data-editor="context-sent"><summary>Context sent with the last run</summary>${included ? `<ul>${included}</ul>` : '<p class="form-note">Nothing else from the map: no other idea was linked or had answers.</p>'}`
-    + `${sent.omittedTotal ? `<p class="form-note">Left out, so your agent did not read them:</p><ul>${omitted}</ul>${more > 0 ? `<p class="form-note">And ${more} more.</p>` : ''}` : ''}</details>`;
+    + `${total ? `<p class="form-note">Left out, so your agent did not read them:</p><ul>${omitted}</ul>${total > left.length ? `<p class="form-note">And ${total - left.length} more.</p>` : ''}` : ''}</details>`;
 }
 // Under an idea's findings: how much map context its last investigation used, which guidance it followed, and what
 // context it was sent.

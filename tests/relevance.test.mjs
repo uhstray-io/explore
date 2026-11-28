@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { rankContext, terms, selectionKey, contextLimit } from '../skills/explore/scripts/relevance.mjs';
@@ -135,9 +135,9 @@ test('a path a little too long for the packet is shortened, and nothing on it is
 });
 
 test('past the most ideas one packet carries, the rest are listed as over the limit', async () => {
-  const { store, map, job } = await storeWith(({ make }) => { for (let i = 0; i < contextLimit + 5; i++) answered(make(`N${i}`, 'P.'), 'Q?', 'A.'); });
+  const { store, map, job } = await storeWith(({ make }) => { for (let i = 0; i < contextLimit + 30; i++) answered(make(`N${i}`, 'P.'), 'Q?', 'A.'); });
   const packet = store.packet(map, job, { budget: 100000 }); // Room for all of them: only the limit stops them.
-  assert.equal(packet.context.length, contextLimit); assert.equal(packet.omittedTotal, 6);
+  assert.equal(packet.context.length, contextLimit); assert.equal(packet.omittedTotal, 31); assert.equal(packet.omitted.length, 20, 'at most 20 listed');
   assert.deepEqual([...new Set(packet.omitted.map(entry => entry.reason))], ['limit']);
 });
 
@@ -180,7 +180,107 @@ test('the inspector lists what the last run was sent and left out; an older job 
   assert.match(runNoteHtml({ contextSelection: { included: [], omitted: [], omittedTotal: 0 } }, map), /Nothing else from the map/);
 });
 
-test('the selection record is bounded', () => {
-  assert.equal(typeof selectionKey, 'symbol');
-  assert.equal(contextLimit, 40);
+test('ranking details: prerequisites by distance, unsettled first in every group, both sides of the tree, no idea twice', () => {
+  const map = fixtureMap();
+  // pre2 (two links away) becomes unsettled: link distance still comes first among prerequisites.
+  map.nodes.find(n => n.id === 'pre2').questions = [answer('qp', 'Who buys?', 'Maybe the council.', 'tentative')];
+  map.nodes.push(node('pre1b', 'r', { questions: [{ id: 'qb', text: 'When?', answer: 'Soon.' }] })); // How sure was never recorded.
+  map.edges.push({ from: 'sel', to: 'pre1b', type: 'depends_on' }, { from: 'sel', to: 'a', type: 'depends_on' }); // An ancestor is never a candidate.
+  map.nodes.push(node('link2', 'r', { questions: [answer('ql', 'Paper?', 'Sometimes.', 'assumption')] })); map.edges.push({ from: 'link2', to: 'sel', type: 'supports' });
+  map.nodes.push(node('hop', 'r')); map.edges.push({ from: 'link', to: 'hop', type: 'supports' }); // A second hop, reached through the linked idea.
+  map.nodes.push(node('dep-of-link', 'r')); map.edges.push({ from: 'link', to: 'dep-of-link', type: 'depends_on' });
+  const { candidates } = rankContext(map, map.nodes[2]), reasons = Object.fromEntries(candidates.map(c => [c.node.id, c.reasons]));
+  assert.deepEqual(ids(candidates).slice(0, 3), ['pre1b', 'pre', 'pre2'], 'one link away first; the unrecorded answer counts as unsettled among them');
+  assert.deepEqual(reasons.pre1b, ['Explicit prerequisite', 'Not settled yet']);
+  assert.equal(new Set(ids(candidates)).size, candidates.length, 'no idea is ranked twice'); assert.equal(ids(candidates).includes('a'), false);
+  assert.deepEqual(ids(candidates.filter(c => c.group === 2)).slice(0, 1), ['link2'], 'an unsettled linked idea first');
+  assert.deepEqual(reasons.link2, ['Linked: it supports this branch', 'Not settled yet']); assert.deepEqual(reasons.hop, ['Linked: Paper backup supports it']);
+  assert.deepEqual(reasons['dep-of-link'], ['Linked: Paper backup depends on it'], 'how the walk reached it'); assert.deepEqual(reasons.link, ['Linked: this branch related to it'], 'no "Not settled yet" without answers');
+  // Reached only through the closure (its link is listed before the one that brings the linked idea in).
+  const closure = { id: 'm', rootId: 'r', originalIdea: '', nodes: [node('r', null), node('sel', 'r'), node('link', 'r', { title: 'Paper backup' }), node('dep', 'r')], edges: [{ from: 'link', to: 'dep', type: 'depends_on' }, { from: 'sel', to: 'link', type: 'related_to' }] };
+  assert.deepEqual(Object.fromEntries(rankContext(closure, closure.nodes[1]).candidates.map(c => [c.node.id, c.reasons[0]])), { link: 'Linked: this branch related to it', dep: 'Prerequisite of Paper backup' });
+  // Tree distance counts both sides: an idea under a sibling of the path is farther than the path's own sibling.
+  const tree = { id: 'm', rootId: 'r', originalIdea: '', edges: [], nodes: [node('r', null), node('a', 'r'), node('sel', 'a'), node('near', 'a', { questions: [answer('q1', 'X?', 'Y.')] }), node('far', 'b', { questions: [answer('q2', 'X?', 'Y.')] }), node('b', 'r')] };
+  assert.deepEqual(ids(rankContext(tree, tree.nodes[2]).candidates), ['near', 'far']);
+  // Both sides count: an idea beside the selected one's grandparent is nearer than one beside the root, though both hang
+  // one level below the ancestor they share with it.
+  const deep = { id: 'm', rootId: 'r', originalIdea: '', edges: [], nodes: [node('r', null), node('a', 'r'), node('b', 'a'), node('c', 'b'), node('sel', 'c'), node('x', 'r', { questions: [answer('q1', 'X?', 'Y.')] }), node('y', 'c', { questions: [answer('q2', 'X?', 'Y.')] })] };
+  assert.deepEqual(ids(rankContext(deep, deep.nodes[4]).candidates), ['y', 'x']);
+});
+
+test('matching reads titles, sent answers only, the branch title and the success criteria', () => {
+  const map = { id: 'm', rootId: 'r', originalIdea: 'Plain words.', edges: [], nodes: [node('r', null), node('sel', 'r', { title: 'Tablets', prompt: 'How to merge?' })] };
+  map.nodes.push(node('by-title', 'r', { title: 'Tablets in the van', questions: [answer('q1', 'Who?', 'Ana.')] }));
+  map.nodes.push(node('old-only', 'r', { questions: [answer('q2', 'Merge?', 'Merge daily.', 'tentative'), answer('q3', 'A?', 'Lunch.'), answer('q4', 'B?', 'Lunch.'), answer('q5', 'C?', 'Lunch.')] }));
+  map.successCriteria = 'A signed budget.'; map.nodes.push(node('criteria', 'r', { questions: [answer('q9', 'Budget?', 'Signed.')] }));
+  const { candidates } = rankContext(map, map.nodes[1]), reasons = Object.fromEntries(candidates.map(c => [c.node.id, c.reasons]));
+  assert.deepEqual(reasons['by-title'], ['Matches branch terms'], 'the other idea\'s title, and this branch\'s title');
+  assert.deepEqual(reasons['old-only'], ['Answered elsewhere on the map'], 'an answer the packet does not send never earns a reason');
+  assert.deepEqual(reasons.criteria, ['Matches the goal']);
+});
+
+// A map whose packet is nearly full, with the user's question feedback: rated questions on the root.
+async function crowded({ linked = false, others = 6 } = {}) {
+  return storeWith(({ map: m, make, selected }) => {
+    m.nodes[0].questions = Array.from({ length: 10 }, (_, i) => ({ id: 'q-rated' + i, text: 'Rated question ' + i + ' ' + 'r'.repeat(150) + '?', answer: null, rating: 'bad', ratingReason: 'x'.repeat(250), ratedAt: '2026-01-01T00:00:00.000Z' }));
+    for (let i = 0; i < others; i++) answered(make('Lunch menu ' + i, 'l'.repeat(600)), 'Soup?', 'Tomato. ' + 's'.repeat(280));
+    if (linked) { const big = make('Paper backup', 'p'.repeat(600)); answered(big, 'Paper?', 'b'.repeat(300)); m.edges.push({ from: selected.id, to: big.id, type: 'related_to' }); }
+    selected.prompt = selected.body = 'w'.repeat(2400); // A long premise fills much of the room.
+  });
+}
+
+test('the user\'s question feedback gives way to the path, prerequisites and links, never to answers elsewhere', async () => {
+  let { store, map, job } = await crowded();
+  let packet = store.packet(map, job);
+  assert.equal(packet.questionFeedback.length, 10, 'every rated question stays'); assert.equal(packet.omittedFeedback, 0);
+  assert.ok(packet.omittedTotal > 0 && packet.omitted.every(entry => entry.reason === 'budget'), 'answers elsewhere take only what is left');
+  ({ store, map, job } = await crowded({ linked: true, others: 0 }));
+  const roomy = store.packet(map, job, { budget: 100000 }), link = roomy.context.find(entry => entry.reasons[0].startsWith('Linked'));
+  packet = store.packet(map, job, { budget: JSON.stringify(roomy).length - JSON.stringify(roomy.questionFeedback[0]).length - 2 });
+  assert.ok(packet.context.some(entry => entry.id === link.id), 'a linked idea is admitted'); assert.ok(packet.omittedFeedback >= 1, 'and feedback gave way to it');
+});
+
+test('every budget gives a packet within it, and no claim can hang', { timeout: 60000 }, async () => {
+  const { store, map, job } = await crowded({ linked: true, others: 8 });
+  const least = store.packet(map, job, { budget: 0 }).contextCharacters; // What no budget can go below: the idea's own premise and the instructions.
+  for (let budget = 0; budget <= 16000; budget += 37) {
+    const packet = store.packet(map, job, { budget });
+    if (budget >= least) assert.ok(packet.contextCharacters <= budget + 200, budget + ': ' + packet.contextCharacters);
+    assert.equal(packet.context[0].id, map.rootId, 'the root always stays');
+  }
+});
+
+test('a path too long even as bare ideas loses its ideas farthest from here, listed first with reason path; the root stays', async () => {
+  const { store, map, job, chain } = await storeWith(({ map: m, make, selected }) => {
+    let parent = m.rootId; const chain = [];
+    for (let i = 0; i < 60; i++) { const n = make('Level ' + i + ' ' + 't'.repeat(90), 'x', parent); chain.push(n.id); parent = n.id; }
+    selected.parentId = parent; m.edges = m.edges.filter(edge => !(edge.type === 'contains' && edge.to === selected.id)); m.edges.push({ from: parent, to: selected.id, type: 'contains' });
+    answered(make('Lunch menu', 'Soup.'), 'Soup?', 'Tomato.');
+    return { chain };
+  });
+  const packet = store.packet(map, job, { budget: 9000 });
+  assert.equal(packet.context[0].id, map.rootId); assert.equal(packet.context.at(-1).id, chain.at(-1), 'the parent stays');
+  const kept = packet.context.slice(1).map(entry => chain.indexOf(entry.id));
+  assert.deepEqual(kept, kept.toSorted((a, b) => a - b)); assert.ok(!packet.context.some(entry => entry.id === chain[0]), 'the farthest go first');
+  assert.ok(packet.omittedTotal > 1); assert.equal(packet.omitted[0].reason, 'path', 'the path\'s own ideas are listed first'); assert.equal(packet.omitted[0].id, chain[0]);
+  assert.ok(packet.omitted.every(entry => entry.title.length <= 80), 'titles clipped'); assert.ok(packet.omitted.length <= 20);
+  const claimed = await store.claim('agent', map.id), saved = await store.get(map.id);
+  assert.equal(saved.jobs.find(entry => entry.id === claimed.jobId).contextSelection.omittedTotal, claimed.omittedTotal, 'the job counts them all, not just those listed');
+});
+
+test('an ordinary packet carries no empty selection fields, and the inspector survives a changed record', async () => {
+  let { store, map, job } = await storeWith(() => {});
+  let packet = store.packet(map, job);
+  assert.equal('selectionPolicy' in packet, false); assert.equal('omitted' in packet, false); assert.equal('omittedTotal' in packet, false);
+  ({ store, map, job } = await storeWith(({ make }) => { answered(make('Budget', 'B.'), 'Budget?', 'Small.'); }));
+  packet = store.packet(map, job);
+  assert.match(packet.selectionPolicy, /heuristic/); assert.equal('omitted' in packet, false, 'nothing left out, so no list');
+  const page = { nodes: [{ id: 'node-a', title: 'A' }] };
+  for (const sent of [{ included: 'x' }, { included: [null, { id: 3 }] }, { included: [{ id: 'node-a', reasons: 'text' }] }, { omitted: [{ id: 'node-a', reason: 'constructor' }], omittedTotal: 1 }, { omittedTotal: 'many' }]) {
+    assert.doesNotThrow(() => runNoteHtml({ contextSelection: sent }, page), JSON.stringify(sent));
+  }
+  assert.match(runNoteHtml({ contextSelection: { included: [], omitted: [{ id: 'node-a', reason: 'constructor' }], omittedTotal: 1 } }, page), /<span class="form-note">left out<\/span>/);
+  assert.match(runNoteHtml({ contextSelection: { included: [{ id: 'node-a', reasons: ['<b>'] }], omitted: [], omittedTotal: 0 } }, page), /&lt;b&gt;/);
+  assert.match(runNoteHtml({ contextSelection: { included: [], omitted: [{ id: 'node-a', reason: 'path' }], omittedTotal: 1 } }, page), /on the path here, but too far up to fit/);
+  assert.match(await readFile('skills/explore/assets/app.js', 'utf8'), /runNoteHtml\(job, state\.visibleMap\)/, 'the app passes the map, so ideas show by name');
 });
