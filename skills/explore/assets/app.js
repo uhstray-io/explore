@@ -3,6 +3,7 @@ import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { changesDialog } from './changes-dialog.js';
+import { glossaryDialog } from './glossary-dialog.js';
 import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, pinClick } from './pinned-answers.js';
 import { doneWhenSection, doneWhenClick, doneWhenKey, doneWhenMenuItem, canExplore } from './done-when.js';
 import { branchRestorePanel } from './branch-restore.js';
@@ -129,7 +130,7 @@ function renderEdges() {
 }
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
-  changes.mapChanged(state.map.id, state.map.revision); exporter.mapChanged();
+  changes.mapChanged(state.map.id, state.map.revision); exporter.mapChanged(); glossary.mapChanged();
   const historic = state.historyStep !== null;
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
@@ -765,6 +766,7 @@ for (const button of document.querySelectorAll('.close-dialog')) button.addEvent
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
+const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
 // Restore one branch (E2) from a previewed version's inspector.
 const branchRestore = branchRestorePanel({ api, act, esc, mapId: () => state.map?.id, version: () => state.versionPreview?.version, returnLive, reopen: id => previewVersion(id), toast, rerender: () => renderDetail(true),
   afterRestore: () => { state.versions = null; loadVersions(); } });
