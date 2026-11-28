@@ -169,7 +169,7 @@ function renderMap(fit = false, preserveView = false) {
   if (!preserveView && !historic && (fit || (topologyChanged && state.overview))) requestAnimationFrame(() => { if (fit) centerSelected(); else fitMap(); });
   else transform();
 }
-function transform() { $('#world').style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`; $('#world').style.setProperty('--graph-scale', state.scale); $('#world').dataset.detail = detailLevel(state.scale, $('#world').dataset.detail); minimap.view(); $('#zoom-value').textContent = `${state.scale < .1 ? (state.scale * 100).toFixed(1) : Math.round(state.scale * 100)}%`; }
+function transform() { $('#world').style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`; $('#world').style.setProperty('--graph-scale', state.scale); const detail = detailLevel(state.scale, state.detail); if (detail !== state.detail) $('#world').dataset.detail = state.detail = detail; minimap.view(); $('#zoom-value').textContent = `${state.scale < .1 ? (state.scale * 100).toFixed(1) : Math.round(state.scale * 100)}%`; }
 function viewport() { return { width: $('#canvas').clientWidth, height: $('#canvas').clientHeight }; }
 function fitMap() {
   if (!state.map) return;
@@ -721,7 +721,7 @@ const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId
 const changes = changesDialog({ api, map: () => state.map, download });
 commandPalette({ $, $$: selector => [...document.querySelectorAll(selector)], esc, state, focusNode, openEditor, toast });
 // The minimap (Z10): it moves the view as a pan does, so the map stays where the user left it.
-const minimap = minimapPanel({ $, esc, state, viewport, moveView: view => { state.overview = false; Object.assign(state, view); transform(); } });
+const minimap = minimapPanel({ $, esc, state, positions: visiblePositions, viewport, moveView: view => { state.overview = false; Object.assign(state, view); transform(); } });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
 const showBrief = briefDialog({ api, map: () => state.map, download });
 $('#show-brief').addEventListener('click', () => showBrief());

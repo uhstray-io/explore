@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { constellationLayout, connectionPath, presentation, overviewView, focusedView, detailLevel, minimapProjection, viewRect, centredView } from '../skills/explore/assets/graph.js';
+import { constellationLayout, connectionPath, presentation, overviewView, focusedView, detailLevel, fitView, toScreen, toWorld, viewRect, centredView } from '../skills/explore/assets/graph.js';
 
 test('saved maps lay out deterministically without moving saved nodes or modifying research', () => {
   const map = { rootId: 'root', nodes: [{ id: 'root', status: 'explored' }, { id: 'a', parentId: 'root', status: 'suggested' }, { id: 'b', parentId: 'root', status: 'queued' }], view: { positions: { a: { x: -123.5, y: 410 } } }, jobs: [{ nodeId: 'b', status: 'queued' }] };
@@ -84,21 +84,23 @@ test('detail levels rise at 0.45, 1.3 and 2.2 and fall about 10% lower, so a bou
   assert.equal(detailLevel(1, 'unknown'), 'standard');
 });
 
-test('the minimap projection fits every idea, outliers included, and maps back to the world', () => {
-  const size = { width: 180, height: 120 };
+test('one fitting rule serves the canvas overview and the minimap: every idea fits, outliers included, and maps back', () => {
+  const size = { width: 180, height: 120 }, minimap = { margin: { x: 16, y: 16 }, maxScale: 0.25 };
   const positions = { a: { x: 0, y: 0 }, b: { x: 1900, y: 700 }, far: { x: -99999, y: 99999 } };
-  const projection = minimapProjection(positions, size);
+  const view = fitView(positions, size, minimap);
   for (const point of Object.values(positions)) {
-    const p = projection.toMap(point);
+    const p = toScreen(view, point);
     assert.ok(p.x >= 0 && p.x <= size.width && p.y >= 0 && p.y <= size.height, `${JSON.stringify(point)} lands inside the minimap`);
-    const back = projection.toWorld(p);
+    const back = toWorld(view, p);
     assert.ok(Math.abs(back.x - point.x) < 1e-6 && Math.abs(back.y - point.y) < 1e-6);
   }
-  const small = minimapProjection({ a: { x: 10, y: 20 } }, size);
-  assert.deepEqual(small.toMap({ x: 10, y: 20 }), { x: 90, y: 60 }, 'one idea sits in the middle');
-  assert.ok(small.scale <= 0.25, 'a small map is not magnified');
-  const empty = minimapProjection({}, size);
-  assert.deepEqual(empty.toMap({ x: 0, y: 0 }), { x: 90, y: 60 }); assert.deepEqual(empty.toWorld({ x: 90, y: 60 }), { x: 0, y: 0 });
+  const small = fitView({ a: { x: 10, y: 20 } }, size, minimap);
+  assert.deepEqual(toScreen(small, { x: 10, y: 20 }), { x: 90, y: 60 }, 'one idea sits in the middle'); assert.equal(small.scale, 0.25, 'a small map is not magnified');
+  const empty = fitView({}, size, minimap);
+  assert.deepEqual(toScreen(empty, { x: 0, y: 0 }), { x: 90, y: 60 }); assert.deepEqual(toWorld(empty, { x: 90, y: 60 }), { x: 0, y: 0 });
+  assert.deepEqual(overviewView({}, { width: 800, height: 400 }), { scale: 1, x: 400, y: 200 }, 'an empty canvas overview is unchanged');
+  const viewport = { width: 867, height: 486 }, corner = toWorld(view, { x: 0, y: 0 });
+  assert.deepEqual(viewRect(view, viewport), { x: corner.x, y: corner.y, width: viewport.width / view.scale, height: viewport.height / view.scale }, 'the visible rectangle is the same transform read backwards');
 });
 
 test('a view centred on a point keeps its scale, and its visible rectangle is centred there', () => {

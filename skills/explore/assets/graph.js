@@ -167,17 +167,21 @@ export function connectionPath(from, to) {
   return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
 }
 
-export function overviewView(positions, viewport) {
+// A view is { x, y, scale }: a map point p shows on screen at (x + p.x * scale, y + p.y * scale).
+export const toScreen = (view, p) => ({ x: view.x + p.x * view.scale, y: view.y + p.y * view.scale });
+export const toWorld = (view, p) => ({ x: (p.x - view.x) / view.scale, y: (p.y - view.y) / view.scale });
+// The view that shows every point inside `area` ({ width, height } on screen), centred and at most `maxScale`.
+// `pad` widens the points' box in map units (room for captions); `margin` keeps screen space free around it.
+export function fitView(positions, area, { pad = {}, margin = { x: 0, y: 0 }, maxScale = Infinity } = {}) {
   const points = Object.values(positions);
-  if (!points.length) return { scale: 1, x: viewport.width / 2, y: viewport.height / 2 };
-  const left = Math.min(...points.map(p => p.x)) - 115;
-  const top = Math.min(...points.map(p => p.y)) - 60;
-  const width = Math.max(...points.map(p => p.x)) + 115 - left;
-  const height = Math.max(...points.map(p => p.y)) + 110 - top;
-  const scale = Math.min(1.15, Math.max(1, viewport.width - 48) / width, Math.max(1, viewport.height - 40) / height);
-  return { scale, x: (viewport.width - width * scale) / 2 - left * scale,
-    y: (viewport.height - height * scale) / 2 - top * scale };
+  if (!points.length) return { scale: Math.min(1, maxScale), x: area.width / 2, y: area.height / 2 };
+  const left = Math.min(...points.map(p => p.x)) - (pad.left ?? 0), top = Math.min(...points.map(p => p.y)) - (pad.top ?? 0);
+  const width = Math.max(...points.map(p => p.x)) + (pad.right ?? 0) - left, height = Math.max(...points.map(p => p.y)) + (pad.bottom ?? 0) - top;
+  const scale = Math.min(maxScale, Math.max(1, area.width - margin.x) / Math.max(1, width), Math.max(1, area.height - margin.y) / Math.max(1, height));
+  return { scale, x: (area.width - width * scale) / 2 - left * scale, y: (area.height - height * scale) / 2 - top * scale };
 }
+// Fit map: every idea with room for its caption, never zoomed in past 115%.
+export const overviewView = (positions, viewport) => fitView(positions, viewport, { pad: { left: 115, top: 60, right: 115, bottom: 110 }, margin: { x: 48, y: 40 }, maxScale: 1.15 });
 
 export function focusedView(point, viewport, scale = 1, neighbors = []) {
   scale = Math.max(1, Math.min(3, scale));
@@ -191,7 +195,7 @@ export function focusedView(point, viewport, scale = 1, neighbors = []) {
 // The view that puts `point` in the middle of the viewport at `scale`, as it is.
 export const centredView = (point, viewport, scale) => ({ scale, x: viewport.width / 2 - point.x * scale, y: viewport.height / 2 - point.y * scale });
 // The part of the map a view shows, in map coordinates.
-export const viewRect = (view, viewport) => ({ x: -view.x / view.scale, y: -view.y / view.scale, width: viewport.width / view.scale, height: viewport.height / view.scale });
+export const viewRect = (view, viewport) => ({ ...toWorld(view, { x: 0, y: 0 }), width: viewport.width / view.scale, height: viewport.height / view.scale });
 
 // How much each idea shows at a zoom (Z10): 'far' (circles and colours), 'standard', 'near' (every title) or 'close'
 // (titles and states). A level is reached at 0.45, 1.3 and 2.2 and left about 10% lower, so it never flickers.
@@ -205,15 +209,5 @@ export function detailLevel(scale, previous) {
   return detailLevels[level];
 }
 
-// The minimap's picture of the map (Z10): every idea fitted inside `size` with a margin, never magnified past a
-// quarter, so a small map stays small beside the view. `toMap` and `toWorld` convert between the two.
-export function minimapProjection(positions, size, margin = 8) {
-  const points = Object.values(positions);
-  const left = points.length ? Math.min(...points.map(p => p.x)) : 0, right = points.length ? Math.max(...points.map(p => p.x)) : 0;
-  const top = points.length ? Math.min(...points.map(p => p.y)) : 0, bottom = points.length ? Math.max(...points.map(p => p.y)) : 0;
-  const scale = Math.min(0.25, (size.width - 2 * margin) / Math.max(1, right - left), (size.height - 2 * margin) / Math.max(1, bottom - top));
-  const x = size.width / 2 - (left + right) / 2 * scale, y = size.height / 2 - (top + bottom) / 2 * scale;
-  return { scale, toMap: p => ({ x: x + p.x * scale, y: y + p.y * scale }), toWorld: p => ({ x: (p.x - x) / scale, y: (p.y - y) / scale }) };
-}
 // A finished branch: the server marks it complete, and an older map's explored idea counts too.
 export const branchComplete = node => !!node.completed || node.status === 'explored';
