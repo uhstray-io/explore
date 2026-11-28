@@ -52,6 +52,8 @@ The owner settled every open decision on 2026-11-27. Where an issue body still d
 
 ### Limits decided while building
 
+- **Commands sit in the top bar (Z8 #66).** The issue placed a **Commands** button in the workspace tools row. It sits in the top bar beside Dark mode instead, with Ctrl+K or ⌘K: the palette works across the whole app, and the tools row already holds four map buttons.
+
 - **More filters sit with the progress filters (Z9 #67).** The issue placed the **More filters** button in the workspace tools row. It sits directly under the progress filters instead, inside the same "Find ideas by state" landmark: it is a filter, its results open in the overview list right below, and the tools row holds map-level dialogs that a fifth button would crowd.
 
 - **A map file is at most 64 MiB (J3 #45).** The server neither opens nor saves a larger `map.json`; it is listed as unreadable (`too-large`) and a save is refused with a clear message. One rule in `map-validation.mjs` (`readMapFile`, `maxMapBytes`) serves the server, the validator and the support report. Real maps are far smaller; the limit keeps reads, generated views and CI checks bounded.
