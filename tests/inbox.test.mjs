@@ -199,7 +199,9 @@ test('thoughts never sorted go first, so every thought gets its turn; a dismisse
 
 test('accepting a new branch makes one inactive suggestion as Add a direction does, and refuses a title the idea already has', async () => {
   const { store, map, act, thoughts, packet, placements } = await sorted();
-  let saved = await store.complete(map.id, packet.jobId, packet.claimKey, { placements: [{ ...placements[0], kind: 'hypothesis', test: 'Leave a phone flat for a day.' }, { ...placements[1], action: 'new-branch', parentId: map.rootId, title: 'Paper backup', body: 'Again.', reason: undefined }, placements[2]].map(({ reason, nodeId, ...rest }) => (rest.action === 'unplaced' ? { ...rest, reason } : rest)) });
+  const twice = [{ ...placements[0], kind: 'hypothesis', test: 'Leave a phone flat for a day.' }, { thoughtId: placements[1].thoughtId, action: 'new-branch', parentId: map.rootId, title: 'paper backup', body: 'Again.' }, placements[2]];
+  await assert.rejects(store.complete(map.id, packet.jobId, packet.claimKey, { placements: twice }), /another placement already proposes "paper backup"/, 'one title once per result');
+  let saved = await store.complete(map.id, packet.jobId, packet.claimKey, { placements: [twice[0], { ...twice[1], title: 'Encrypted backup' }, placements[2]] });
   const [proposal] = sortsOf(saved), nodes = saved.nodes.length, batches = saved.growth?.batches.length ?? 0, jobs = saved.jobs.length;
   saved = await act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[0].id }, { actor: { name: 'Sam' } });
   const branch = saved.nodes.at(-1);
@@ -210,7 +212,8 @@ test('accepting a new branch makes one inactive suggestion as Add a direction do
   assert.equal(thought.state, 'placed'); assert.deepEqual(thought.placement, { action: 'new-branch', nodeId: branch.id });
   assert.deepEqual([sortsOf(saved)[0].items[0].review, sortsOf(saved)[0].items[0].reviewedBy], ['accepted', { name: 'Sam' }]);
   await assert.rejects(act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[0].id }), error => error.status === 409, 'once');
-  await assert.rejects(act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[1].id }), error => error.status === 409 && /already a direction/.test(error.message), 'no duplicate siblings');
+  await act({ type: 'suggest', nodeId: map.rootId, title: 'Encrypted backup', body: 'Added by hand meanwhile.' });
+  await assert.rejects(act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[1].id }), error => error.status === 409 && /already a direction/.test(error.message), 'no duplicate siblings, even when the title arrived since');
   await assert.rejects(act({ type: 'review-proposal', proposalId: proposal.id, itemId: proposal.items[0].id, decision: 'dismissed' }), error => error.status === 409, 'an accepted suggestion is never dismissed after');
 });
 
@@ -279,6 +282,21 @@ test('the inbox modules load first without an import cycle back to the Store', a
   assert.equal(out.trim(), 'true');
 });
 
+test('restoring the branch a thought was placed on puts the thought back in the inbox, never in neither place', async () => {
+  const { store, map, act, thoughts, storage, packet, placements } = await sorted();
+  let saved = await store.complete(map.id, packet.jobId, packet.claimKey, { placements });
+  const version = (await store.versions.list(map.id)).versions[0];
+  const [proposal] = sortsOf(saved);
+  saved = await act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[1].id });
+  assert.equal(saved.inbox.find(item => item.id === thoughts[1].id).state, 'placed');
+  const { previewBranchRestore } = await import('../skills/explore/scripts/branch-restore.mjs');
+  const preview = await previewBranchRestore(store, map.id, version.id, { nodeId: storage.id });
+  saved = await act({ type: 'restore-branch', nodeId: storage.id, version: version.id, previewHash: preview.hash });
+  assert.equal(saved.nodes.find(node => node.id === storage.id).notes, undefined, 'the note went with the restore');
+  const thought = saved.inbox.find(item => item.id === thoughts[1].id);
+  assert.deepEqual([thought.state, thought.placement, thought.placedAt], ['open', undefined, undefined], 'so the thought is open again');
+});
+
 test('maps without an inbox or notes load unchanged; malformed ones are reported', () => {
   const base = { schemaVersion: 1, id: 'map-1', title: 'T', rootId: 'root', edges: [], jobs: [], history: [], revision: 1, updatedAt: '2026-01-01' };
   const idea = (extra = {}) => ({ id: 'root', title: 'Root', kind: 'idea', status: 'explored', reviewState: 'unreviewed', summary: 'S', questions: [], sources: [], ...extra });
@@ -319,7 +337,7 @@ test('the inbox lists open thoughts with their suggestions, each control naming 
 
 // A small fake DOM for the dialog: an element's querySelector finds only what its HTML has, the same object each time.
 function fakeDialog({ map, act, api, live = () => true }) {
-  const elements = new Map(), focused = [], chosen = [];
+  const elements = new Map(), focused = [], chosen = [], toasts = [];
   const element = id => {
     if (!elements.has(id)) {
       const handlers = {}, found = new Map();
@@ -336,9 +354,10 @@ function fakeDialog({ map, act, api, live = () => true }) {
     return elements.get(id);
   };
   globalThis.document = { querySelector: selector => element(selector.replace(/^#/, '')) };
-  const dialog = inboxDialog({ map, act, api, esc, toast: () => {}, live, readOnly: () => 'Read-only growth history.', listening: () => false, focusNode: id => chosen.push(id) });
+  const captureButton = { disabled: false }; element('inbox-capture').querySelector = selector => (selector === 'button' ? captureButton : null);
+  const dialog = inboxDialog({ map, act, api, esc, toast: message => toasts.push(message), live, readOnly: () => 'Read-only growth history.', listening: () => false, focusNode: id => chosen.push(id) });
   const click = dataset => element('inbox-body').fire('click', { target: { closest: () => ({ dataset, disabled: false }) } });
-  return { element, dialog, click, chosen, focused };
+  return { element, dialog, click, chosen, focused, toasts };
 }
 
 test('the inbox dialog captures, edits, discards and asks after F1\'s preview, keeping focus inside; history cannot capture', async () => {
@@ -376,7 +395,10 @@ test('the inbox dialog captures, edits, discards and asks after F1\'s preview, k
     globalThis.document.activeElement = { id: '', dataset: { inboxStop: 'job-7' } }; io.element('inbox-body').contains = () => true;
     map.jobs = [{ id: 'job-7', type: SORT_THOUGHTS, status: 'running' }]; io.dialog.mapChanged();
     assert.equal(io.focused.at(-1), '[data-inbox-stop="job-7"]', 'focus stays on Stop through the redraw');
-    globalThis.document.activeElement = null; io.element('inbox-body').contains = () => false; map.jobs = [];
+    // The suggestions arrive: the dialog says so and focus moves to the first one.
+    map.jobs = []; io.dialog.mapChanged();
+    assert.equal(io.toasts.at(-1), 'Your agent\'s suggestions are in.'); assert.equal(io.focused.at(-1), '[data-place-thought]');
+    globalThis.document.activeElement = null; io.element('inbox-body').contains = () => false;
     await io.click({ placeThought: 'item-1', proposal: 'proposal-1', thought: 'thought-1' });
     assert.deepEqual(calls.at(-1), [null, 'place-thought', { proposalId: 'proposal-1', itemId: 'item-1' }]); assert.equal(io.focused.at(-1), '[data-thought-edit="thought-2"]', 'the next thought');
     await io.click({ dismissItem: 'item-1', proposal: 'proposal-1', thought: 'thought-1' });
@@ -387,6 +409,7 @@ test('the inbox dialog captures, edits, discards and asks after F1\'s preview, k
   try {
     await history.element('inbox-open').fire('click');
     assert.equal(history.element('inbox-capture-text').disabled, true, 'no capture in history');
+    assert.equal(history.element('inbox-capture').querySelector('button').disabled, true, 'nor its button');
     assert.match(history.element('inbox-body').innerHTML, /Read-only growth history\. Return to the live map/);
   } finally { delete globalThis.document; }
 });

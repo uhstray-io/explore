@@ -54,7 +54,7 @@ export function previewText(packet) {
 export function inboxHtml({ map, esc, live, editing, preview, listening, readOnly = '' }) {
   const titles = new Map(map.nodes.map(node => [node.id, node.title])), thoughts = openThoughts(map);
   const idea = id => (titles.has(id) ? `“${esc(titles.get(id))}”` : 'a removed idea');
-  const show = id => (titles.has(id) ? `<button type="button" class="text-button" data-focus-node="${esc(id)}">Show ${idea(id)}</button>` : '');
+  const show = (id, thought) => (titles.has(id) ? `<button type="button" class="text-button" id="show-${esc(thought.id)}" data-focus-node="${esc(id)}">Show ${idea(id)}</button>` : '');
   const about = thought => `aria-describedby="thought-text-${esc(thought.id)}"`;
   const suggestion = thought => {
     const found = proposalItemFor(map, thought); if (!found) return '';
@@ -64,7 +64,7 @@ export function inboxHtml({ map, esc, live, editing, preview, listening, readOnl
     if (item.action === 'unplaced') return `<div class="thought-proposal"><p>Your agent could not place it: ${esc(item.reason)}</p>${dismiss}</div>`;
     const accept = live ? `<button type="button" class="secondary" data-place-thought="${esc(item.id)}" data-proposal="${esc(proposalId)}" data-thought="${esc(thought.id)}" ${about(thought)}>Accept</button>` : '';
     const where = item.action === 'new-branch' ? `a new branch under ${idea(item.parentId)}: <strong>${esc(item.title)}</strong></p><p class="form-note">${esc(item.body)}` : `a note on ${idea(item.nodeId)}. ${esc(item.reason)}`;
-    return `<div class="thought-proposal"><p>Your agent suggests ${where}</p>${show(item.action === 'new-branch' ? item.parentId : item.nodeId)} ${accept} ${dismiss}</div>`;
+    return `<div class="thought-proposal"><p>Your agent suggests ${where}</p>${show(item.action === 'new-branch' ? item.parentId : item.nodeId, thought)} ${accept} ${dismiss}</div>`;
   };
   const row = thought => (editing === thought.id && live
     ? `<li class="thought" id="thought-${esc(thought.id)}"><label for="thought-edit" class="visually-hidden">Edit this thought</label><textarea id="thought-edit" maxlength="${thoughtMax}" rows="3">${esc(thought.text)}</textarea><div class="glossary-actions"><button type="button" class="primary" data-thought-save="${esc(thought.id)}">Save</button><button type="button" class="text-button" data-thought-cancel="${esc(thought.id)}">Cancel</button></div></li>`

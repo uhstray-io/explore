@@ -79,14 +79,14 @@ function sortPacket({ map, budget }) {
   packet[includedKey] = thoughts.map(thought => ({ thoughtId: thought.id, textKey: textKey(thought.text) }));
   return packet;
 }
-const instruction = 'Propose a place for each thought; never activate anything. Return placements: exactly one per thought, { thoughtId, action: "new-branch", parentId, title, body, kind? } to start a suggested branch under an idea, { thoughtId, action: "note", nodeId, reason } to add the thought as the user\'s note on an existing idea, or { thoughtId, action: "unplaced", reason }. Prefer a note when a thought adds to an existing branch, and a new branch when it opens a separate question. A thought that changes a finished premise becomes a new branch, not a note. Only the user accepts a placement.';
+const instruction = 'Propose a place for each thought; never activate anything. Return placements: exactly one per thought, { thoughtId, action: "new-branch", parentId, title, body, kind?, test? } to start a suggested branch under an idea (kind research or hypothesis; a hypothesis may say how to test it; never a title its parent already has, and each title once), { thoughtId, action: "note", nodeId, reason } to add the thought as the user\'s note on an existing idea, or { thoughtId, action: "unplaced", reason }. Prefer a note when a thought adds to an existing branch, and a new branch when it opens a separate question. A thought that changes a finished premise becomes a new branch, not a note. Only the user accepts a placement.';
 
 const placementFields = { 'new-branch': ['thoughtId', 'action', 'parentId', 'title', 'body', 'kind', 'test'], note: ['thoughtId', 'action', 'nodeId', 'reason'], unplaced: ['thoughtId', 'action', 'reason'] };
 function validateSort(result, { map, job }) {
   const fail = message => need(false, message);
   const extra = Object.keys(result).filter(key => key !== 'placements');
   need(!extra.length, `Return only placements; remove ${extra.join(', ')}.`);
-  const wanted = new Set((job.included ?? []).map(record => record.thoughtId)), seen = new Set(), exists = id => map.nodes.some(node => node.id === id);
+  const wanted = new Set((job.included ?? []).map(record => record.thoughtId)), seen = new Set(), titles = new Set(), exists = id => map.nodes.some(node => node.id === id);
   need(Array.isArray(result.placements) && result.placements.length === wanted.size, 'Give exactly one placement for every thought.');
   return { placements: result.placements.map((item, index) => {
     const label = `Placement ${index + 1}`;
@@ -103,6 +103,8 @@ function validateSort(result, { map, job }) {
       // A title its parent already has could never be accepted: propose a note on that direction instead.
       need(!existingChild(map, map.nodes.find(node => node.id === item.parentId), title), `${label}: "${title}" is already a direction under that idea; propose a note on it instead.`);
       need(item.test === undefined || item.kind === 'hypothesis', `${label}: only a hypothesis carries a test.`);
+      const titleKey = `${item.parentId}/${title.trim().toLowerCase()}`;
+      need(!titles.has(titleKey), `${label}: another placement already proposes "${title}" under that idea; give each new branch its own title.`); titles.add(titleKey);
       return { thoughtId: item.thoughtId, action: 'new-branch', parentId: item.parentId, title, body: textField(item.body, `${label} body`, 4000, fail), kind: item.kind ?? 'research', ...(item.test !== undefined ? { test: hypothesisTest(item.test, fail) } : {}) };
     }
     if (item.action === 'note') need(exists(item.nodeId), `${label} names an idea that does not exist.`);
@@ -124,6 +126,16 @@ export const inboxJobTypes = {
       const keys = new Map((job.included ?? []).map(record => [record.thoughtId, record.textKey]));
       map.proposals = [...(map.proposals || []), { id: makeId('proposal'), jobId: job.id, type: SORT_THOUGHTS, createdAt: at,
         items: result.placements.map(item => ({ id: makeId('item'), ...item, textKey: keys.get(item.thoughtId), review: 'unreviewed' })) }];
+    },
+    // A placed thought whose note or branch is gone (restoring or restarting a branch removed it) goes back to the inbox,
+    // so it is never in neither place. The Store runs this before every save.
+    beforeSave: map => {
+      for (const thought of Array.isArray(map.inbox) ? map.inbox : []) {
+        if (thought?.state !== 'placed' || !thought.placement) continue;
+        const target = map.nodes.find(node => node.id === thought.placement.nodeId);
+        const kept = thought.placement.action === 'note' ? notesOf(target ?? {}).some(note => note.fromThought === thought.id) : !!target;
+        if (!kept) { thought.state = 'open'; delete thought.placedAt; delete thought.placement; }
+      }
     },
     // Reviewing: accepting places the thought (place-thought), so the generic review only dismisses, once.
     reviewDecisions: ['dismissed'], reviewRefusal: 'Use Accept to place this thought.', finalReview: true,

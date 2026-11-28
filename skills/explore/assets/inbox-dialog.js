@@ -7,23 +7,27 @@ import { inboxHtml, openThoughts, SORT_THOUGHTS } from './inbox.js';
 // edited, and keeps the Map tools line current.
 export function inboxDialog({ map, act, api, esc, toast, live, readOnly = () => '', listening, focusNode }) {
   const $ = selector => document.querySelector(selector), dialog = $('#inbox-dialog'), body = $('#inbox-body'), capture = $('#inbox-capture'), text = $('#inbox-capture-text');
-  let editing = null, preview = null, written = null;
+  let editing = null, preview = null, written = null, waiting = false;
   const summary = () => { const shown = map(); if (!shown) return; const count = openThoughts(shown).length; $('#inbox-summary').textContent = count ? `${count === 1 ? '1 open thought' : `${count} open thoughts`} in the inbox.` : 'No open thoughts.'; };
   const render = () => {
     const shown = map(); if (!shown) return;
     if (preview && preview.mapRevision !== shown.revision) preview = null; // A preview describes the map it was made for.
     const html = inboxHtml({ map: shown, esc, live: live(), editing, preview, listening: listening(), readOnly: readOnly() });
+    const pending = (shown.jobs ?? []).some(job => job.type === SORT_THOUGHTS && (job.status === 'queued' || job.status === 'running')), arrived = waiting && !pending && dialog.open;
+    waiting = pending;
     if (html !== written) {
       // A redraw (a poll, or the agent taking the work) keeps focus on the same control, or the nearest one left.
       const active = document.activeElement, kept = active && body.contains?.(active) ? keyOf(active) : null;
       body.innerHTML = written = html; // Never compare with innerHTML read back.
-      if (kept) focus(kept, '[data-inbox-stop]', '[data-inbox-sort]');
+      if (arrived) { toast('Your agent\'s suggestions are in.'); focus('[data-place-thought]', '[data-dismiss-item]', kept); }
+      else if (kept) focus(kept, '[data-inbox-stop]', '[data-inbox-sort]');
     }
     for (const control of [text, capture.querySelector('button')]) if (control) control.disabled = !live(); // Growth history and saved versions are read-only.
     summary();
   };
   // A control as a selector, to find it again after a redraw: its id, or its first data attribute.
-  const keyOf = element => (element.id ? `#${element.id}` : Object.entries(element.dataset ?? {}).map(([key, value]) => `[data-${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${value}"]`)[0] ?? null);
+  const quote = value => (globalThis.CSS?.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&'));
+  const keyOf = element => (element.id ? `#${quote(element.id)}` : Object.entries(element.dataset ?? {}).map(([key, value]) => `[data-${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${quote(value)}"]`)[0] ?? null);
   // After a redraw, focus stays in the dialog: on the first of `selectors` found and enabled, else the capture field.
   const focus = (...selectors) => { (selectors.map(selector => body.querySelector(selector)).find(target => target && !target.disabled) ?? text)?.focus(); };
   // The thought after (or else before) `id` in the list as it was, to move focus to once `id` leaves the list.
