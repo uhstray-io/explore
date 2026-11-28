@@ -374,6 +374,8 @@ export function nodeMenuHtml(node, { esc, live = false, items = [] }) {
 }
 
 // Text that reads as itself in Markdown, on one line.
+// Text compared the way people read it: case, repeated whitespace and trailing punctuation ignored.
+export const comparableText = value => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[\s?.!,;:…]+$/, '');
 export const markdownText = value => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}\[\]<>#|]/g, '\\$&');
 // A portable reference to one idea (H2): its map and node IDs first, so a title can never redirect it, then
 // the title and the repo path of its view for people reading it elsewhere. It never carries answers,

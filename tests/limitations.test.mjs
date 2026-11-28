@@ -91,6 +91,27 @@ test('a stale result keeps its records in job history only, and a revised premis
   assert.deepEqual(saved.jobs.find(entry => entry.id === next.jobId).result.limitations, [conflict]);
 });
 
+test('a continuing branch sees its records, keeps them when the agent resends them, and the brief keeps the next step', async () => {
+  const { store, map, job } = await explored();
+  const long = { ...gap, summary: 's'.repeat(600) };
+  let saved = await store.complete(map.id, job.jobId, job.claimKey, { summary: 'Depends.', body: 'Findings.', sources, limitations: [conflict, long], questions: ['Which phones?'] });
+  const item = mapBrief(saved).sections.find(section => section.id === 'limitations').items[1];
+  assert.match(item.text, /Next step: Run a one-week offline trial/, 'a long summary never hides the next step');
+  saved = await store.action(map.id, { expectedRevision: saved.revision, type: 'answer', nodeId: map.rootId, questionId: saved.nodes[0].questions[0].id, answer: 'Android.' });
+  const next = await store.claim('agent', map.id);
+  assert.deepEqual(next.selected.limitations.map(record => record.id), ['price', 'offline']);
+  assert.ok(next.selected.limitations[1].summary.length < 300, 'shortened in the packet'); assert.match(next.instruction, /resend those that still hold/); assert.match(next.retrieval, /limitations/);
+  saved = await store.complete(map.id, next.jobId, next.claimKey, { summary: 'Android only.', body: 'Findings.', sources, limitations: [conflict] });
+  assert.deepEqual(saved.nodes[0].limitations, [conflict], 'what the agent resent is kept; what it dropped is gone');
+});
+
+test('a kind from elsewhere shows as itself, never as undefined', async () => {
+  const node = { id: 'n', options: [], sources: [], limitations: [{ id: 'x', kind: 'assumption', summary: 'A newer kind.', nextStep: 'Check it.' }] };
+  assert.match(limitationsHtml(node, { esc, live: false, map: { nodes: [node] } }), />assumption</);
+  const brief = mapBrief({ id: 'm', title: 'M', revision: 1, rootId: 'n', nodes: [{ ...node, title: 'N', status: 'explored', reviewState: 'unreviewed', questions: [], prompt: 'P', summary: 'S' }], edges: [], jobs: [] });
+  assert.doesNotMatch(brief.markdown, /undefined/); assert.match(brief.markdown, /assumption: A newer kind/);
+});
+
 test('results and maps without records show nothing, and never claim none were found', async () => {
   const { map, deliver, markdown } = await explored();
   const saved = await deliver({});
@@ -110,7 +131,7 @@ test('the inspector shows each record and turns its next step into an inactive d
   let html = limitationsHtml(node(), { esc, live: true, map: saved });
   assert.match(html, /Conflicts and evidence gaps/); assert.match(html, /Sources disagree/); assert.match(html, /Evidence not found/);
   assert.match(html, /Affects:<\/span> Buy an app/); assert.match(html, /Affects:<\/span> Whole branch/); assert.match(html, /Blocks a recommendation/);
-  assert.match(html, /<a class="evidence-link" href="https:\/\/example\.org\/a"[^>]*>Vendor pricing<\/a>/);
+  assert.match(html, /<p class="limitation-sources"><a href="https:\/\/example\.org\/a"[^>]*>Vendor pricing<\/a>/);
   assert.match(html, /id="limitation-[^"]+-price"/);
   assert.equal((html.match(/data-limitation-direction=/g) || []).length, 2);
   assert.doesNotMatch(limitationsHtml(node(), { esc, live: false, map: saved }), /data-limitation-direction/, 'history shows records without actions');

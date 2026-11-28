@@ -4,7 +4,7 @@
 // Everything heuristic is only a warning, so a false positive never blocks delivery.
 
 // Comparisons ignore case, repeated whitespace and trailing punctuation.
-const normal = value => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[\s?.!,;:…]+$/, '');
+import { comparableText as normal } from '../assets/workspace-view.js';
 const keys = texts => new Set(texts.map(normal));
 const quote = value => { const text = String(value).replace(/\s+/g, ' ').trim(); return `“${text.length > 120 ? `${text.slice(0, 119)}…` : text}”`; };
 // The idea's existing direction with this title, if any. A delivery skips such a suggestion.
