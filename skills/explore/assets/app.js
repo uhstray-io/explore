@@ -1,4 +1,4 @@
-import { constellationLayout, connectionPath, presentation, overviewView, focusedView, branchComplete } from './graph.js';
+import { constellationLayout, connectionPath, presentation, overviewView, focusedView, detailLevel, branchComplete } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
@@ -20,6 +20,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
+import { minimapPanel } from './minimap.js';
 import { outlinePanel } from './outline.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
@@ -158,9 +159,9 @@ function renderMap(fit = false, preserveView = false) {
   $('#nodes').innerHTML = state.visibleMap.nodes.map(n => {
     const pos = state.positions[n.id];
     const root = n.id === state.map.rootId, status = presentation(n), major = root || n.parentId === state.map.rootId;
-    return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span><span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span><span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span>${major ? `<span class="node-caption">${esc(n.title)}</span>` : ''}</button>`;
+    return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span><span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span><span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span><span class="node-caption"><span class="caption-title">${esc(n.title)}</span><span class="caption-state">${esc(status.label)}</span></span></button>`;
   }).join('');
-  renderEdges();
+  renderEdges(); minimap.render();
   renderDetail(); renderOverview(); outline.render(); renderHistory(); renderVersionsPanel(); if (state.toolsOpen) renderTools();
   if (state.versionsOpen && !state.versionChoice && state.versions?.revision !== state.map.revision) loadVersions();
   if (focusedNode) $(`[data-node="${focusedNode}"]`)?.focus({ preventScroll: true });
@@ -169,13 +170,13 @@ function renderMap(fit = false, preserveView = false) {
   if (!preserveView && !historic && (fit || (topologyChanged && state.overview))) requestAnimationFrame(() => { if (fit) centerSelected(); else fitMap(); });
   else transform();
 }
-function transform() { $('#world').style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`; $('#world').style.setProperty('--graph-scale', state.scale); $('#zoom-value').textContent = `${state.scale < .1 ? (state.scale * 100).toFixed(1) : Math.round(state.scale * 100)}%`; }
+function transform() { $('#world').style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`; $('#world').style.setProperty('--graph-scale', state.scale); const detail = detailLevel(state.scale, state.detail); if (detail !== state.detail) $('#world').dataset.detail = state.detail = detail; minimap.view(); $('#zoom-value').textContent = `${state.scale < .1 ? (state.scale * 100).toFixed(1) : Math.round(state.scale * 100)}%`; }
 function viewport() { return { width: $('#canvas').clientWidth, height: $('#canvas').clientHeight }; }
+// Sets the canvas view. `overview` says it shows the whole map, so a resize fits it again rather than centring.
+function setView(view, { overview = false } = {}) { state.overview = overview; Object.assign(state, view); transform(); }
 function fitMap() {
   if (!state.map || !$('#canvas').clientWidth) return; // Hidden behind the outline: the return to the map fits it.
-  state.overview = true;
-  Object.assign(state, overviewView(visiblePositions(), viewport()));
-  transform();
+  setView(overviewView(visiblePositions(), viewport()), { overview: true });
 }
 function zoom(factor, cx = $('#canvas').clientWidth / 2, cy = $('#canvas').clientHeight / 2) {
   state.overview = false;
@@ -262,8 +263,7 @@ function centerSelected() {
   const node = state.visibleMap?.nodes.find(n => n.id === state.selected);
   if (!node || !$('#canvas').clientWidth) return;
   const neighbors = state.visibleMap.nodes.filter(n => n.parentId === node.id || n.id === node.parentId).map(n => state.positions[n.id]);
-  state.overview = false;
-  Object.assign(state, focusedView(state.positions[node.id], viewport(), 1, neighbors)); transform();
+  setView(focusedView(state.positions[node.id], viewport(), 1, neighbors));
 }
 function searchNodes() {
   if (!state.map) return;
@@ -722,6 +722,8 @@ const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
 commandPalette({ $, $$: selector => [...document.querySelectorAll(selector)], esc, state, focusNode, openEditor, toast });
+// The minimap (Z10): it moves the view as a pan does, so the map stays where the user left it.
+const minimap = minimapPanel({ $, esc, state, positions: visiblePositions, viewport, moveView: view => setView(view) });
 // Back on the map the canvas is shown again, so it measures now. Focus that was in the outline goes to the selected idea.
 const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(selector)], esc, glyphs, state, select: selectNode, showMap: ({ refocus }) => {
   if (!state.map) return;
