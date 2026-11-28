@@ -29,7 +29,7 @@ export function mapBrief(map, nodeId = null) {
     ['questions', 'Questions waiting for you', nodes.flatMap(n => n.questions.filter(q => isBlocking(q) && n.status === 'awaiting-answer').map(q => entry(n, q.text, { questionId: q.id, importance: q.importance ?? null }))).sort((a, b) => importanceRank(a.importance) - importanceRank(b.importance))],
     ['later', 'Questions saved for later — open, not blocking', nodes.flatMap(n => n.questions.filter(isSavedForLater).map(q => entry(n, q.text, { questionId: q.id, deferredAt: q.deferredAt })))],
     ['accepted', 'Accepted and current findings', nodes.filter(n => n.reviewState === 'accepted' && !n.stale && n.status === 'explored').map(n => entry(n))],
-    ['findings', 'Working findings — not accepted', nodes.filter(n => hasFindings(map, n) && n.reviewState !== 'accepted' && n.reviewState !== 'cleared' && !n.stale).map(n => entry(n, n.summary, { sourceCount: n.sources.length }))],
+    ['findings', 'Working findings — not accepted', nodes.filter(n => hasFindings(map, n) && n.reviewState !== 'accepted' && n.reviewState !== 'cleared' && !n.stale).map(n => entry(n, n.summary, { sourceCount: n.sources.length, basis: n.sources.length ? 'sources' : 'reasoning', unsupportedClaims: (n.claims || []).filter(claim => !claim.support?.length).length }))],
     ['cleared', 'Cleared findings — not relied on', nodes.filter(n => n.reviewState === 'cleared').map(n => entry(n, n.summary, n.replacedBy ? { replacedBy: n.replacedBy } : {}))],
     ['premises', 'Current premises — not findings', nodes.filter(n => !hasFindings(map, n) && n.status !== 'suggested').map(n => entry(n, n.prompt || n.summary))],
     ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: `${certaintyText(q)}${q.changedAt ? ', changed' : ''}` })))],
@@ -73,7 +73,7 @@ export function mapBrief(map, nodeId = null) {
     for (const section of brief.sections) {
       lines.push('', `## ${section.label}`, '');
       for (const item of section.items) {
-        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}${item.doneWhen ? ` — Done when: ${line(item.doneWhen)}` : ''}`);
+        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}${item.doneWhen ? ` — Done when: ${line(item.doneWhen)}` : ''}${item.basis === 'reasoning' ? ' — reasoning only' : ''}${item.unsupportedClaims ? ` — ${item.unsupportedClaims} ${item.unsupportedClaims === 1 ? 'claim' : 'claims'} with support unknown` : ''}`);
       }
       if (!section.total) lines.push(section.empty ?? '_None recorded in this scope._');
       if (section.omitted) lines.push(`_${section.omitted} more records omitted. Use paged map reads and targeted node sections._`);
