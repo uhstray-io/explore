@@ -10,6 +10,19 @@ Ask only when a missing answer would change the next investigation. Budget, time
 
 On resumption, identify the saved goal, actual user answers, accepted findings, stale material, and the selected unfinished branch. State a concise orientation only if useful: “We settled X; Y remains open; this branch checks Z.” Do not restart discovery, ask an answered question, or present the original premise as a proven finding. Retrieve an older answer by its question ID or a targeted section search when the packet omits it.
 
+## Choose a topic profile
+
+Before researching a job, pick one profile and read only that file. It adds checks for that kind of topic to the rules here; it never replaces them, grants no extra tools and is not evidence.
+
+| Profile | Choose it when |
+| --- | --- |
+| [General](topics/general.md) | The default: the topic is mixed, unfamiliar or not technical, or you are unsure. |
+| [Software and versions](topics/software-versions.md) | The branch is about adopting, upgrading, migrating or combining software. |
+| [Products and services](topics/products-services.md) | The branch is about buying, renting, subscribing to or hiring something. |
+| [Concepts and design trade-offs](topics/concepts-tradeoffs.md) | The branch defines an idea or weighs competing approaches. |
+
+Do not force a software lens on an idea that is not technical. In a branch investigation's result, name the profile you used in `topicProfile`; other job types' results do not take it.
+
 ## Propose directions that discriminate
 
 A useful child investigates a consequential uncertainty or compares plausible alternatives. Its title names the issue; its body explains what would be checked and what different outcomes would change. Offer only directions with distinct value, often two or three. There is no requirement to fill every category or use the maximum number of suggestions.
@@ -66,19 +79,6 @@ Keep four things distinguishable in concise prose:
 Use these distinctions where needed rather than filling a mandatory template. Research to the depth needed for the selected question, using primary sources when available. A source link without a supported claim adds little. Do not manufacture sources, consensus, test results, or precision. If sources disagree, preserve the disagreement and its practical effect. A supported finding can still be unreviewed; acceptance belongs to the user.
 
 When a prior premise changes, check relevant dependency links and stale findings before building on them. Keep prior work and its reasons visible. Save the result's rationale and evidence, not a transcript of private reasoning.
-
-## Choose a topic profile
-
-Before researching a job, pick one profile and read only that file. It adds checks for that kind of topic to the rules here; it never replaces them, grants no extra tools and is not evidence.
-
-| Profile | Choose it when |
-| --- | --- |
-| [General](topics/general.md) | The default: the topic is mixed, unfamiliar or not technical, or you are unsure. |
-| [Software and versions](topics/software-versions.md) | The branch is about adopting, upgrading, migrating or combining software. |
-| [Products and services](topics/products-services.md) | The branch is about buying, renting, subscribing to or hiring something. |
-| [Concepts and design trade-offs](topics/concepts-tradeoffs.md) | The branch defines an idea or weighs competing approaches. |
-
-Do not force a software lens on an idea that is not technical. Name the profile you used in the result's `topicProfile`.
 
 ## Stop with a useful result
 

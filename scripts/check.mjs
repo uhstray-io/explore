@@ -24,4 +24,4 @@ const broken = await brokenReferenceLinks(path.dirname(skillFile));
 if (broken.length) throw new Error(`Broken reference links: ${broken.join('; ')}`);
 const versionErrors = versionProblems({ packageJson: JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')), versionJson: await readVersionFile(path.join(root, 'skills/explore')) });
 if (versionErrors.length) throw new Error(versionErrors.join(' '));
-console.log('JavaScript syntax, skill metadata, package version, and entrypoint reference paths passed.');
+console.log('JavaScript syntax, skill metadata, package version, and reference links in SKILL.md and references/ passed.');

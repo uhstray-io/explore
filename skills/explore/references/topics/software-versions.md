@@ -24,4 +24,4 @@ Stop when the user can decide or can run one small, reversible trial that would 
 
 ## Uncertainty
 
-Say which behaviour you verified in documentation and which you expect but did not see. Flag anything that depends on the user's environment, platform or configuration. Do not present a fix as tested unless it was.
+Say which behaviour you verified in documentation and which you expect but did not see. Flag anything that depends on the user's environment, platform or configuration.

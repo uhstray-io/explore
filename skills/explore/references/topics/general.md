@@ -20,8 +20,8 @@ Note when a fact can change, such as opening hours, rules, prices or who runs so
 
 ## When to stop
 
-Stop once the branch answers its question well enough for the user's next decision or next step. A clear framing of the choice, a short list of workable options, or the one missing fact the user must supply is often enough.
+A mixed or personal topic rarely has one right answer to find. A clear framing of the choice, two or three workable directions, or the one fact only the user can supply is usually the point to stop.
 
 ## Uncertainty
 
-Name the context you do not have, and do not imply specialist expertise. When the answer depends on the user's situation, ask the question that would settle it rather than guessing. Keep what you found, what you infer and what you assume visibly apart.
+Name the context you do not have, and do not imply specialist expertise. Say which conclusions would change for a different situation, such as a larger group, another place or a tighter budget.
