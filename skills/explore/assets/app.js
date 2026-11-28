@@ -23,6 +23,7 @@ import { commandPalette, draftNeeded } from './command-palette.js';
 import { goalInput, goalFieldsHtml, goalSectionHtml, goalEditorHtml, goalEdits, modeLabel } from './guidance.js';
 import { minimapPanel } from './minimap.js';
 import { outlinePanel } from './outline.js';
+import { foldsPanel, foldMenuItems, hiddenLabel } from './folds.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
@@ -130,7 +131,7 @@ function layout() {
 }
 function renderEdges() {
   const nodes = new Map(state.visibleMap.nodes.map(node => [node.id, node]));
-  $('#edges').innerHTML = state.visibleMap.edges.map(e => {
+  $('#edges').innerHTML = state.visibleMap.edges.filter(e => state.view.shown.has(e.from) && state.view.shown.has(e.to)).map(e => {
     const a = state.positions[e.from], b = state.positions[e.to]; if (!a || !b) return '';
     const target = nodes.get(e.to);
     return `<path class="edge ${e.type === 'contains' ? '' : 'semantic'} ${presentation(target).lit ? 'lit' : ''}" style="--accent:${accents[state.domains[e.to] % accents.length]}" d="${connectionPath(a, b)}"><title>${esc(e.type.replaceAll('_', ' '))}</title></path>`;
@@ -156,11 +157,12 @@ function renderMap(fit = false, preserveView = false) {
   $('#canvas-instruction').textContent = historic ? 'Read-only history · pan or zoom to inspect · return to live to arrange ideas' : 'Drag nodes to arrange · Alt + arrow keys moves a focused node · / finds an idea';
   $('#focus-selected').disabled = !state.selected;
   layout();
+  state.view = folds.render(); // Which ideas are shown (Z6); a selection a fold hid moves to the folded idea.
   const focusedNode = document.activeElement?.dataset.node;
-  $('#nodes').innerHTML = state.visibleMap.nodes.map(n => {
-    const pos = state.positions[n.id];
+  $('#nodes').innerHTML = state.visibleMap.nodes.filter(n => state.view.shown.has(n.id)).map(n => {
+    const pos = state.positions[n.id], hidden = state.view.hiddenBelow.get(n.id);
     const root = n.id === state.map.rootId, status = presentation(n), major = root || n.parentId === state.map.rootId;
-    return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span><span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span><span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span><span class="node-caption"><span class="caption-title">${esc(n.title)}</span><span class="caption-state">${esc(status.label)}</span></span></button>`;
+    return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}${hidden ? `, ${hiddenLabel(hidden)}` : ''}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span><span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span>${hidden ? `<span class="node-hidden" aria-hidden="true">+${hidden.total}</span>` : ''}<span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span><span class="node-caption"><span class="caption-title">${esc(n.title)}</span><span class="caption-state">${esc(status.label)}</span></span></button>`;
   }).join('');
   renderEdges(); minimap.render();
   renderDetail(); renderOverview(); outline.render(); renderHistory(); renderVersionsPanel(); if (state.toolsOpen) renderTools();
@@ -221,7 +223,7 @@ async function openMap(id, { nodeId = null, push = true } = {}) {
   try {
     const map = await api(`/maps/${id}`); if (version !== openVersion) return;
     state.outsideSeen[id] = map.outsideChange?.at; // Only changes that arrive while the map is open are announced.
-    state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
+    state.map = map; state.selected = map.nodes.some(node => node.id === nodeId) ? nodeId : map.rootId; state.branchFocus = null; state.historyStep = null; state.historySource = null; state.filter = null; state.versionPreview = null; state.versionChoice = null; state.versions = null; state.reviewing = null; state.restartPreview = null; navigation(false);
     $('#find-node').value = ''; $('#node-results').hidden = true;
     localStorage.setItem('explore-map', id); showAddress({ push });
     sinceVisit.open(map); renderMap(true); renderRail(); checkGitStatus({ force: true });
@@ -253,6 +255,7 @@ async function followAddress() {
 }
 function focusNode(nodeId) {
   if (!state.positions[nodeId] || !state.visibleMap.nodes.some(node => node.id === nodeId)) return;
+  if (!state.view.shown.has(nodeId)) { folds.reveal(nodeId); return; }
   selectNode(nodeId);
   $('#node-results').hidden = true;
   closeOverview();
@@ -263,7 +266,7 @@ function focusNode(nodeId) {
 function centerSelected() {
   const node = state.visibleMap?.nodes.find(n => n.id === state.selected);
   if (!node || !$('#canvas').clientWidth) return;
-  const neighbors = state.visibleMap.nodes.filter(n => n.parentId === node.id || n.id === node.parentId).map(n => state.positions[n.id]);
+  const neighbors = state.visibleMap.nodes.filter(n => (n.parentId === node.id || n.id === node.parentId) && state.view.shown.has(n.id)).map(n => state.positions[n.id]);
   setView(focusedView(state.positions[node.id], viewport(), 1, neighbors));
 }
 function searchNodes() {
@@ -275,7 +278,7 @@ function searchNodes() {
     $('#node-results').hidden = false; return;
   }
   const matches = ideaMatches(state.visibleMap.nodes, $('#find-node').value);
-  $('#node-results').innerHTML = `<p role="status">${matches.length ? `${matches.length} ${matches.length === 1 ? 'idea' : 'ideas'}${matches.length > 12 ? ' · showing 12, type more to narrow' : ''}` : 'No matching ideas'}</p>` + matches.slice(0, 12).map(node => `<button type="button" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}</small></button>`).join('');
+  $('#node-results').innerHTML = `<p role="status">${matches.length ? `${matches.length} ${matches.length === 1 ? 'idea' : 'ideas'}${matches.length > 12 ? ' · showing 12, type more to narrow' : ''}` : 'No matching ideas'}</p>` + matches.slice(0, 12).map(node => `<button type="button" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${state.view.shown.has(node.id) ? '' : ' · In a hidden branch'}</small></button>`).join('');
   $('#node-results').hidden = false;
   if (focusedIdea) ([...$('#node-results').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $('#find-node')).focus({ preventScroll: true });
 }
@@ -291,7 +294,7 @@ $('#node-finder').addEventListener('keydown', event => { if (event.key === 'Esca
 $('#focus-selected').addEventListener('click', () => focusNode(state.selected));
 
 function visiblePositions() {
-  return Object.fromEntries((state.visibleMap?.nodes || []).filter(node => state.positions[node.id]).map(node => [node.id, state.positions[node.id]]));
+  return Object.fromEntries((state.visibleMap?.nodes || []).filter(node => state.positions[node.id] && (!state.view || state.view.shown.has(node.id))).map(node => [node.id, state.positions[node.id]]));
 }
 function closeOverview() {
   if (!state.filter) return;
@@ -567,7 +570,7 @@ function openEditor(name) {
 function detailFocusKey(element) {
   const form = element.closest('form'), editor = element.closest('details[data-editor]');
   return JSON.stringify([element.tagName, element.getAttribute('href'),
-    ...['explore', 'cancel', 'accept', 'branchBrief', 'select', 'copyLink', 'menu', 'pinGo', 'pinUnpin', 'questionId'].map(key => element.dataset[key] || null),
+    ...['explore', 'cancel', 'accept', 'branchBrief', 'select', 'copyLink', 'menu', 'pinGo', 'pinUnpin', 'fold', 'unfold', 'branchFocus', 'questionId'].map(key => element.dataset[key] ?? null),
     form?.dataset.question || form?.id || null, editor?.dataset.editor || null]);
 }
 function renderDetail(force = false) {
@@ -645,7 +648,7 @@ function renderDetail(force = false) {
     // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
     if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
   }
-  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? goalSectionHtml(state.visibleMap, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc))}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic }), foldMenuItems(n, { esc, map: state.visibleMap, view: state.view, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? goalSectionHtml(state.visibleMap, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc))}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${state.versionPreview && n.id !== state.versionPreview.map.rootId ? branchRestore.html(n.id) : ''}
     ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
@@ -728,7 +731,10 @@ commandPalette({ $, $$: selector => [...document.querySelectorAll(selector)], es
 // The minimap (Z10): it moves the view as a pan does, so the map stays where the user left it.
 const minimap = minimapPanel({ $, esc, state, positions: visiblePositions, viewport, moveView: view => setView(view) });
 // Back on the map the canvas is shown again, so it measures now. Focus that was in the outline goes to the selected idea.
-const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(selector)], esc, glyphs, state, select: selectNode, showMap: ({ refocus }) => {
+// Collapse and focus branches (Z6). The document's click handler routes the ⋯ menu items and the branch bar here.
+const folds = foldsPanel({ $, esc, state, act, toast, closeMenus, redraw: () => renderMap(false, true), fitMap, focusNode, showAddress: () => showAddress() });
+const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(selector)], esc, glyphs, state, select: selectNode,
+  fold: (id, collapsed) => folds.foldRow(id, collapsed), showMap: ({ refocus }) => {
   if (!state.map) return;
   (state.selected ? centerSelected : fitMap)();
   if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
@@ -849,6 +855,7 @@ document.addEventListener('click', async event => {
   if (await questionClick(event, { state, act, toast, renderDetail, closeMenus, agentListening, loadRestartPreview })) return;
   if (await limitationClick(event, { state, act, toast })) return;
   if (await pinClick(event, { act, focusNode, toast, closeMenus })) return;
+  if (await folds.click(event)) return; // The idea's ⋯ menu and the branch bar.
   if (await doneWhenClick(event, { state, act, toast, renderDetail })) { closeMenus(); return; } // Also Explore and Retry.
   for (const [attribute, action, message] of [['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
     const button = event.target.closest(`[data-${attribute}]`);
