@@ -2,9 +2,8 @@
 // saved. Errors are certain breaches (re-asking what the user already answered, or dismissed on this idea, or
 // repeating something in one result): the result is rejected and the agent fixes and resends it with the same claim.
 // Everything heuristic is only a warning, so a false positive never blocks delivery.
-
-// Comparisons ignore case, repeated whitespace and trailing punctuation.
 import { comparableText as normal } from '../assets/workspace-view.js';
+
 const keys = texts => new Set(texts.map(normal));
 const quote = value => { const text = String(value).replace(/\s+/g, ' ').trim(); return `“${text.length > 120 ? `${text.slice(0, 119)}…` : text}”`; };
 // The idea's existing direction with this title, if any. A delivery skips such a suggestion.

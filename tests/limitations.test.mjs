@@ -100,9 +100,18 @@ test('a continuing branch sees its records, keeps them when the agent resends th
   saved = await store.action(map.id, { expectedRevision: saved.revision, type: 'answer', nodeId: map.rootId, questionId: saved.nodes[0].questions[0].id, answer: 'Android.' });
   const next = await store.claim('agent', map.id);
   assert.deepEqual(next.selected.limitations.map(record => record.id), ['price', 'offline']);
-  assert.ok(next.selected.limitations[1].summary.length < 300, 'shortened in the packet'); assert.match(next.instruction, /resend those that still hold/); assert.match(next.retrieval, /limitations/);
+  assert.ok(next.selected.limitations[1].summary.length < 300, 'shortened in the packet'); assert.match(next.instruction, /read --section options\|limitations and resend in full those that still hold/); assert.match(next.retrieval, /limitations/);
   saved = await store.complete(map.id, next.jobId, next.claimKey, { summary: 'Android only.', body: 'Findings.', sources, limitations: [conflict] });
   assert.deepEqual(saved.nodes[0].limitations, [conflict], 'what the agent resent is kept; what it dropped is gone');
+});
+
+test('a section read keeps records as saved so they can be resent; node Markdown escapes them', async () => {
+  const { map, deliver, markdown } = await explored();
+  const marked = { ...gap, id: 'sync_offline', summary: 'Costs <$50 | maybe *more*.' };
+  const saved = await deliver({ limitations: [marked] });
+  const read = contextExcerpt(saved, map.rootId, { section: 'limitations' });
+  assert.match(read.excerpt, /\(sync_offline\): Costs <\$50 \| maybe \*more\*\./); assert.doesNotMatch(read.excerpt, /\\/);
+  assert.match(await markdown(), /sync\\_offline/);
 });
 
 test('a kind from elsewhere shows as itself, never as undefined', async () => {

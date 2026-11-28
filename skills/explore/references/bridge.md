@@ -85,7 +85,7 @@ When sources disagree or evidence could not be found, record it in optional `lim
 }
 ```
 
-`kind` is `conflict` (sources disagree; cite at least two) or `missing-evidence` (looked for, not found; sources optional). `id` follows the option-id rule and is unique; `summary` at most 600 characters, `nextStep` 400. `sources` must be URLs from this result's `sources`. `optionIds` (0–4) names options in this result; empty means the whole branch. `blocksRecommendation: true` needs options and a recommendation with `optionId: null`. Any other value rejects the whole result. A later result replaces an idea's records and a revised premise clears them, so when a continuing branch's packet lists `selected.limitations` (and `selected.options`), resend the ones that still hold.
+`kind` is `conflict` (sources disagree; cite at least two) or `missing-evidence` (looked for, not found; sources optional). `id` follows the option-id rule and is unique; `summary` at most 600 characters, `nextStep` 400. `sources` must be URLs from this result's `sources`. `optionIds` (0–4) names options in this result; empty means the whole branch. `blocksRecommendation: true` needs options and a recommendation with `optionId: null`. Any other value rejects the whole result. A later result replaces an idea's records and a revised premise clears them, so when a continuing branch's packet lists `selected.limitations` (and `selected.options`), resend in full the ones that still hold. The packet shortens them: read `--section limitations` (and `options`) for the full records first.
 
 `summary` and `body` are required. Omit unused arrays. The example URL and ID are illustrative; real results require actual consulted sources and existing node IDs. Do not cite a source you have not read.
 

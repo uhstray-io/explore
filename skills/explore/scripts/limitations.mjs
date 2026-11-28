@@ -38,13 +38,14 @@ export function normalizeLimitations(result, checked, fail) {
   }) };
 }
 
-// One record as Markdown lines, for node Markdown and section reads. Text is kept to one line and escaped.
-export function limitationRecord(node, record) {
-  return [`- **${markdownText(limitationLabel(record.kind))}** (${markdownText(record.id)}): ${markdownText(record.summary)}`, `  - Affects: ${markdownText(limitationScope(node, record))}`,
+// One record as lines. Section reads keep the text as saved, so an agent can resend it; node Markdown passes
+// `format: markdownText` to keep each value on one line and escaped.
+export function limitationRecord(node, record, format = text => text) {
+  return [`- **${format(limitationLabel(record.kind))}** (${format(record.id)}): ${format(record.summary)}`, `  - Affects: ${format(limitationScope(node, record))}`,
     ...(record.sources?.length ? [`  - Sources: ${record.sources.join(', ')}`] : []), ...(record.blocksRecommendation ? ['  - Blocks a recommendation'] : []),
-    `  - Next step: ${markdownText(record.nextStep)}`];
+    `  - Next step: ${format(record.nextStep)}`];
 }
 export function limitationLines(node) {
   if (!node.limitations?.length) return [];
-  return ['## Conflicts and evidence gaps', '', '_The agent\'s account of what is still unresolved, not a conclusion._', '', ...node.limitations.flatMap(record => limitationRecord(node, record))];
+  return ['## Conflicts and evidence gaps', '', '_The agent\'s account of what is still unresolved, not a conclusion._', '', ...node.limitations.flatMap(record => limitationRecord(node, record, markdownText))];
 }
