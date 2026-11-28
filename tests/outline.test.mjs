@@ -115,10 +115,13 @@ test('the view is remembered, and the outline replaces the map until the user sw
   assert.equal(p.panel.active(), true); assert.equal(p.storage.get('explore-view'), 'outline'); assert.equal(p.classes.has('outline-mode'), true);
   assert.equal(p.box.hidden, false); assert.equal(p.io.writes, 1); assert.equal(p.view('outline').attributes['aria-pressed'], 'true');
   assert.deepEqual(tabStops(p), ['root']); assert.deepEqual(selectedRows(p), ['root']);
+  p.row('root').focus(); p.key('root', 'ArrowDown'); assert.deepEqual(tabStops(p), ['b']);
+  p.view('map').click(); p.view('outline').click();
+  assert.deepEqual(tabStops(p), ['root'], 'coming back, the tab stop is on the selected idea');
   p.row('b').focus();
   p.view('map').click();
   assert.equal(p.io.refocus, true, 'focus in a row that hides moves to the map');
-  assert.equal(p.storage.get('explore-view'), 'map'); assert.equal(p.classes.has('outline-mode'), false); assert.equal(p.io.shown, 1, 'the map centres the selected idea again');
+  assert.equal(p.storage.get('explore-view'), 'map'); assert.equal(p.classes.has('outline-mode'), false); assert.equal(p.io.shown, 2, 'the map centres the selected idea again, each time');
   p = page({ stored: 'outline' });
   assert.equal(p.panel.active(), true); assert.equal(p.box.hidden, false);
 });

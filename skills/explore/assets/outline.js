@@ -39,9 +39,9 @@ export function outlineMove(rows, id, key) {
 // moving, selecting and filtering never redraw. Each row is named "title, state", as an idea on the canvas is.
 export function outlineHtml(rows, { esc, glyphs }) {
   const row = item => {
-    const node = item.node, state = presentation(node).label, deep = item.level - 1 > maxIndent;
+    const node = item.node, shown = presentation(node), state = shown.label, deep = item.level - 1 > maxIndent;
     // presentation() already says what the user must do (Needs your answer, needs review).
-    return `<div role="treeitem" class="outline-row ${esc(node.status)}${presentation(node).lit ? ' lit' : ''}${node.stale ? ' stale' : ''}" data-outline-node="${esc(item.id)}" aria-label="${esc(node.title)}, ${esc(state)}" aria-level="${item.level}" aria-setsize="${item.setSize}" aria-posinset="${item.position}" aria-selected="false" tabindex="-1" style="--indent:${Math.min(item.level - 1, maxIndent)}">`
+    return `<div role="treeitem" class="outline-row ${esc(node.status)}${shown.lit ? ' lit' : ''}${node.stale ? ' stale' : ''}" data-outline-node="${esc(item.id)}" aria-label="${esc(node.title)}, ${esc(state)}" aria-level="${item.level}" aria-setsize="${item.setSize}" aria-posinset="${item.position}" aria-selected="false" tabindex="-1" style="--indent:${Math.min(item.level - 1, maxIndent)}">`
       + `<span class="outline-glyph" aria-hidden="true">${glyphs[node.kind] ?? '·'}</span><span class="outline-title">${esc(node.title)}</span><span class="outline-state">${esc(state)}</span>${deep ? `<span class="outline-depth" aria-hidden="true">level ${item.level}</span>` : ''}</div>`;
   };
   const inTree = rows.filter(item => item.connected), apart = rows.filter(item => !item.connected);
@@ -104,7 +104,7 @@ export function outlinePanel({ $, $$, esc, glyphs, state, select, showMap }) {
     view = next;
     try { localStorage.setItem('explore-view', view); } catch {}
     show();
-    if (view === 'outline') { written = ''; render(); } else showMap({ refocus: lost });
+    if (view === 'outline') { current = state.selected; written = ''; render(); } else showMap({ refocus: lost });
   }
   for (const button of $$('[data-view]')) button.addEventListener('click', () => { if (button.dataset.view !== view) setView(button.dataset.view); });
   box.addEventListener('click', event => { const row = event.target.closest('[data-outline-node]'); if (row) { select(row.dataset.outlineNode); moveTo(row.dataset.outlineNode); } });
