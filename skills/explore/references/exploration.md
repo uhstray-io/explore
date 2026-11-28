@@ -87,6 +87,10 @@ Record material disagreements and gaps as `limitations` in the result, not only 
 
 When a prior premise changes, check relevant dependency links and stale findings before building on them. Keep prior work and its reasons visible. Save the result's rationale and evidence, not a transcript of private reasoning.
 
+## Use the map's words
+
+Use the packet's `glossary` terms as the user defined them, in questions, findings and suggestions. Propose a term in the result's `glossary` only when the exploration has settled on a meaning worth keeping, not for every noun; the user decides whether it counts.
+
 ## Keep private details out of searches
 
 Search queries and fetched URLs leave the machine, and the host's tools may log them. Explore cannot see or filter them, so this rests with you.

@@ -7,6 +7,7 @@
 //     It is the only type that may change an idea's status, findings, questions,
 //     completion or growth history.
 //   Other types: { label, target: 'node' | 'map', packet(context), validate(result, context) }
+//     glossary: false keeps the map's agreed glossary (K9) out of this type's packets; every other type gets it.
 //     packet  returns the type-specific fields of the work packet, including `instruction`. The Store adds the
 //             identifying fields and appends searchPrivacy to the instruction, so write an instruction that reads
 //             well followed by it, and keep 800 characters of `budget` free for both.
@@ -27,6 +28,7 @@ import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
 import { questionJobTypes, questionActions } from './question-actions.mjs';
 import { restartActions } from './restart.mjs';
 import { pinnedAnswerActions } from './pinned-answers.mjs';
+import { glossaryActions } from './glossary.mjs';
 import { doneWhenActions } from './done-when.mjs';
 import { branchRestoreActions } from './branch-restore.mjs';
 import { libraryActions } from './library.mjs';
@@ -63,7 +65,7 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions, ...doneWhenActions, ...pinnedAnswerActions, ...branchRestoreActions, ...linkActions, ...libraryActions } });
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions, ...doneWhenActions, ...pinnedAnswerActions, ...glossaryActions, ...branchRestoreActions, ...linkActions, ...libraryActions } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }

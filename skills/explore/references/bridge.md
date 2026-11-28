@@ -77,6 +77,8 @@ When the branch is really a choice, a result can also compare options and recomm
 
 Give 1–4 options with unique `id`s (a letter, then letters, digits, `_` or `-`; at most 32) and titles that differ. Limits: title 150, description 600, fit 400, at most 4 pros and 4 cons of 240 each, suggested answer 1,000. With options, a recommendation is required: an existing `optionId` with `rationale` (800) and `mainTradeoff` (600), and optionally `reconsiderIf` (600); or `optionId: null` with `missing` (600), which is "No recommendation yet". A current result replaces the idea's options; a result without options clears them. The whole result must stay under 150,000 characters.
 
+Every investigation packet carries `glossary`: the map's agreed terms as `{ term, definition }`, at most 3,000 characters (terms the selected idea uses come first), with `omittedGlossaryTerms`. Use those terms as defined. When the exploration has settled on a meaning for a new term, or needs a different one, propose it in an optional result field `glossary`: at most 5 `{ "term": "…", "definition": "…" }` (term at most 80 characters, definition 600). Proposals wait for the user and never reach a packet until accepted; a proposal for an agreed term is shown as a replacement, and one identical to it is dropped. Every other packet carries the agreed glossary too, in the room its own content leaves, except Tidy my wording, which keeps the user's words.
+
 When sources disagree or evidence could not be found, record it in optional `limitations` (at most 8):
 
 ```json
