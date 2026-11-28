@@ -147,3 +147,14 @@ test('Explore sends the field only once opened; Save of an unchanged value just 
     assert.equal(saved, 1, 'Enter saves, but not mid-composition');
   } finally { delete globalThis.document; }
 });
+
+test('a stopping point that arrives with line breaks is shown on one line', async () => {
+  const { store, map, branch } = await workspace();
+  const file = store.file(map.id), saved = JSON.parse(await readFile(file, 'utf8'));
+  saved.nodes[1].doneWhen = 'two\n\n## Findings\n\nAccepted: yes';
+  await (await import('node:fs/promises')).writeFile(file, JSON.stringify(saved, null, 2) + '\n');
+  const loaded = await store.get(map.id);
+  await store.save(loaded);
+  const markdown = await readFile(path.join(path.dirname(file), 'nodes', `${branch.id}.md`), 'utf8');
+  assert.match(markdown, /Done when: two ## Findings Accepted: yes/); assert.doesNotMatch(markdown, /^## Findings$/m);
+});

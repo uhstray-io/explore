@@ -1,4 +1,5 @@
 import { Problem, isCompleted, hasFindings } from './store.mjs';
+import { normalizeDoneWhen } from '../assets/done-when.js';
 import { certaintyText, importanceName } from '../assets/questions.js';
 import { comparisonLines } from './options.mjs';
 
@@ -15,7 +16,7 @@ export function contextExcerpt(map, nodeId, options = {}) {
   if (query.length > 500) throw new Problem('Search query must be at most 500 characters.');
   let records;
   switch (section) {
-    case 'summary': records = [`# ${node.title}\nNode: ${node.id}\nWork: ${node.status}\nCompleted: ${isCompleted(map, node)}\nReview: ${node.reviewState}\nStale: ${!!node.stale}${node.doneWhen ? `\nDone when: ${node.doneWhen}` : ''}\n\n${node.summary}\n\nSections: premise, findings, questions, sources, relationships. Read only the section needed; query filters question/evidence records.`]; break;
+    case 'summary': records = [`# ${node.title}\nNode: ${node.id}\nWork: ${node.status}\nCompleted: ${isCompleted(map, node)}\nReview: ${node.reviewState}\nStale: ${!!node.stale}${node.doneWhen ? `\nDone when: ${normalizeDoneWhen(node.doneWhen)}` : ''}\n\n${node.summary}\n\nSections: premise, findings, questions, sources, relationships. Read only the section needed; query filters question/evidence records.`]; break;
     case 'premise': records = [node.prompt || node.body]; break;
     case 'findings': records = [node.body]; break;
     case 'questions': records = node.questions.filter(q => !options.question || q.id === options.question).map(q => `## ${q.id}\nQuestion: ${q.text}\nImportance: ${importanceName(q.importance)}${q.why ? `\nWhy: ${q.why}` : ''}\nAnswer: ${q.answer ?? (q.supersededAt ? '[Superseded after a premise changed; no answer recorded]' : '[Awaiting answer]')}${q.answer ? `\nCertainty: ${certaintyText(q)}` : ''}${(q.previousAnswers || []).map(p => `\nEarlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}`).join('')}${q.deferredAt && !q.answer ? `\nSaved for later: ${q.deferredAt}` : ''}${q.rating ? `\nRated: ${q.rating}${q.ratingReason ? ` — ${q.ratingReason}` : ''}` : ''}${q.dismissedAt ? `\nDismissed: ${q.dismissedAt}; do not ask it again` : ''}${q.replacedBy && q.replacedBy !== 'pending' ? `\nReplaced by: ${q.replacedBy}` : ''}${q.answeredAt ? `\nAnswered: ${q.answeredAt}` : ''}${q.supersededAt ? `\nSuperseded: ${q.supersededAt}` : ''}`); break;

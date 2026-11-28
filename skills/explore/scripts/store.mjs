@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { applyDoneWhen } from './done-when.mjs';
+import { normalizeDoneWhen, doneWhenMax } from '../assets/done-when.js';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
 import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
@@ -240,7 +241,7 @@ export class Store {
     for (const n of map.nodes) {
       overview.push(`- [${n.title.replace(/[\[\]]/g, '')}](nodes/${n.id}.md): ${n.status}; ${n.reviewState}${n.stale ? '; needs review after a premise changed' : ''}. ${n.summary.replace(/\n/g, ' ')}`);
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
-        `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, ...(n.doneWhen ? ['', `Done when: ${literal(n.doneWhen)}`] : []), '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
+        `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, ...(n.doneWhen ? ['', `Done when: ${literal(normalizeDoneWhen(n.doneWhen))}`] : []), '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
       if (n.options?.length) lines.push('', ...comparisonLines(n));
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
@@ -590,7 +591,7 @@ export class Store {
     const selected = { id: node.id, title: node.title, kind: node.kind, stale: !!node.stale, premise: clip(node.prompt || node.body, 2400), summary: node.summary === node.prompt || node.summary === node.body ? '' : clip(node.summary, 700), body: clip(ownFindings(node), 4000),
       questions: node.questions.filter(q => q.answer || !q.supersededAt).slice(-8).map(q => ({ id: q.id, question: clip(q.text, 600), answer: q.answer ? clip(q.answer, 1000) : null, ...certaintyFields(q), ...(q.deferredAt ? { deferred: true } : {}), ...(q.rating ? { rating: q.rating } : {}), ...(q.dismissedAt ? { dismissed: true } : {}), ...(q.changedAt ? { changedAt: q.changedAt, previousAnswer: clip(q.previousAnswers?.at(-1)?.answer ?? '', 300) } : {}), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) })),
       sources: node.sources.slice(0, 6), file: path.join(path.dirname(this.file(map.id)), 'nodes', `${node.id}.md`),
-      ...(node.doneWhen ? { doneWhen: clip(node.doneWhen, 400) } : {}) }; // The user's stopping point is never trimmed for budget.
+      ...(node.doneWhen ? { doneWhen: clip(normalizeDoneWhen(node.doneWhen), doneWhenMax) } : {}) }; // The user's stopping point is never trimmed for budget.
     if (node.revisesAnswer) selected.revisesAnswer = { questionId: node.revisesAnswer.questionId, previousAnswer: clip(node.revisesAnswer.previousAnswer, 600), answer: clip(node.revisesAnswer.answer, 600) };
     const dismissed = node.questions.filter(q => q.dismissedAt && !q.supersededAt).map(q => clip(q.text, 300));
     if (dismissed.length) selected.dismissedQuestions = dismissed; // Never asked again.
