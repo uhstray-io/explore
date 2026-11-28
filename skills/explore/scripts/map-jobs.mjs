@@ -122,6 +122,7 @@ export const mapJobTypes = {
     packet: checkPacket,
     validate: validateCheck,
     isStale: ({ map, job }) => proposalOutdated(map, { included: job.included }),
+    proposalOutdated,
     store: ({ map, job, result, stale, makeId, at }) => {
       map.proposals = [...(map.proposals || []), { id: makeId('proposal'), jobId: job.id, type: job.type, createdAt: at, included: job.included || [],
         ...(stale ? { stale: true } : {}), ...(result.summary ? { summary: result.summary } : {}),
@@ -141,9 +142,12 @@ export const mapJobActions = {
   'review-proposal': { target: 'map', apply: ({ map, input, store, actor }) => {
     const proposal = (map.proposals || []).find(p => p.id === input.proposalId), item = proposal?.items.find(i => i.id === input.itemId);
     need(item, 'That review point no longer exists.', 404);
-    const own = store.jobType(proposal.type ?? CHECK_ANSWERS)?.review;
-    if (own) { own({ map, proposal, item, input, actor }); Object.assign(item, { review: input.decision, reviewedAt: new Date().toISOString(), ...(actor?.name ? { reviewedBy: { name: actor.name } } : {}) }); store.event(map, 'proposal-reviewed', null, `${proposal.id}/${item.id}: ${input.decision}`); return; }
-    need(['accepted', 'dismissed'].includes(input.decision), 'Choose Keep or Dismiss.');
+    // Each job type says how its points are reviewed: Check answers keeps or dismisses, and may change its mind; a sort
+    // (K8) only dismisses here, once, since accepting places the thought.
+    const definition = store.jobType(proposal.type ?? CHECK_ANSWERS);
+    need((definition?.reviewDecisions ?? ['accepted', 'dismissed']).includes(input.decision), definition?.reviewRefusal ?? 'Choose Keep or Dismiss.');
+    need(!definition?.finalReview || item.review === 'unreviewed', 'This was already accepted or dismissed.', 409);
+    definition?.review?.({ map, proposal, item, input, actor }); // An editable item takes the user's text (F5).
     Object.assign(item, { review: input.decision, reviewedAt: new Date().toISOString(), ...(actor?.name ? { reviewedBy: { name: actor.name } } : {}) });
     store.event(map, 'proposal-reviewed', null, `${proposal.id}/${item.id}: ${input.decision}`);
   } },

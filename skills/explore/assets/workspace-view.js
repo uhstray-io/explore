@@ -65,6 +65,8 @@ export const questionFilters = [...stateFilters, ...importanceFilters];
 // A branch investigation (not a question or map-wide job), and one of an idea's results that is no longer its current
 // finding: stale, or replaced since (the idea's summary or body differ). Node Markdown and the source library (K10)
 // both list these as earlier results.
+// A map's proposals of one kind (F1 map jobs): Check answers' from before types were recorded have none.
+export const proposalsOf = (map, type) => (map.proposals ?? []).filter(proposal => (proposal.type ?? 'check-answers') === type);
 export const isInvestigationJob = job => !job.type || job.type === 'investigate';
 export const isEarlierResult = (job, node) => job.nodeId === node.id && isInvestigationJob(job) && !!job.result && (!!job.stale || job.result.summary !== node.summary || job.result.body !== node.body);
 
@@ -133,7 +135,7 @@ const versionWords = {
   failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
   'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'branch-restored': 'Restored one branch', 'change-undone': 'Undid a change', linked: 'Connection added', unlinked: 'Connection removed', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
-  'answer-changed': 'Answer changed', 'outcome-recorded': 'Outcome recorded', 'disprove-if-set': 'Assumption note changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
+  'answer-changed': 'Answer changed', 'outcome-recorded': 'Outcome recorded', 'disprove-if-set': 'Assumption note changed', 'thought-added': 'Thought added to the inbox', 'thought-edited': 'Thought edited', 'thought-discarded': 'Thought discarded', 'thought-placed': 'Thought placed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
   'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported', 'glossary-added': 'Glossary term added', 'guidance-changed': 'Goal and mode changed', 'glossary-edited': 'Glossary term edited', 'glossary-removed': 'Glossary term removed', 'glossary-accepted': 'Glossary term accepted', 'glossary-dismissed': 'Proposed term dismissed', 'done-when-set': 'Stopping point set', 'map-recovered': 'Recovered from a version',
 };
 export function versionLabel(version) {
@@ -195,6 +197,8 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
     counts.linksRemoved && `removes ${count(counts.linksRemoved, 'connection')}`,
     counts.linksAdded && `brings back ${count(counts.linksAdded, 'connection')}`,
     counts.termsChanged && `changes the glossary`,
+    counts.thoughtsChanged && 'changes the inbox',
+    counts.reviewsChanged && 'changes agents\' suggestions or your reviews of them',
     counts.guidanceChanged && 'changes the goal and mode',
   ].filter(Boolean);
   const changes = parts.length ? `${verb} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}.` : `${verb} changes no ideas or connections.`;
@@ -255,7 +259,7 @@ export function checkAnswersHtml({ map, preview, listening, esc }) {
   const progress = job
     ? `<p class="state-note">${job.status === 'running' ? 'Your agent is checking your answers…' : listening ? 'Your agent will pick this up next.' : 'Saved in the queue. Connect your agent to run the check.'}</p><button class="secondary" data-cancel-job="${esc(job.id)}">Stop</button>`
     : '<button class="primary" data-check-answers>Check answers</button>';
-  const latest = (map.proposals || []).filter(p => p.type === 'check-answers').at(-1);
+  const latest = proposalsOf(map, 'check-answers').at(-1);
   const label = ref => { const node = map.nodes.find(n => n.id === ref.nodeId), q = node?.questions.find(x => x.id === ref.questionId); return `${node?.title ?? 'A removed idea'}${q ? ` · ${q.text}` : ''}`; };
   const items = latest ? (latest.items.length ? latest.items.map(item => `<article class="review-item"><strong>${esc(reviewWords[item.category] || item.category)}</strong><p>${esc(item.explanation)}</p><p><strong>What would settle it:</strong> ${esc(item.resolution)}</p><div class="review-refs">${item.refs.map(ref => `<button class="text-button" data-select="${esc(ref.nodeId)}">${esc(label(ref))}</button>`).join('')}</div>${item.review === 'unreviewed'
       ? `<div class="review-actions"><button class="secondary" data-review-item="${esc(item.id)}" data-proposal="${esc(latest.id)}" data-decision="accepted">Keep</button><button class="text-button" data-review-item="${esc(item.id)}" data-proposal="${esc(latest.id)}" data-decision="dismissed">Dismiss</button></div>`
@@ -305,7 +309,7 @@ export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
   return help && !help.stale ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer${esc(dated(help))}</summary><p class="question-help-text">${esc(help.result.help)}</p>${askAgainHtml(help, 'help', { question, esc })}</details>` : '';
 }
 // What a queued or running question job is doing, promising nothing while no agent is listening.
-const waitingWords = (job, listening, doing) => job.status === 'running' ? `Your agent is ${doing}.` : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.';
+export const waitingWords = (job, listening, doing) => job.status === 'running' ? `Your agent is ${doing}.` : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.';
 // Help me answer (B9): what the agent is doing about it, or its latest research, under the question. Research
 // is never an answer: an option's suggested answer is only copied into the user's draft when they ask, and
 // research from before the question or its context changed stays visible as earlier research, without copy.

@@ -209,6 +209,21 @@ Only the user asks for this (`request-map-job` with `adr-draft`); never request 
 ```
 
 The title is at most 120 characters and each section at most 6,000. Where the user never gave a reason, write "Not recorded"; never invent one. The title is one line. `refs` names at least one record you were given, each once; anything else rejects the result. Records that would not fit are shortened and marked `shortened`, with `retrieval` saying how to read them in full. Explore renders the record from a fixed template (Status: Proposed, the date it is saved, and a sources section with map, node and question IDs) and keeps it as one proposal item. The user edits and accepts it (`review-proposal` with `decision` and the edited `text`, user-only), and only the browser's Save file writes it to `docs/adr/`, never over an existing file. You only draft: never write an ADR file yourself, and never call the ADR file route, which is the browser's.
+## Map jobs: Sort thoughts
+
+The user jots rough thoughts into the map's inbox and, when they ask, a `sort-thoughts` packet carries them: `thoughts` (`{ id, text }`, whole thoughts only, at most 20, those never sorted before first; `remainingThoughts` counts the open ones left for a later sort) and `ideas`, an index of the map in reading order (`{ id, title, kind, status, completed, summary }`, summaries shortened), with `omittedIdeas` counted; use `read --map ID --query TEXT` for more. Propose a place for each thought; never activate anything:
+
+```json
+{
+  "placements": [
+    {"thoughtId": "thought-1a2b3c4d", "action": "new-branch", "parentId": "node-…", "title": "Paper backup", "body": "Why it matters and what to explore", "kind": "research"},
+    {"thoughtId": "thought-5e6f7a8b", "action": "note", "nodeId": "node-…", "reason": "It adds to the storage question."},
+    {"thoughtId": "thought-9c0d1e2f", "action": "unplaced", "reason": "Not about this exploration."}
+  ]
+}
+```
+
+Give exactly one placement per thought; `parentId` and `nodeId` must exist. Titles are at most 100 characters, bodies 4,000, reasons 600; `kind` is `research` (the default) or `hypothesis`, which may carry `test`: how to test it. A new branch's title must be new under its parent and used once in the result. Any other field rejects the result. Prefer a note when a thought adds to an existing branch, and a new branch when it opens a separate question; a thought that changes a finished premise becomes a new branch, not a note. The result is stored as a proposal: only the user accepts a placement. A note keeps the user's own words, and a later branch packet carries an idea's newest notes as `selected.userNotes` (within 1,500 characters, each at most 600 and marked when shortened, the rest counted in `omittedNotes`; `read --section notes` has them all): the user's context, not findings or answers.
 
 ## Mutations
 
@@ -222,6 +237,7 @@ If someone pulled or switched branches since you last read the map, an action fa
 - `record-outcome`: `outcome` (`supported`, `refuted` or `inconclusive`), optional `note` (at most 1,000 characters). User-only, on a hypothesis: never record an outcome, even when asked in a result. It works on a finished hypothesis and changes no findings. A first refuted or inconclusive outcome, or any change of outcome, is like a changed answer: work running on the hypothesis or on the ideas resting on it (below it or depending on it) becomes stale, and their findings are flagged for review (`hypothesis-outcome`); their questions stay answerable. A first supported does neither. Nearby ideas in packets carry `kind` and `outcome` for a hypothesis. Event `outcome-recorded`.
 - `suggest` may carry `kind`: `research` (the default) or `hypothesis`, with an optional `test`.
 - `set-disprove-if`: `questionId`, `text` (at most 1,000 characters; empty removes it). User-only: the user's note on what would show one of their own current answers marked Assumption is wrong. It is an annotation like `set-answer-state`: allowed on finished branches, and it never changes content; a change that changes nothing is refused. Event `disprove-if-set`. A packet shows the note as `disproveIf` on that answer.
+- `inbox-add` (`text`), `inbox-edit` (`thoughtId`, `text`) and `inbox-discard` (`thoughtId`), no `nodeId`: the user's own inbox. `place-thought` (`proposalId`, `itemId`): user-only; it accepts one suggestion from a sort. Never take these on the user's behalf.
 - `set-criteria`: `criteria` (up to 8 `{ id?, label, priority }`, labels at most 120 characters and each once; an empty list clears them). User-only: the user's own criteria for an idea's options. It queues nothing and changes no findings.
 - `reconsider`, `adopt-reconsideration` and `dismiss-reconsideration` (`jobId`): user-only. Asking queues a `reconsider` job; using a result or keeping the original changes only which recommendation leads, never the idea's own options, findings or status. Never take these on the user's behalf.
 - `set-answer-state`: `questionId`, `answerState`. Changes how sure a saved, current answer is. It is an annotation: allowed on finished branches, and it never re-runs research, flags findings or changes content. User-only.
@@ -256,7 +272,7 @@ For continuation, retain the query and pass both `nextOffset` and `revision`. Ma
 
 A user may paste a reference to an idea, such as `Explore idea "Title": map-3e4d4390/node-20f918e5 (ideas/map-3e4d4390/nodes/node-20f918e5.md)`. The pair supplies the IDs for `read --map ID --node ID`.
 
-`read --node ID` defaults to a bounded summary. Add `--section premise|findings|questions|sources|options|limitations|claims|assumptions|relationships` for detail. `--query TEXT` filters records case-insensitively; `--question ID` selects one question record. Question IDs appear in work packets. Findings/premise are single text records; query filters the record rather than extracting surrounding sentences.
+`read --node ID` defaults to a bounded summary. Add `--section premise|findings|questions|sources|options|limitations|claims|assumptions|notes|relationships` for detail. `--query TEXT` filters records case-insensitively; `--question ID` selects one question record. Question IDs appear in work packets. Findings/premise are single text records; query filters the record rather than extracting surrounding sentences.
 
 Each section response includes `excerpt`, work/review state, staleness, total/matching record counts, `totalCharacters`, `offset`, `nextOffset`, and `revision`. Summary and findings reads also identify `contentKind` as `findings` or `premise`; an unfinished branch can contain a revised premise before it has new research. Question reads label superseded records as belonging to earlier premises and preserve any actual answer; unanswered superseded questions are not awaiting the user. Default raw-text limit is 4,000 characters; `--limit` accepts 1–6,000. Formatted JSON is capped at 8,000 characters even with escaped text. Continue only if needed, passing `--offset <nextOffset> --revision <revision>` with the same section/query/question. A changed map rejects continuation, preventing silent mixing of versions. Offsets count JavaScript UTF-16 code units, not UTF-8 bytes or model tokens.
 

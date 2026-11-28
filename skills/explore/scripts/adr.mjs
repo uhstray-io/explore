@@ -91,11 +91,10 @@ export const adrJobTypes = {
       map.proposals = [...(map.proposals || []), { id: makeId('proposal'), jobId: job.id, type: ADR_DRAFT, createdAt: at, included: job.included || [], ...(stale ? { stale: true } : {}),
         items: [{ id: makeId('item'), title: result.title, refs: result.refs, text: renderAdr(map, result), review: 'unreviewed' }] }];
     },
-    // F1's review-proposal for an editable item: accepting saves the user's edited text, once; a reviewed draft (and so a
-    // saved one) is never reviewed again. Accepting writes nothing to the project.
+    // F1's review-proposal for an editable item: accepted or dismissed once, so a saved record is never reviewed again;
+    // accepting saves the user's edited text. Accepting writes nothing to the project.
+    reviewRefusal: 'Choose Accept or Dismiss.', finalReview: true,
     review: ({ item, input }) => {
-      need(['accepted', 'dismissed'].includes(input.decision), 'Choose Accept or Dismiss.');
-      need(item.review === 'unreviewed', 'This draft was already accepted or dismissed.', 409);
       if (input.decision === 'accepted') {
         const text = input.text === undefined ? item.text : textField(input.text, 'The record', adrFileMax, message => need(false, message));
         need(Buffer.byteLength(text, 'utf8') <= adrFileMax, 'The record must be at most 64 KiB.');
