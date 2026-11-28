@@ -77,6 +77,18 @@ When the branch is really a choice, a result can also compare options and recomm
 
 Give 1–4 options with unique `id`s (a letter, then letters, digits, `_` or `-`; at most 32) and titles that differ. Limits: title 150, description 600, fit 400, at most 4 pros and 4 cons of 240 each, suggested answer 1,000. With options, a recommendation is required: an existing `optionId` with `rationale` (800) and `mainTradeoff` (600), and optionally `reconsiderIf` (600); or `optionId: null` with `missing` (600), which is "No recommendation yet". A current result replaces the idea's options; a result without options clears them. The whole result must stay under 150,000 characters.
 
+When sources disagree or evidence could not be found, record it in optional `limitations` (at most 8):
+
+```json
+{
+  "limitations": [
+    {"id": "price", "kind": "conflict", "summary": "The two price sources disagree, and the choice depends on it.", "nextStep": "Ask the vendor for a written quote.", "sources": ["https://example.org/a", "https://example.org/b"], "optionIds": ["buy"], "blocksRecommendation": true}
+  ]
+}
+```
+
+`kind` is `conflict` (sources disagree; cite at least two) or `missing-evidence` (looked for, not found; sources optional). `id` follows the option-id rule and is unique; `summary` at most 600 characters, `nextStep` 400. `sources` must be URLs from this result's `sources`. `optionIds` (0–4) names options in this result; empty means the whole branch. `blocksRecommendation: true` needs options and a recommendation with `optionId: null`. Any other value rejects the whole result. A later result replaces an idea's records and a revised premise clears them, so when a continuing branch's packet lists `selected.limitations` (and `selected.options`), resend in full the ones that still hold. The packet shortens them: read `--section limitations` (and `options`) for the full records first.
+
 `summary` and `body` are required. Omit unused arrays. The example URL and ID are illustrative; real results require actual consulted sources and existing node IDs. Do not cite a source you have not read.
 
 Limits: summary 800 characters; body 24,000; at most 5 questions, 8 suggestions, 20 sources, 12 links. A question is a string or `{text, importance, why}`: `importance` is `low`, `medium` or `high` and needs a `why` (at most 600 characters) saying what the answer would change; `why` may also stand alone. A missing `why` for a rated question, or any other importance value, rejects the whole result so you can resend it. Suggestion kinds: `research`, `question`, `decision`, `risk`, `idea`. Link types: `depends_on`, `supports`, `contradicts`, `related_to`. `contains` is created by the server for suggested children. All results remain unreviewed until the user accepts them.
@@ -194,7 +206,7 @@ For continuation, retain the query and pass both `nextOffset` and `revision`. Ma
 
 A user may paste a reference to an idea, such as `Explore idea "Title": map-3e4d4390/node-20f918e5 (ideas/map-3e4d4390/nodes/node-20f918e5.md)`. The pair supplies the IDs for `read --map ID --node ID`.
 
-`read --node ID` defaults to a bounded summary. Add `--section premise|findings|questions|sources|relationships` for detail. `--query TEXT` filters records case-insensitively; `--question ID` selects one question record. Question IDs appear in work packets. Findings/premise are single text records; query filters the record rather than extracting surrounding sentences.
+`read --node ID` defaults to a bounded summary. Add `--section premise|findings|questions|sources|options|limitations|relationships` for detail. `--query TEXT` filters records case-insensitively; `--question ID` selects one question record. Question IDs appear in work packets. Findings/premise are single text records; query filters the record rather than extracting surrounding sentences.
 
 Each section response includes `excerpt`, work/review state, staleness, total/matching record counts, `totalCharacters`, `offset`, `nextOffset`, and `revision`. Summary and findings reads also identify `contentKind` as `findings` or `premise`; an unfinished branch can contain a revised premise before it has new research. Question reads label superseded records as belonging to earlier premises and preserve any actual answer; unanswered superseded questions are not awaiting the user. Default raw-text limit is 4,000 characters; `--limit` accepts 1–6,000. Formatted JSON is capped at 8,000 characters even with escaped text. Continue only if needed, passing `--offset <nextOffset> --revision <revision>` with the same section/query/question. A changed map rejects continuation, preventing silent mixing of versions. Offsets count JavaScript UTF-16 code units, not UTF-8 bytes or model tokens.
 

@@ -76,7 +76,14 @@ Keep four things distinguishable in concise prose:
 - **Interpretation:** what you infer from that evidence, the key assumption, and what would change the interpretation. Plausibility is not verification.
 - **Unresolved points:** the specific uncertainty, why it matters, and the smallest useful way to resolve it.
 
-Use these distinctions where needed rather than filling a mandatory template. Research to the depth needed for the selected question, using primary sources when available. A source link without a supported claim adds little. Do not manufacture sources, consensus, test results, or precision. If sources disagree, preserve the disagreement and its practical effect. A supported finding can still be unreviewed; acceptance belongs to the user.
+Use these distinctions where needed rather than filling a mandatory template. Research to the depth needed for the selected question, using primary sources when available. A source link without a supported claim adds little. Do not manufacture sources, consensus, test results, or precision. A supported finding can still be unreviewed; acceptance belongs to the user.
+
+Record material disagreements and gaps as `limitations` in the result, not only inside the findings:
+
+- A `conflict` is sources that disagree. Explain it by scope, date or method only when the evidence shows that; otherwise say the cause is unknown. Never settle it by counting sources or by inventing confidence. Pages that repeat or cite each other are not independent.
+- `missing-evidence` is something you looked for and did not find. Say what you looked for.
+- Each gives a next step the user can act on: a concrete check, a small experiment or a question. Never "accept the agent's view".
+- Mark `blocksRecommendation` only when the gap prevents any justified choice between the options.
 
 When a prior premise changes, check relevant dependency links and stale findings before building on them. Keep prior work and its reasons visible. Save the result's rationale and evidence, not a transcript of private reasoning.
 
@@ -89,7 +96,7 @@ Search queries and fetched URLs leave the machine, and the host's tools may log 
 - **Generalise before searching.** "Acme's 40k budget for a 12-person team" becomes "typical cost of a field notebook app for a small team". Search for the public fact the decision needs.
 - **URLs follow the same rule.** Do not build fetch URLs or query strings that contain private details, and do not paste map text into a search box.
 - **When unsure whether a detail is private, treat it as private.**
-- **If a search is not useful without a private detail, do not run it.** Under unresolved points, say which check was skipped, what kind of detail it needed (not the detail itself), and how the user could check it themselves.
+- **If a search is not useful without a private detail, do not run it.** Record it as a `missing-evidence` limitation: say which check was skipped and what kind of detail it needed (not the detail itself), with how the user could check it themselves as the next step.
 - A user's explicit statement in an answer that a named detail may be searched is permission for that detail only.
 
 ## Stop with a useful result
