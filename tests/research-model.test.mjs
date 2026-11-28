@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
-import { researchModelSetting, modelHintNote } from '../skills/explore/assets/research-model.js';
+import { researchModelSetting, modelHintNote } from '../skills/explore/scripts/research-model.mjs';
 import { runNoteHtml } from '../skills/explore/assets/workspace-view.js';
 
 // Separate research model (Z5, #63). Illustrative maps under .test-output, never ideas/.
@@ -72,6 +72,18 @@ test('a result may report how it ran; that is kept on the job, labelled as the a
   assert.match(note, /Your agent reported: a &lt;faster&gt; model, delegated\./); assert.doesNotMatch(note, /<faster>/);
   assert.match(runNoteHtml({ ...done, execution: { delegated: false, model: 'its own model' } }), /Your agent reported: its own model, not delegated\./);
   assert.doesNotMatch(runNoteHtml({ ...done, execution: undefined }), /reported/, 'a result without it completes normally');
+  for (const execution of [{}, { delegated: true, model: { name: 'x' } }]) assert.doesNotMatch(runNoteHtml({ ...done, execution }), /reported|undefined|object Object/, 'a malformed report from a file shows nothing');
+});
+
+test('an empty or missing note is no note', async () => {
+  const { store, map } = await workspace();
+  for (const note of ['', null]) {
+    const job = await store.claim('agent', map.id) ?? null;
+    if (!job) break;
+    assert.deepEqual((await store.checkResult(map.id, job.jobId, job.claimKey, { summary: 'S.', body: 'B.', execution: { delegated: false, model: 'own model', note } })).ok, true, JSON.stringify(note));
+    const saved = await store.complete(map.id, job.jobId, job.claimKey, { summary: 'S.', body: 'B.', execution: { delegated: false, model: 'own model', note } });
+    assert.deepEqual(saved.jobs.find(entry => entry.id === job.jobId).execution, { delegated: false, model: 'own model' });
+  }
 });
 
 test('the settings route saves and clears the hint, rejects a bad one, and next hands it out', async () => {

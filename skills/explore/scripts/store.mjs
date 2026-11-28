@@ -10,7 +10,7 @@ import { topicProfiles, topicProfileLabel } from '../assets/workspace-view.js';
 import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
-import { modelHintFor } from '../assets/research-model.js';
+import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
@@ -69,14 +69,6 @@ function parseMap(mapId, bytes) {
 function object(value, field) {
   need(value && typeof value === 'object' && !Array.isArray(value), `${field} must be an object.`);
   return value;
-}
-// How the agent says it ran an investigation (Z5): its own report, which Explore cannot verify.
-function validExecution(value) {
-  if (value === undefined) return {};
-  object(value, 'execution');
-  need(typeof value.delegated === 'boolean', 'execution.delegated must be true or false.');
-  const note = text(value.note, 'execution.note', 200, true);
-  return { execution: { delegated: value.delegated, model: text(value.model, 'execution.model', 200), ...(note ? { note } : {}) } };
 }
 function text(value, field, max = 12000, optional = false) {
   if (optional && value === undefined) return '';
@@ -651,8 +643,6 @@ export class Store {
     return this.serial(async () => {
       text(worker, 'Worker', 100);
       const maps = mapId ? [{ id: validId(mapId) }] : (await this.list()).filter(item => !item.unreadable).reverse();
-      // The user's research model (Z5), for branch research only. A settings file that cannot be read means no hint.
-      const modelHint = modelHintFor(await this.getSettings().then(settings => settings.researchModelHint, () => ''));
       for (const item of maps) {
         let map;
         try { map = await this.get(item.id); }
@@ -673,6 +663,8 @@ export class Store {
           const claimKey = randomUUID(); // Returned once in the packet; the map keeps only its hash.
           Object.assign(job, { status: 'running', worker, claimHash: claimHashOf(claimKey), startedAt: now(), ...(n ? { inputSignature: signature(map, n) } : {}) });
           let packet;
+          // The user's research model (Z5), for branch research only. A settings file that cannot be read means no hint.
+          const modelHint = investigation ? modelHintFor(await this.getSettings().then(settings => settings.researchModelHint, () => '')) : null;
           try { packet = investigation ? this.packet(map, job, { claimKey, modelHint }) : await this.typedPacket(map, job, definition, n, { claimKey }); }
           catch (error) {
             Object.assign(job, { status: 'failed', finishedAt: now(), error: error.message }); delete job.claimHash;
@@ -695,7 +687,7 @@ export class Store {
   validateResult(result, map, node) {
     object(result, 'Result');
     need(JSON.stringify(result).length <= 150000, 'This result is too large. Shorten the findings or the options.');
-    return { ...this.validateResultFields(result, map, node), ...normalizeComparison(result, message => { throw new Problem(message); }), ...validExecution(result.execution) };
+    return { ...this.validateResultFields(result, map, node), ...normalizeComparison(result, message => { throw new Problem(message); }) };
   }
   validateResultFields(result, map, node) {
     const list = (value, name, max) => { if (value === undefined) return []; need(Array.isArray(value) && value.length <= max, `${name} must be an array of at most ${max} items.`); return value; };
@@ -724,7 +716,7 @@ export class Store {
       need(job && holdsClaim(job, claimKey), 'The job claim is not valid.', 409);
       // A retried delivery must not create duplicate branches or re-run checks; it repeats the saved warning codes.
       if (job.status === 'completed') return { map, warnings: job.resultWarnings ?? [] };
-      const { definition, node: n, normalized, errors, warnings } = await this.prepareDelivery(map, job, result);
+      const { definition, node: n, normalized, execution, errors, warnings } = await this.prepareDelivery(map, job, result);
       if (errors.length) throw new Problem('This result breaks the exploration rules. Fix the listed items and send it again with the same claim.', 400, 'result-checks', errors);
       if (!isInvestigation(job)) {
         // The result stays on the job record: only investigations change an idea.
@@ -738,8 +730,7 @@ export class Store {
       }
       const stale = !signatureMatches(map, n, job.inputSignature);
       // How the agent says it ran the work is kept beside the worker, not with the findings.
-      const { execution, ...kept } = normalized;
-      Object.assign(job, { status: 'completed', finishedAt: now(), result: kept, stale }, execution ? { execution } : {}, warnings.length ? { resultWarnings: warnings.map(({ code, field }) => ({ code, field })) } : {});
+      Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale }, execution ? { execution } : {}, warnings.length ? { resultWarnings: warnings.map(({ code, field }) => ({ code, field })) } : {});
       if (stale) {
         this.flagForReview(n, { sourceId: n.id, kind: 'result-during-change' }); n.status = 'interrupted';
         this.event(map, 'stale-result', n.id, 'Result retained in job history. A premise changed during research.');
@@ -779,8 +770,8 @@ export class Store {
     const node = job.nodeId ? map.nodes.find(n => n.id === job.nodeId) || null : null;
     if (!isInvestigation(job)) return { definition, node, normalized: await definition.validate(object(result, 'Result'), { map, job, node }), errors: [], warnings: [] };
     need(!isCompleted(map, node), 'This branch was already completed. Its findings cannot be replaced.', 409);
-    const normalized = this.validateResult(result, map, node);
-    return { definition, node, normalized, ...checkAgainstMap(normalized, map, node) };
+    const normalized = this.validateResult(result, map, node), execution = normalizeExecution(result.execution, message => { throw new Problem(message); });
+    return { definition, node, normalized, execution, ...checkAgainstMap(normalized, map, node) };
   }
   // `result --check`: every check a delivery would run, against the current map, without saving or touching the job.
   async checkResult(mapId, jobId, claimKey, result) {

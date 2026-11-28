@@ -32,7 +32,7 @@ import { branchRestoreActions } from './branch-restore.mjs';
 import { libraryActions } from './library.mjs';
 import { linkActions } from './links.mjs';
 import { listenSetting } from '../assets/listening.js';
-import { researchModelSetting } from '../assets/research-model.js';
+import { researchModelSetting } from './research-model.mjs';
 
 export const INVESTIGATE = 'investigate';
 
