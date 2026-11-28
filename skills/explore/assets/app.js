@@ -10,6 +10,8 @@ import { answersDialog } from './answers-dialog.js';
 import { inboxDialog } from './inbox-dialog.js';
 import { notesHtml } from './inbox.js';
 import { criteriaDialog } from './criteria-dialog.js';
+import { challengeDialog } from './challenge-dialog.js';
+import { toolsDialog } from './tools-dialog.js';
 import { adrDialog } from './adr-dialog.js';
 import { criteriaEntryHtml, reconsideredHtml } from './criteria.js';
 import { briefDialog } from './brief-dialog.js';
@@ -36,10 +38,10 @@ import { outlinePanel } from './outline.js';
 import { foldsPanel, foldMenuItems, hiddenLabel } from './folds.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml, isInvestigationJob } from './workspace-view.js';
+import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml, isInvestigationJob } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, prefilled: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -154,7 +156,7 @@ function renderMap(fit = false, preserveView = false) {
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
-  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); inbox.mapChanged(); adr.mapChanged();
+  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); inbox.mapChanged(); adr.mapChanged(); challenge.mapChanged();
   const topologyChanged = state.layoutMap !== state.map.id || state.layoutCount !== state.map.nodes.length;
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
@@ -175,7 +177,7 @@ function renderMap(fit = false, preserveView = false) {
     return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}${outcomeLabel(n)}${hidden ? `, ${hiddenLabel(hidden)}` : ''}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span>${outcomeMarkHtml(n)}<span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span>${hidden ? `<span class="node-hidden" aria-hidden="true">+${hidden.total}</span>` : ''}<span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span><span class="node-caption"><span class="caption-title">${esc(n.title)}</span><span class="caption-state">${esc(status.label)}</span></span></button>`;
   }).join('');
   renderEdges(); minimap.render();
-  renderDetail(); renderOverview(); outline.render(); renderHistory(); renderVersionsPanel(); if (state.toolsOpen) renderTools();
+  renderDetail(); renderOverview(); outline.render(); renderHistory(); renderVersionsPanel(); tools.mapChanged();
   if (state.versionsOpen && !state.versionChoice && state.versions?.revision !== state.map.revision) loadVersions();
   if (focusedNode) $(`[data-node="${focusedNode}"]`)?.focus({ preventScroll: true });
   if (!$('#node-results').hidden) searchNodes();
@@ -265,13 +267,22 @@ async function followAddress() {
 }
 function focusNode(nodeId) {
   if (!state.positions[nodeId] || !state.visibleMap.nodes.some(node => node.id === nodeId)) return;
-  if (!state.view.shown.has(nodeId)) { folds.reveal(nodeId); return; }
+  if (!state.view.shown.has(nodeId)) return folds.reveal(nodeId); // It chooses the idea once shown.
   selectNode(nodeId);
   $('#node-results').hidden = true;
   closeOverview();
   if (outline.active()) { outline.focusRow(nodeId); return; }
   centerSelected();
   $(`[data-node="${nodeId}"]`)?.focus({ preventScroll: true });
+}
+// Explore this as a direction (F2): Add a direction on that idea, opened once it is shown and chosen. It is prefilled
+// unless the user has a draft of their own there; an earlier hypothesis's prefill they left as it was is replaced.
+async function exploreAsDirection({ nodeId, title, body }) {
+  const [titleKey, bodyKey] = [`${nodeId}-title`, `${nodeId}-branch`], last = state.prefilled[nodeId];
+  if ((!state.drafts[titleKey] && !state.drafts[bodyKey]) || (state.drafts[titleKey] === last?.title && state.drafts[bodyKey] === last?.body)) {
+    Object.assign(state.drafts, { [titleKey]: title, [bodyKey]: body }); state.prefilled[nodeId] = { title, body };
+  } else toast('Your own draft there is kept. Clear it to use this hypothesis instead.');
+  await focusNode(nodeId); if (state.selected === nodeId) openEditor('suggest');
 }
 function centerSelected() {
   const node = state.visibleMap?.nodes.find(n => n.id === state.selected);
@@ -463,38 +474,6 @@ $('#versions-panel').addEventListener('click', event => {
   else if ('versionBack' in button.dataset) { returnLive(); renderVersionsPanel(); }
   else if ('versionClose' in button.dataset) { state.versionsOpen = false; returnLive(); }
   else if ('versionUnname' in button.dataset) nameChosen(null);
-});
-// Map tools: Check answers. Nothing runs until the user clicks, and every point waits to be kept or dismissed.
-function showTools() {
-  if (!state.map) return;
-  const choices = answerChoices(state.map);
-  $('#tools-choices').innerHTML = choices.length ? choices.map(group => `<fieldset class="tools-group"><legend>${esc(group.title)}</legend>${group.answers.map(answer => `<label class="tools-choice"><input type="checkbox" data-choice-node="${esc(group.nodeId)}" data-choice-question="${esc(answer.questionId)}"> ${esc(answer.question)}</label>`).join('')}</fieldset>`).join('') : '<p class="form-note">No saved answers yet.</p>';
-  $('#tools-choose').open = false;
-  state.toolsOpen = true; state.toolsPreview = null; state.toolsPreviewRevision = null;
-  $('#tools-dialog').showModal();
-  exporter.render(); renderTools();
-}
-async function renderTools() {
-  if (!state.toolsOpen || !state.map) return;
-  const mapId = state.map.id, revision = state.map.revision;
-  if (state.toolsPreviewRevision !== revision) {
-    state.toolsPreviewRevision = revision;
-    try { const preview = await api(`/maps/${mapId}/job-preview?type=check-answers`); if (state.map?.id === mapId) state.toolsPreview = preview; } catch { state.toolsPreview = null; }
-  }
-  if (state.map?.id === mapId && state.toolsOpen) $('#tools-body').innerHTML = checkAnswersHtml({ map: state.map, preview: state.toolsPreview, listening: agentListening(), esc });
-}
-$('#show-tools').addEventListener('click', showTools);
-$('#tools-dialog').addEventListener('close', () => { state.toolsOpen = false; });
-$('#tools-dialog').addEventListener('click', async event => {
-  const button = event.target.closest('button'); if (!button) return;
-  if ('checkAnswers' in button.dataset) {
-    const selection = [...document.querySelectorAll('#tools-choices input:checked')].map(box => ({ nodeId: box.dataset.choiceNode, questionId: box.dataset.choiceQuestion }));
-    button.disabled = true;
-    if (await act(null, 'request-map-job', { jobType: 'check-answers', ...(selection.length ? { selection } : {}) })) toast(agentListening() ? 'Check queued. Your agent will pick it up next.' : 'Check queued. Connect your agent to run it.');
-    button.disabled = false; renderTools();
-  } else if (button.dataset.cancelJob) { if (await act(null, 'cancel-job', { jobId: button.dataset.cancelJob })) toast('Check stopped.'); renderTools(); }
-  else if (button.dataset.reviewItem) { if (await act(null, 'review-proposal', { proposalId: button.dataset.proposal, itemId: button.dataset.reviewItem, decision: button.dataset.decision })) renderTools(); }
-  else if (button.dataset.select) $('#tools-dialog').close(); // The page's own handler then focuses that idea.
 });
 // Loads the restart preview, or its next page of ideas to delete. If the branch changed meanwhile, the
 // preview starts again from the first page so it always matches what would be deleted.
@@ -759,6 +738,9 @@ const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
 const inbox = inboxDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, readOnly: () => readOnlyNote(state), listening: agentListening, focusNode }); // The inbox (K8).
 const criteria = criteriaDialog({ map: () => state.visibleMap, act, esc, toast, listening: agentListening }); // Criteria (C9), opened only on the live map.
 answersDialog({ map: () => state.map, live: () => state.historyStep === null, act, esc, download }); // Answer in a file (K11).
+const challenge = challengeDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening, select: focusNode, // Challenge decisions (F2).
+  exploreAsDirection });
+const tools = toolsDialog({ map: () => state.map, act, api, esc, toast, listening: agentListening, onOpen: () => exporter.render() }); // Map tools: Check answers (F1).
 const adr = adrDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Decision records (F5).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).

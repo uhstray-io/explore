@@ -734,3 +734,34 @@ test('Add a direction sends a hypothesis with its test, trimmed', () => {
   h.submit();
   assert.deepEqual(h.actCalls[0], ['node-a', 'suggest', { title: 'Submitted title', body: 'Submitted body', kind: 'hypothesis', test: 'Time it.' }]);
 });
+
+// Explore this as a direction (F2): the app's real callback, with the page and folds replaced.
+test('Explore this as a direction opens Add a direction on that idea once it is shown, and never replaces a draft there', async () => {
+  const run = ({ shown, drafts = {} }) => {
+    const calls = [], state = { positions: { a: {}, b: {} }, visibleMap: { nodes: [{ id: 'a' }, { id: 'b' }] }, view: { shown: new Set(shown) }, selected: 'a', drafts, prefilled: {} };
+    const context = vm.createContext({ state, $: () => ({ focus() {} }), closeOverview() {}, centerSelected() {}, outline: { active: () => false }, toast: message => calls.push(['toast', message]),
+      selectNode: id => { state.selected = id; calls.push(['select', id]); },
+      // A folded idea is revealed after a save's round trip, and only then chosen.
+      folds: { reveal: async id => { await new Promise(resolve => setImmediate(resolve)); state.view.shown.add(id); calls.push(['reveal', id]); context.focusNode(id); } },
+      openEditor: name => calls.push(['open', name, state.selected]) });
+    vm.runInContext(between('function focusNode(', '\nfunction centerSelected('), context);
+    return { calls, state, explore: direction => context.exploreAsDirection(direction) };
+  };
+  let page = run({ shown: ['a'] });
+  await page.explore({ nodeId: 'b', title: 'Evidence gap: No survey.', body: 'No survey.' });
+  assert.deepEqual(page.calls, [['reveal', 'b'], ['select', 'b'], ['open', 'suggest', 'b']], 'the form opens on that idea, after it is shown');
+  assert.deepEqual(page.state.drafts, { 'b-title': 'Evidence gap: No survey.', 'b-branch': 'No survey.' });
+  page = run({ shown: ['a', 'b'], drafts: { 'b-branch': 'My own notes.' } });
+  await page.explore({ nodeId: 'b', title: 'T', body: 'B' });
+  assert.deepEqual(page.state.drafts, { 'b-branch': 'My own notes.' }, 'a draft the user has there is kept'); assert.deepEqual(page.calls.at(-1), ['open', 'suggest', 'b']);
+  assert.match(page.calls.find(call => call[0] === 'toast')[1], /Your own draft there is kept/, 'and the user is told');
+  // A second hypothesis on the same idea replaces the first one's prefill while the user has left it as it was.
+  page = run({ shown: ['a', 'b'] });
+  await page.explore({ nodeId: 'b', title: 'First', body: 'One.' }); await page.explore({ nodeId: 'b', title: 'Second', body: 'Two.' });
+  assert.deepEqual(page.state.drafts, { 'b-title': 'Second', 'b-branch': 'Two.' });
+  page.state.drafts['b-branch'] = 'Two, and my note.'; await page.explore({ nodeId: 'b', title: 'Third', body: 'Three.' });
+  assert.deepEqual(page.state.drafts, { 'b-title': 'Second', 'b-branch': 'Two, and my note.' }, 'once edited it is theirs');
+  page = run({ shown: ['a'] });
+  await page.explore({ nodeId: 'gone', title: 'T', body: 'B' });
+  assert.equal(page.calls.some(call => call[0] === 'open'), false, 'nothing opens for an idea that is not on the map');
+});
