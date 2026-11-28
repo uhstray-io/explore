@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { validateMap, readProblem } from '../skills/explore/scripts/map-validation.mjs';
-import { briefWithStatus, pathProblem, checkFiles, projectForPacket } from '../skills/explore/scripts/project-brief.mjs';
+import { briefWithStatus, pathProblem, checkFiles, projectForPacket, promptedBy } from '../skills/explore/scripts/project-brief.mjs';
 import { PROJECT_BRIEF, projectBriefHtml, promptedByHtml, briefLimits } from '../skills/explore/assets/project-brief.js';
 import { projectBriefDialog } from '../skills/explore/assets/project-brief-dialog.js';
 import { versionLabel, restoreSummary } from '../skills/explore/assets/workspace-view.js';
@@ -39,6 +39,7 @@ const investigation = (store, map) => store.packet(map, { id: 'job-probe000', no
 
 test('the packet names only the chosen files and how to treat them; nothing else from the map', async () => {
   const ctx = await setup();
+  await ctx.act({ type: 'set-guidance', objective: 'Ship offline notes this year.' });
   const { packet } = await written(ctx);
   assert.equal(packet.jobType, PROJECT_BRIEF);
   assert.deepEqual(packet.files, ['README.md', 'package.json']);
@@ -56,7 +57,7 @@ test('a path that is outside, Explore\'s own, secret-looking, too large, binary 
   try { await symlink(outside, path.join(ctx.workspace, 'link'), 'junction'); } catch { linked = false; } // Junctions need no rights on Windows.
   const jobs = (await ctx.store.get(ctx.map.id)).jobs.length;
   const refused = { '../secret.txt': /cannot leave the workspace/, '/etc/hosts': /relative to the workspace/, 'C:/Windows/win.ini': /relative to the workspace/, '.explore/server.json': /own runtime or Git/, 'docs/.git/config': /own runtime or Git/,
-    '.env.local': /secret or credentials/, 'keys/server.pem': /secret or credentials/, 'deploy.key': /secret or credentials/, 'id_rsa.pub': /secret or credentials/, 'my-Password-list.md': /secret or credentials/, 'api_token.txt': /secret or credentials/,
+    '.env.local': /secret or credentials/, 'keys/server.pem': /secret or credentials/, 'deploy.key': /secret or credentials/, 'id_rsa.pub': /secret or credentials/, 'my-Password-list.md': /secret or credentials/, 'secrets/app.yml': /secret or credentials/, 'api_token.txt': /secret or credentials/,
     'big.txt': /at most 256 KB/, 'image.bin': /binary/, 'missing.md': /No such file/, ...(linked ? { 'link/inside.txt': /outside the workspace/ } : {}) };
   const names = Object.keys(refused);
   for (let at = 0; at < names.length; at += 6) { // Eight paths at most per request: a good one, six refused, the good one again.
@@ -162,6 +163,9 @@ test('a question names the facts that prompted it, as they were; an id not in th
   assert.match(promptedByHtml(question, { esc, status: null }), /^<p class="prompted-by">Prompted by: It is built with Node 20\. <span class="form-note">\(README\.md\)<\/span>; Works with no signal\. <span class="form-note">\(your statement\)<\/span><\/p>$/);
   assert.match(promptedByHtml(question, { esc, status: { files: [{ path: 'README.md', status: 'changed' }] } }), /class="prompted-by warning">[\s\S]*\(README\.md, changed since\)[\s\S]*Check it before relying on this question\./);
   assert.equal(promptedByHtml({ text: 'Plain' }, { esc }), '');
+  assert.match(promptedByHtml({ promptedBy: [{ id: 'f1', text: 'Uses <b>Node</b>', file: 'a<b>.md' }] }, { esc }), /Uses &lt;b&gt;Node&lt;\/b&gt; <span class="form-note">\(a&lt;b&gt;\.md\)/);
+  const draftOnly = { projectBrief: { draft: { facts: [{ id: 'f1', text: 'x', file: 'a.md' }] }, approved: null, statements: [{ id: 'statement-1', text: 'y' }] } };
+  for (const ids of [['f1'], ['statement-1']]) assert.throws(() => promptedBy(draftOnly, ids, message => { throw new Error(message); }), /not in the approved project brief/, 'a draft, and statements without an approved brief, never prompt a question');
 });
 
 test('a changed or missing file marks the brief and its facts, without writing map.json', async () => {
@@ -179,6 +183,8 @@ test('a changed or missing file marks the brief and its facts, without writing m
   const run = await ctx.store.claim('agent', map.id);
   assert.deepEqual(run.project.changedFiles, ['README.md', 'package.json']);
   assert.deepEqual(run.project.facts.map(fact => [fact.id, fact.fileChanged ?? false]), [['f1', true], ['f2', true], ['f3', true]]);
+  await writeFile(path.join(ctx.workspace, 'package.json'), '{ "name": "notebook", "type": "commonjs" }'.slice(0, 40) + '\n');
+  assert.equal((await briefWithStatus(ctx.workspace, map)).status.files[1].status, 'changed', 'the same size, other bytes');
   // Same size, same content: current again, read only once more.
   await writeFile(path.join(ctx.workspace, 'README.md'), readme);
   assert.equal((await briefWithStatus(ctx.workspace, map)).status.files[0].status, 'current');
