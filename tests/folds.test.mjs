@@ -95,9 +95,10 @@ function panel({ historic = false, folded = [], selected = 'root' } = {}) {
   const io = { acts: [], addresses: 0, redraws: 0, fits: 0, focused: [], toasts: [] }, bar = { innerHTML: '', hidden: true };
   const state = { map, visibleMap: map, selected, historyStep: historic ? 2 : null, historySource: historic ? map : null, branchFocus: null };
   let folds;
-  // The Store's answer to an action: a new map, drawn again as renderMap would.
+  // The Store's answer to an action, after a round trip: a new map, drawn again as renderMap would.
   const act = async (id, type, extra = {}) => {
     io.acts.push([id, type, extra]);
+    await new Promise(resolve => setImmediate(resolve)); // The map changes only when the save returns.
     const next = structuredClone(state.map), list = next.view.collapsed ?? [];
     if (type === 'fold') next.view.collapsed = extra.collapsed ? [...list, id] : list.filter(item => item !== id);
     if (type === 'reveal') { const above = new Set(); for (let at = next.nodes.find(n => n.id === id); at?.parentId; at = next.nodes.find(n => n.id === at.parentId)) above.add(at.parentId); next.view.collapsed = list.filter(item => !above.has(item)); }
@@ -138,10 +139,11 @@ test('revealing saves the unfold while live, but in a read-only view opens the f
   await p.folds.reveal('a1x');
   assert.deepEqual(p.io.acts, [], 'nothing is saved from history'); assert.ok(p.folds.view().shown.has('a1x')); assert.deepEqual(p.io.focused, ['a1x']);
   assert.equal(p.folds.foldRow('root', true), false, 'history never saves a fold');
-  const q = panel({ folded: ['a'], historic: true });
+  const q = panel({ folded: ['a', 'b'], historic: true });
   assert.equal(q.folds.foldRow('a', false), true, 'Right opens a folded idea in this browser'); assert.ok(q.folds.view().shown.has('a1'));
-  await q.click({ '[data-fold], [data-unfold]': true, element: { dataset: { unfold: 'a' } } });
-  assert.deepEqual(q.io.acts, [], 'nothing is saved');
+  await q.click({ '[data-fold], [data-unfold]': true, element: { dataset: { unfold: 'b' } } });
+  assert.ok(q.folds.view().shown.has('b1'), 'the menu opens another folded idea there');
+  assert.deepEqual(q.io.acts, [], 'neither saves anything');
   p.state.historyStep = null; p.state.historySource = null; p.folds.render();
   assert.equal(p.folds.view().shown.has('a1x'), false, 'back to live, the saved fold applies again');
 });
