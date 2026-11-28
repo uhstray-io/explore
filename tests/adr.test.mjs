@@ -397,6 +397,7 @@ test('the dialog keeps the title and edits, accepts through review-proposal, and
     assert.match(io.body.innerHTML, /Your agent will read 1 answer and the findings of 1 idea/); assert.match(io.body.innerHTML, /value="Sync daily"/, 'the title survives the preview');
     await io.click({ adrSend: '' });
     assert.deepEqual(calls.at(-1), [null, 'request-map-job', { jobType: ADR_DRAFT, selection: [{ nodeId: 'root', questionId: 'q-1' }, { nodeId: 'root' }], titleHint: 'Sync daily' }]);
+    assert.doesNotMatch(io.body.innerHTML, /value="Sync daily"/, 'the next record starts without a title');
     map = fixtureMap(); io.dialog.mapChanged();
     await io.body.fire('input', { target: { dataset: { adrText: 'item-1' }, value: '# Mine' } });
     // A poll while the user types never redraws.
@@ -413,6 +414,9 @@ test('the dialog keeps the title and edits, accepts through review-proposal, and
     assert.match(routes.at(-1), /\/maps\/map-1\/adr-file\?proposal=proposal-1&item=item-1$/); assert.match(io.body.innerHTML, /Path: docs\/adr\/0004-sync-daily\.md/); assert.equal(io.focused.at(-1), '#adr-number');
     await io.body.fire('input', { target: { id: 'adr-slug', dataset: {}, value: 'sync-every-day' } });
     assert.match(io.body.querySelector('#adr-path').textContent, /docs\/adr\/0004-sync-every-day\.md/, 'the path follows the name');
+    await io.body.fire('change', { target: { closest: () => ({ dataset: { adrNode: 'root' }, checked: true }) } });
+    await io.click({ adrPreview: '' }); await io.click({ adrSend: '' });
+    assert.match(io.body.innerHTML, /Path: docs\/adr\/0004-sync-every-day\.md/, 'sending a new draft keeps the Save preview open, as before F4');
     await io.click({ adrWrite: 'item-1', proposal: 'proposal-1' });
     const [nodeId, type, input, options] = calls.at(-1);
     assert.deepEqual([nodeId, type, input, options.route], [null, 'adr-save', { proposalId: 'proposal-1', itemId: 'item-1', path: 'docs/adr/0004-sync-every-day.md', sha256: 'abc' }, 'adr-file'], 'through act, on the ADR route');
