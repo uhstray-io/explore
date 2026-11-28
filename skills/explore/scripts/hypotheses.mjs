@@ -40,10 +40,11 @@ export const hypothesisPacket = (node, clip) => { const record = hypothesisOf(no
 export const hypothesisInstruction = 'This idea is a hypothesis: its premise is the claim. Design the smallest test that could refute it, then gather evidence for and against, and return hypothesis: { test, outcome, rationale }, with outcome supported, refuted, inconclusive, or null when the test needs something only the user can do (ask them in questions instead). A result without hypothesis clears your earlier proposal, so resend it if it still holds. You propose an outcome; never record an outcome: only the user records one.';
 
 export const hypothesisActions = {
-  // The user records whether the claim held up. It changes no findings, so it works on a finished hypothesis. Like a
-  // changed answer, it is a user statement: work running on the hypothesis or below it becomes stale, and a first
-  // refuted or inconclusive outcome, or any change of outcome, flags the findings of the ideas resting on it
-  // (descendants and ideas that depend on it) for review. Their questions stay answerable.
+  // The user records whether the claim held up. It changes no findings, so it works on a finished hypothesis. A first
+  // refuted or inconclusive outcome, or any change of outcome, is like a changed answer: work running on the hypothesis
+  // or on what rests on it becomes stale, and the findings of the ideas resting on it (descendants and ideas that depend
+  // on it) are flagged for review; their questions stay answerable. A first supported, or the same outcome again, does
+  // neither.
   'record-outcome': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const record = hypothesisOf(node);
     need(record, 'Only a hypothesis has an outcome to record.', 409);
@@ -51,9 +52,8 @@ export const hypothesisActions = {
     const note = optionalText(input.note, 'A note', outcomeNoteMax, message => need(false, message));
     const previous = outcomeOf(record.outcome), at = new Date().toISOString();
     Object.assign(record, { outcome: input.outcome, outcomeNote: note, outcomeAt: at });
-    record.history = [...historyOf(record), { outcome: input.outcome, note, at, ...(actor?.name ? { by: actor.name } : {}) }];
-    node.contentRevision++;
-    if (previous ? previous !== input.outcome : input.outcome !== 'supported') store.flagAffected(map, node.id, 'hypothesis-outcome');
+    record.history = [...(Array.isArray(record.history) ? record.history : []), { outcome: input.outcome, note, at, ...(actor?.name ? { by: actor.name } : {}) }]; // Views read what they can.
+    if (previous ? previous !== input.outcome : input.outcome !== 'supported') { node.contentRevision++; store.flagAffected(map, node.id, 'hypothesis-outcome'); }
     store.event(map, 'outcome-recorded', node.id, input.outcome);
   } },
 };

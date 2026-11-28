@@ -13,8 +13,8 @@ export const day = at => String(at ?? '').slice(0, 10);
 // Every outcome the user recorded, oldest first, readable records only.
 export const historyOf = record => (Array.isArray(record?.history) ? record.history.filter(item => outcomeOf(item?.outcome)) : []);
 
-// The canvas: a small mark for the outcome the user recorded, in the corner the status badge leaves free, and the
-// words for the idea's label.
+// The canvas: a small mark for the outcome the user recorded, in the top-left corner, clear of the status badge and the
+// hidden-directions count, and the words for the idea's label.
 const marks = { supported: '+', refuted: '×', inconclusive: '~' };
 export function outcomeMarkHtml(node) {
   const outcome = outcomeOf(hypothesisOf(node)?.outcome);

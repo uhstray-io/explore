@@ -51,6 +51,11 @@ test('an agent suggestion of kind hypothesis creates a hypothesis with its test,
   assert.equal(hyp.kind, 'hypothesis'); assert.equal(hyp.hypothesis.test, 'Check free storage on five phones.'); assert.equal(odd.kind, 'research');
   const { packet } = await run(hyp.id, { questions: ['Anything else?'] });
   assert.deepEqual(packet.selected.hypothesis, { test: 'Check free storage on five phones.', outcome: null, proposed: null });
+  const { hypothesisPacket } = await import('../skills/explore/scripts/hypotheses.mjs');
+  const clip = (text, length) => (text.length > length ? `${text.slice(0, length)}…` : text);
+  assert.equal(hypothesisPacket({ kind: 'hypothesis', hypothesis: { test: 'x'.repeat(2000), outcome: null, proposed: null } }, clip).test.length, 601, 'a long test is shortened like the premise');
+  const { versionLabel } = await import('../skills/explore/assets/workspace-view.js');
+  assert.equal(versionLabel({ labels: ['outcome-recorded'] }), 'Outcome recorded');
   assert.match(packet.instruction, /smallest test that could refute it/); assert.match(packet.instruction, /never record an outcome/i);
 });
 
@@ -117,6 +122,22 @@ test('a changed premise on a finished hypothesis is a hypothesis with the same t
   saved = await act({ type: 'fork-revision', nodeId: hypId, body: 'It takes over two minutes.' });
   const fork = saved.nodes.at(-1);
   assert.equal(fork.kind, 'hypothesis'); assert.equal(fork.hypothesis.test, 'Time ten volunteers.'); assert.equal(fork.hypothesis.outcome, null);
+  // Explore a changed answer beside the original: the claim stays first.
+  const { store: other, map: second, act: act2, run: run2 } = await setup();
+  await act2({ type: 'suggest', nodeId: second.rootId, title: 'Logging is too slow', body: 'It takes over a minute.', kind: 'hypothesis' });
+  const hyp2 = (await other.get(second.id)).nodes.at(-1).id;
+  let done = (await run2(hyp2, { questions: ['How many volunteers?'] })).saved;
+  const q = nodeOf(done, hyp2).questions[0];
+  await act2({ type: 'answer', nodeId: hyp2, questionId: q.id, answer: 'Ten.' });
+  done = (await run2(hyp2, {})).saved;
+  done = await act2({ type: 'fork-revision', nodeId: hyp2, questionId: q.id, answer: 'Twenty.' });
+  assert.match(done.nodes.at(-1).prompt, /^It takes over a minute\.\n\nEarlier answer to "How many volunteers\?": Ten\.\n\nChanged answer: Twenty\.$/);
+  // A hand-edited history entry is kept when the next outcome is recorded; views skip it.
+  const raw = JSON.parse(await readFile(store.file(map.id), 'utf8'));
+  raw.nodes.find(node => node.id === hypId).hypothesis.history.unshift({ outcome: 'proven', at: '2026-01-01' });
+  const { writeFile } = await import('node:fs/promises'); await writeFile(store.file(map.id), JSON.stringify(raw));
+  saved = await act({ type: 'record-outcome', nodeId: hypId, outcome: 'refuted' });
+  assert.deepEqual(nodeOf(saved, hypId).hypothesis.history.map(item => item.outcome), ['proven', 'supported', 'refuted']);
 });
 
 test('recording an outcome works on a finished hypothesis, changes no findings, keeps a history, and flags what rests on it unless a first one is supported', async () => {
@@ -135,7 +156,7 @@ test('recording an outcome works on a finished hypothesis, changes no findings, 
   saved = await act({ type: 'record-outcome', nodeId: hypId, outcome: 'supported', note: '  Timed on site.  ' });
   let hyp = nodeOf(saved, hypId);
   assert.deepEqual([hyp.status, hyp.body, hyp.completedAt, hyp.reviewState], [finished.status, finished.body, finished.completedAt, finished.reviewState], 'its findings and completion stay');
-  assert.equal(hyp.contentRevision, finished.contentRevision + 1, 'work running on it or below it becomes stale, as after a changed answer');
+  assert.equal(hyp.contentRevision, finished.contentRevision, 'a first supported changes nothing that rests on it');
   assert.equal(hyp.hypothesis.outcome, 'supported'); assert.equal(hyp.hypothesis.outcomeNote, 'Timed on site.'); assert.ok(hyp.hypothesis.outcomeAt);
   assert.deepEqual([child, dependent].map(id => nodeOf(saved, id).stale), [false, false], 'a first supported flags nothing');
   assert.equal(saved.history.at(-1).type, 'outcome-recorded');
@@ -145,6 +166,7 @@ test('recording an outcome works on a finished hypothesis, changes no findings, 
   hyp = nodeOf(saved, hypId);
   assert.deepEqual(hyp.hypothesis.history.map(item => item.outcome), ['supported', 'supported', 'refuted'], 'earlier outcomes stay in the history');
   assert.deepEqual([child, dependent].map(id => nodeOf(saved, id).stale), [true, true], 'a changed outcome flags descendants and dependents');
+  assert.equal(hyp.contentRevision, finished.contentRevision + 1, 'and makes work running on it or what rests on it stale');
   assert.equal(nodeOf(saved, child).reviewCauses.at(-1).kind, 'hypothesis-outcome'); assert.equal(hyp.stale, false, 'the hypothesis itself is left as it is');
   assert.equal(nodeOf(saved, dependent).status, 'explored', 'flagged, not interrupted');
   await assert.rejects(act({ type: 'record-outcome', nodeId: hypId, outcome: 'proven' }), /supported, refuted or inconclusive/);

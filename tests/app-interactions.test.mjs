@@ -29,7 +29,8 @@ const callbacks = between('function agentListening(', '\nfunction connectionView
 
 // Execute the real callbacks with DOM/API boundaries replaced. This verifies control
 // replacement decisions, not browser-native undo or IME behavior itself.
-function harness({ question = false } = {}) {
+function harness({ question = false, hypothesis = false } = {}) {
+  const actCalls = [];
   const node = id => ({ id, kind: 'research', title: id, summary: 'Saved premise', body: 'Saved premise',
     status: 'suggested', reviewState: 'unreviewed', questions: [], sources: [] });
   const state = { map: { id: 'map-a' }, selected: 'node-a', historyStep: null, helpSeen: new Set(),
@@ -64,11 +65,12 @@ function harness({ question = false } = {}) {
   };
   fields.set('node-a-title', field('node-a-title', 'Submitted title', 'title'));
   fields.set('node-a-branch', field('node-a-branch', 'Submitted body', 'body'));
+  if (hypothesis) { fields.set('node-a-kind', field('node-a-kind', 'hypothesis', 'kind')); fields.set('node-a-test', field('node-a-test', '  Time it.  ', 'test')); }
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
     glyphs: { research: 'x' }, esc: String, prose: String, hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload, readOnlyNote, isInvestigationJob, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, foldMenuItems, goalSectionHtml, goalEditorHtml, goalEdits, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
-    act: () => pending, toast: () => {}, FormData: class {
+    act: (...args) => { actCalls.push(args); return pending; }, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
     } });
@@ -80,7 +82,7 @@ function harness({ question = false } = {}) {
     querySelectorAll: () => submittedFields };
   if (question) { form.id = ''; form.dataset.question = 'question-a'; }
   const focusControl = spec => { controlSpecs.push(spec); const current = control(spec); controls.push(current); current.focus(); return current; };
-  return { state, document, detail, button, complete, focusDraft, focusControl, render: context.renderDetail,
+  return { state, document, detail, button, complete, focusDraft, focusControl, render: context.renderDetail, actCalls,
     clearControls: () => { controlSpecs.length = 0; }, markup: () => markup,
     writes: () => writes, submit: () => submit({ preventDefault() {}, target: form, submitter: button }) };
 }
@@ -723,4 +725,10 @@ test('opening Add a connection from the idea menu shows its editor', () => {
   assert.match(h.markup(), /<details data-editor="link" open>/);
   h.state.editors['node-a:link'] = undefined; h.render();
   assert.match(h.markup(), /<details data-editor="link" hidden>/);
+});
+
+test('Add a direction sends a hypothesis with its test, trimmed', () => {
+  const h = harness({ hypothesis: true });
+  h.submit();
+  assert.deepEqual(h.actCalls[0], ['node-a', 'suggest', { title: 'Submitted title', body: 'Submitted body', kind: 'hypothesis', test: 'Time it.' }]);
 });

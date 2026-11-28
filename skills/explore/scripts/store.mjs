@@ -16,7 +16,7 @@ import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { normalizeLimitations, limitationLines } from './limitations.mjs';
 import { normalizeClaims, claimLines } from './claims.mjs';
 import { hypothesisTest, normalizeHypothesisResult, applyHypothesisResult, hypothesisPacket, hypothesisInstruction, hypothesisLines } from './hypotheses.mjs';
-import { newHypothesis } from '../assets/hypothesis.js';
+import { newHypothesis, hypothesisOf } from '../assets/hypothesis.js';
 import { normalizeGoal, goalForPacket, goalUse, goalLines, packetBudget } from './guidance.mjs';
 import { goalOf } from '../assets/guidance.js';
 import { findingsBasis, reasoningLabel } from '../assets/claims.js';
@@ -592,10 +592,12 @@ export class Store {
             const answer = text(input.answer, 'Changed answer', 12000);
             need(answer !== q.answer, 'Nothing changed in this answer.');
             revisesAnswer = { questionId: q.id, previousAnswer: q.answer, answer };
-            revised = [input.body ? text(input.body, 'Changed premise', 16000) : null, `Earlier answer to "${q.text}": ${q.answer}`, `Changed answer: ${answer}`].filter(Boolean).join('\n\n');
+            // A hypothesis's premise is its claim, so without a new one the fork keeps the claim first.
+            const lead = input.body ? text(input.body, 'Changed premise', 16000) : hypothesisOf(n) ? n.prompt : null;
+            revised = [lead, `Earlier answer to "${q.text}": ${q.answer}`, `Changed answer: ${answer}`].filter(Boolean).join('\n\n');
             title = `Changed answer: ${q.text}`.slice(0, 100);
           } else { revised = text(input.body, 'Changed premise', 16000); title = `Changed premise: ${n.title}`.slice(0, 100); }
-          const child = this.node(input.title ? text(input.title, 'Title', 100) : title, revised, n.kind === 'hypothesis' ? 'hypothesis' : 'research', n.id, { test: n.hypothesis?.test ?? '' });
+          const child = this.node(input.title ? text(input.title, 'Title', 100) : title, revised, hypothesisOf(n) ? 'hypothesis' : 'research', n.id, { test: hypothesisOf(n)?.test ?? '' });
           child.revises = n.id; if (revisesAnswer) child.revisesAnswer = revisesAnswer;
           this.invalidatePremises(map, n.id, revisesAnswer ? 'answer-changed' : 'premise-forked');
           const edge = { from: n.id, to: child.id, type: 'contains' };
