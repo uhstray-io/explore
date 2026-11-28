@@ -12,7 +12,7 @@ const bandOf = (affected, through) => (affected >= impactBands.high.affected || 
 // Untouched suggestions cost little to redo, so they never raise the band; an ID missing from the map is no idea.
 const weighs = node => !!node && node.status !== 'suggested';
 // Open: everything but an accepted, current finding. Any kind counts: the user's answers live on every kind.
-const isOpen = node => !(node.status === 'explored' && node.reviewState === 'accepted' && !node.stale);
+const unsettled = node => !(node.status === 'explored' && node.reviewState === 'accepted' && !node.stale);
 
 // What each map object needs once: a changed map is a new object.
 const caches = new WeakMap();
@@ -33,34 +33,39 @@ export function impactIndex(map) {
     const high = () => affected >= limits.affected || through >= limits.throughDependencies, branch = [node.id];
     for (const [id] of changeWalk(map, [node.id], { links: cache.links, dependencies: false })) { branch.push(id); if (weighs(cache.byId.get(id))) affected++; if (high()) break; }
     if (!high()) for (const [id] of changeWalk(map, branch, { links: cache.links })) { if (weighs(cache.byId.get(id))) { affected++; through++; } if (high()) break; }
-    const reason = through >= limits.throughDependencies ? `At least ${limits.throughDependencies} ideas elsewhere depend on it.` : affected >= limits.affected ? `At least ${limits.affected} ideas rest on it.` : null;
-    index[node.id] = { band: bandOf(affected, through), open: isOpen(node), reason };
+    const reason = through >= limits.throughDependencies ? `At least ${limits.throughDependencies} ideas elsewhere rest on it through dependencies.` : affected >= limits.affected ? `At least ${limits.affected} ideas rest on it.` : null;
+    index[node.id] = { band: bandOf(affected, through), open: unsettled(node), reason };
   }
   return (cache.index = index);
 }
 
-// One idea in full: { affected, inBranch, throughDependencies, suggestions, band, open, path(id) }. The change goes down
-// the branch by `contains` first, then on from the whole branch along any link, so an idea reached both ways is in
-// this branch. Lists hold ideas in the map only, nearest first, then in reading order. `path(id)` gives the steps the
-// change takes, each { from, to, via: 'contains' | 'depends on' }: the shortest of its kind, ties by ID; null if none.
+// One idea in full: { affected, inBranch, throughDependencies, suggestions, band, open, path(id) }. Its branch is what
+// `contains` alone reaches, so an idea reached both ways is in this branch. Lists hold ideas in the map only, nearest
+// first along the path shown, then in reading order. `path(id)` gives the steps the change takes, each { from, to,
+// via: 'contains' | 'depends on' }: an idea in the branch keeps its branch path, any other a shortest path, ties by
+// ID; null if the change does not reach it.
 export function impactOf(map, nodeId) {
   const cache = cacheOf(map);
   if (cache.entries.has(nodeId)) return cache.entries.get(nodeId);
-  const came = new Map([[nodeId, null]]), depth = new Map([[nodeId, 0]]), branch = [], beyond = [];
-  const reach = (list, walk) => { for (const [id, step] of walk) { came.set(id, step); depth.set(id, depth.get(step.from) + 1); list.push(id); } };
-  reach(branch, changeWalk(map, [nodeId], { links: cache.links, dependencies: false }));
-  reach(beyond, changeWalk(map, [nodeId, ...branch], { links: cache.links }));
+  const walk = dependencies => {
+    const came = new Map([[nodeId, null]]), depth = new Map([[nodeId, 0]]);
+    for (const [id, step] of changeWalk(map, [nodeId], { links: cache.links, dependencies })) { came.set(id, step); depth.set(id, depth.get(step.from) + 1); }
+    return { came, depth };
+  };
+  const inside = walk(false), everywhere = walk(true), via = id => (inside.came.has(id) ? inside : everywhere);
+  const branch = [...inside.came.keys()].slice(1), beyond = [...everywhere.came.keys()].slice(1).filter(id => !inside.came.has(id));
   cache.order ??= new Map(treeOrder(map).map(({ node }, at) => [node.id, at]));
-  const shown = ids => ids.filter(id => cache.byId.has(id)).sort((a, b) => depth.get(a) - depth.get(b) || cache.order.get(a) - cache.order.get(b));
+  const shown = ids => ids.filter(id => cache.byId.has(id)).sort((a, b) => via(a).depth.get(a) - via(b).depth.get(b) || cache.order.get(a) - cache.order.get(b));
   const inBranch = shown(branch), throughDependencies = shown(beyond), affected = shown([...branch, ...beyond]);
   const weight = ids => ids.filter(id => weighs(cache.byId.get(id))).length;
   const path = id => {
+    const { came } = via(id);
     if (!came.get(id)) return null;
     const steps = [];
     for (let at = id; came.get(at); at = came.get(at).from) steps.unshift({ from: came.get(at).from, to: at, via: came.get(at).dependency ? 'depends on' : 'contains' });
     return steps;
   };
-  const entry = { affected, inBranch, throughDependencies, suggestions: affected.length - weight(affected), band: bandOf(weight(affected), weight(throughDependencies)), open: isOpen(cache.byId.get(nodeId)), path };
+  const entry = { affected, inBranch, throughDependencies, suggestions: affected.length - weight(affected), band: bandOf(weight(affected), weight(throughDependencies)), open: unsettled(cache.byId.get(nodeId)), path };
   cache.entries.set(nodeId, entry);
   return entry;
 }

@@ -62,7 +62,7 @@ test('bands follow the documented thresholds, untouched suggestions do not count
   assert.deepEqual([0, 1, 4, 5, 60].map(n => band(fan(n))), ['low', 'medium', 'medium', 'high', 'high']);
   assert.equal(band(star(25, { status: 'suggested' })), 'low', 'untouched suggestions cost little to redo');
   assert.equal(band(fan(6, { status: 'suggested' })), 'low', 'nor do they count when reached through dependencies');
-  assert.deepEqual([star(20), fan(5), star(19)].map(map => impactIndex(map).hub.reason), ['At least 20 ideas rest on it.', 'At least 5 ideas elsewhere depend on it.', null]);
+  assert.deepEqual([star(20), fan(5), star(19)].map(map => impactIndex(map).hub.reason), ['At least 20 ideas rest on it.', 'At least 5 ideas elsewhere rest on it through dependencies.', null]);
   assert.deepEqual(impactBands, { high: { affected: 20, throughDependencies: 5 }, medium: { affected: 5, throughDependencies: 1 } });
   const loop = { rootId: 'p', nodes: [idea('p', null), idea('q', null)], edges: [dependsOn('p', 'q'), dependsOn('q', 'p')] };
   assert.deepEqual(impactOf(loop, 'p').affected, ['q'], 'a dependency cycle ends, and an idea never counts itself');
@@ -72,7 +72,7 @@ test('bands follow the documented thresholds, untouched suggestions do not count
   assert.equal(impactIndex({ rootId: 'p', nodes: [idea('p', null, { reviewState: 'accepted', stale: true })], edges: [] }).p.open, true, 'an accepted finding that needs review is open');
 });
 
-test('a path goes down the branch, then along dependencies, each the shortest of its kind with ties by ID; none when not affected', () => {
+test('a path keeps to the branch for an idea in it, and is a shortest one otherwise, with ties by ID; none when not affected', () => {
   const map = fixture();
   assert.deepEqual(impactPath(map, 'a', 'c'), [{ from: 'a', to: 'a1', via: 'contains' }, { from: 'a1', to: 'b', via: 'depends on' }, { from: 'b', to: 'c', via: 'depends on' }]);
   assert.deepEqual(impactPath(map, 'a', 'a2'), [{ from: 'a', to: 'a1', via: 'contains' }, { from: 'a1', to: 'a2', via: 'contains' }], 'in the branch, though c also reaches it');
@@ -80,6 +80,11 @@ test('a path goes down the branch, then along dependencies, each the shortest of
   assert.deepEqual(impactPath(tie, 's', 't').map(step => step.to), ['m1', 't'], 'ties go to the smaller ID');
   const mixed = { rootId: 'p', nodes: [idea('p', null), idea('q', 'p'), idea('r', 'q')], edges: [contains('p', 'q'), contains('q', 'r'), dependsOn('r', 'p')] };
   assert.deepEqual(impactPath(mixed, 'p', 'r').map(step => step.via), ['contains', 'contains'], 'a branch idea keeps its branch path even when a dependency is shorter');
+  // a ─ c1 ─ c2 ─ c3; y depends on a; x depends on y and on c3: x is two steps away through y, not four down the branch.
+  const deep = { rootId: 'a', nodes: [idea('a', null), idea('c1', 'a'), idea('c2', 'c1'), idea('c3', 'c2'), idea('y', null), idea('x', null)],
+    edges: [contains('a', 'c1'), contains('c1', 'c2'), contains('c2', 'c3'), dependsOn('y', 'a'), dependsOn('x', 'y'), dependsOn('x', 'c3')] };
+  assert.deepEqual(impactPath(deep, 'a', 'x'), [{ from: 'a', to: 'y', via: 'depends on' }, { from: 'y', to: 'x', via: 'depends on' }], 'outside the branch, a shortest path');
+  assert.deepEqual(impactOf(deep, 'a').affected, ['c1', 'y', 'c2', 'x', 'c3'], 'nearest first along the path shown');
   assert.equal(impactPath(map, 'x', 'a'), null); assert.equal(impactPath(map, 'a', 'a'), null);
 });
 
@@ -94,7 +99,8 @@ test('the filter lists exactly the high-impact ideas still open; dependency chai
   assert.deepEqual(sorted(group.nodes.map(node => node.id)), ['h1', 'h2', 'root'].sort(), 'the accepted, current one is settled');
   assert.deepEqual(sorted(impactContext(map, new Set(['h1', 'h2']))), ['m']);
   assert.deepEqual(sorted(group.context), ['m']);
-  assert.deepEqual(group.lines(map.nodes.find(node => node.id === 'h1')), [{ text: 'At least 5 ideas elsewhere depend on it.' }], 'why it is high, from the index');  assert.equal(mapOverview(map).groups.some(item => item.kind === 'impact'), false, 'only the live map passes it in');
+  assert.deepEqual(group.lines(map.nodes.find(node => node.id === 'h1')), [{ text: 'At least 5 ideas elsewhere rest on it through dependencies.' }], 'why it is high, from the index');
+  assert.equal(mapOverview(map).groups.some(item => item.kind === 'impact'), false, 'only the live map passes it in');
 });
 
 test('the inspector says the band and what a change would reach, and lists the affected ideas with how the change gets there', () => {

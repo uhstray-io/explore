@@ -115,6 +115,7 @@ Nothing was read from or written to `ideas/`.
 | 8,000 / 800 | 6.4–9.2 ms | 6.8–9.7 ms | about 11 ms | 878 |
 
 - **Per map revision:** the index is computed once and cached per map object. Each idea's walk stops once its band is certain to be high, so the dense maps cost about what the sparse one does.
+- **The one slow shape:** untouched suggestions never count toward the band, so a walk through them never stops early. With every idea an untouched suggestion and one link per idea, the review measured 30 ms at 500 ideas, 481 ms at 2,000 and 2.2 s at 4,000. With 3% of ideas explored, 4,000 ideas took 80 ms.
 - **Memory:** the index added under 1 MB of heap. The first version kept every idea's full list; it took 2.8 s and 203 MB at 4,000 ideas (measured in review).
 - **The overview:** with the High impact, still open filter and its context, it took 1–3 ms on every map above. Its rows come from the index.
 - **Why the rows don't show the full sentence:** the full sentence for every listed idea took 7 s at 2,000 ideas and 50 s at 4,000 (any direction). So the rows give the reason, and the sentence stays in the inspector.

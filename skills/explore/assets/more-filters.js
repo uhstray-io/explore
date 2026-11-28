@@ -1,4 +1,5 @@
-// The More filters panel (Z9): its markup and controller. The filters themselves are in workspace-view.js.
+// The More filters panel (Z9): its markup and controller. The filters themselves are in workspace-view.js, and the
+// impact filter (D4) in impact.js.
 
 const headings = { state: 'How settled answers are', importance: 'Importance of open questions', impact: 'Impact' };
 export function moreFiltersHtml(groups, { esc, active }) {
