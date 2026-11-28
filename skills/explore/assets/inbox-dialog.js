@@ -1,4 +1,5 @@
 import { inboxHtml, openThoughts, SORT_THOUGHTS } from './inbox.js';
+import { controlKey } from './dialog-focus.js';
 
 // The inbox dialog (K8), opened from Map tools: jot a thought, edit or discard one, ask the agent where they belong
 // (after F1's preview of what it reads), and accept or dismiss each suggestion. Capturing works with no agent connected.
@@ -18,7 +19,7 @@ export function inboxDialog({ map, act, api, esc, toast, live, readOnly = () => 
     waiting = pending;
     if (html !== written) {
       // A redraw (a poll, or the agent taking the work) keeps focus on the same control, or the nearest one left.
-      const active = document.activeElement, kept = active && body.contains?.(active) ? keyOf(active) : null;
+      const active = document.activeElement, kept = active && body.contains?.(active) ? controlKey(active) : null;
       body.innerHTML = written = html; // Never compare with innerHTML read back.
       if (ended === 'completed') { toast('Your agent\'s suggestions are in.'); focus('[data-place-thought]', '[data-dismiss-item]', kept); }
       else if (ended === 'failed' || ended === 'interrupted') focus('#inbox-status', kept);
@@ -27,9 +28,6 @@ export function inboxDialog({ map, act, api, esc, toast, live, readOnly = () => 
     for (const control of [text, capture.querySelector('button')]) if (control) control.disabled = !live(); // Growth history and saved versions are read-only.
     summary();
   };
-  // A control as a selector, to find it again after a redraw: its id, or its first data attribute.
-  const quote = value => (globalThis.CSS?.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&'));
-  const keyOf = element => (element.id ? `#${quote(element.id)}` : Object.entries(element.dataset ?? {}).map(([key, value]) => `[data-${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${quote(value)}"]`)[0] ?? null);
   // After a redraw, focus stays in the dialog: on the first of `selectors` found and enabled, else the capture field.
   const focus = (...selectors) => { (selectors.map(selector => body.querySelector(selector)).find(target => target && !target.disabled) ?? text)?.focus(); };
   // The thought after (or else before) `id` in the list as it was, to move focus to once `id` leaves the list.

@@ -10,6 +10,7 @@ import { answersDialog } from './answers-dialog.js';
 import { inboxDialog } from './inbox-dialog.js';
 import { notesHtml } from './inbox.js';
 import { criteriaDialog } from './criteria-dialog.js';
+import { adrDialog } from './adr-dialog.js';
 import { criteriaEntryHtml, reconsideredHtml } from './criteria.js';
 import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
@@ -153,7 +154,7 @@ function renderMap(fit = false, preserveView = false) {
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
-  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); inbox.mapChanged();
+  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); inbox.mapChanged(); adr.mapChanged();
   const topologyChanged = state.layoutMap !== state.map.id || state.layoutCount !== state.map.nodes.length;
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
@@ -698,14 +699,14 @@ function renderDetail(force = false) {
   detail.scrollTop = scroll;
 }
 // `onError(message)` reports a refusal instead of the toast (a batch lists its own).
-function act(nodeId, type, extra = {}, { onError = toast } = {}) {
+function act(nodeId, type, extra = {}, { onError = toast, route = 'action' } = {}) {
   if (!state.map || state.historyStep !== null) return Promise.resolve(false);
   const mapId = state.map.id;
   const execute = async () => {
     if (state.map?.id !== mapId || state.historyStep !== null) return false;
     state.mutating = true;
     try {
-      const result = await api(`/maps/${mapId}/action`, { nodeId, type, expectedRevision: state.map.revision, expectedFingerprint: state.map.fingerprint ?? undefined, ...extra });
+      const result = await api(`/maps/${mapId}/${route}`, { nodeId, type, expectedRevision: state.map.revision, expectedFingerprint: state.map.fingerprint ?? undefined, ...extra });
       state.mutations++;
       if (state.map?.id === mapId) { state.map = result; renderMap(); checkGitStatus(); }
       return true;
@@ -758,6 +759,7 @@ const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
 const inbox = inboxDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, readOnly: () => readOnlyNote(state), listening: agentListening, focusNode }); // The inbox (K8).
 const criteria = criteriaDialog({ map: () => state.visibleMap, act, esc, toast, listening: agentListening }); // Criteria (C9), opened only on the live map.
 answersDialog({ map: () => state.map, live: () => state.historyStep === null, act, esc, download }); // Answer in a file (K11).
+const adr = adrDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Decision records (F5).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).
 const showBrief = briefDialog({ api, map: () => state.map, download });

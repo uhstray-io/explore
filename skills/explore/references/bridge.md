@@ -192,6 +192,23 @@ Deliver with the same `result --job ID --file result.json`:
 
 Categories: `possible-tension`, `unresolved-choice`, `untested-assumption`. At most 12 findings; text up to 1,000 characters; each finding cites 1–8 records from `records`. An empty list is a valid result. Report what you notice between saved statements; never call an answer wrong or answer for the user. The result becomes a proposal: each point waits for the user to keep or dismiss it, and nothing in the map changes. A tension that rests on an answer the user has not marked Decided is shown as an unresolved choice. A check whose answers changed meanwhile is marked stale. `GET /api/maps/ID/job-preview?type=check-answers` shows the packet without starting anything.
 
+## Map jobs: Draft an ADR
+
+Only the user asks for this (`request-map-job` with `adr-draft`); never request it on their behalf. An `adr-draft` packet carries `records`, the 1–40 the user chose: saved answers (`{ nodeId, questionId, idea, question, answer, certainty, reviewState, stale }`) and explored ideas' findings (`{ nodeId, idea, summary, findings, reviewState, stale }`), with an optional `titleHint`. Draft from those records alone, with no new research:
+
+```json
+{
+  "title": "Store notes on the device and sync later",
+  "context": "Markdown",
+  "decision": "Markdown",
+  "consequences": "Markdown",
+  "alternatives": "Markdown, optional",
+  "openQuestions": "Markdown, optional",
+  "refs": [{"nodeId": "node-…", "questionId": "q-…"}, {"nodeId": "node-…"}]
+}
+```
+
+The title is at most 120 characters and each section at most 6,000. Where the user never gave a reason, write "Not recorded"; never invent one. The title is one line. `refs` names at least one record you were given, each once; anything else rejects the result. Records that would not fit are shortened and marked `shortened`, with `retrieval` saying how to read them in full. Explore renders the record from a fixed template (Status: Proposed, the date it is saved, and a sources section with map, node and question IDs) and keeps it as one proposal item. The user edits and accepts it (`review-proposal` with `decision` and the edited `text`, user-only), and only the browser's Save file writes it to `docs/adr/`, never over an existing file. You only draft: never write an ADR file yourself, and never call the ADR file route, which is the browser's.
 ## Map jobs: Sort thoughts
 
 The user jots rough thoughts into the map's inbox and, when they ask, a `sort-thoughts` packet carries them: `thoughts` (`{ id, text }`, whole thoughts only, at most 20, those never sorted before first; `remainingThoughts` counts the open ones left for a later sort) and `ideas`, an index of the map in reading order (`{ id, title, kind, status, completed, summary }`, summaries shortened), with `omittedIdeas` counted; use `read --map ID --query TEXT` for more. Propose a place for each thought; never activate anything:

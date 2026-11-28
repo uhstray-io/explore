@@ -235,15 +235,16 @@ export function appendSuggestion(draft, suggestion) {
   return own ? `${own}\n\n${suggestion}` : suggestion;
 }
 
-// Saved, current answers grouped by idea, root first, for choosing what a map review reads.
-export function answerChoices(map) {
+// Saved, current answers grouped by idea, root first, for choosing what a map review reads; with `findings`, an
+// explored idea's findings can be chosen too (F5).
+export function answerChoices(map, { findings = false } = {}) {
   const children = new Map(map.nodes.map(node => [node.id, []]));
   for (const node of map.nodes) children.get(node.parentId)?.push(node);
   const ordered = [], seen = new Set(), queue = map.nodes.filter(node => node.id === map.rootId);
   while (queue.length) { const node = queue.shift(); if (seen.has(node.id)) continue; seen.add(node.id); ordered.push(node); queue.push(...children.get(node.id)); }
   return [...ordered, ...map.nodes.filter(node => !seen.has(node.id))]
-    .map(node => ({ nodeId: node.id, title: node.title, answers: node.questions.filter(q => q.answer && !q.supersededAt).map(q => ({ questionId: q.id, question: q.text })) }))
-    .filter(group => group.answers.length);
+    .map(node => ({ nodeId: node.id, title: node.title, ...(findings ? { findings: node.status === 'explored' } : {}), answers: node.questions.filter(q => q.answer && !q.supersededAt).map(q => ({ questionId: q.id, question: q.text })) }))
+    .filter(group => group.answers.length || group.findings);
 }
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };

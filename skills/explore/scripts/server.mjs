@@ -9,6 +9,7 @@ import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
 import { exportMap } from './transfer.mjs';
 import { reusableResult } from './reuse.mjs';
+import { adrFilePreview } from './adr.mjs';
 import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
@@ -81,6 +82,9 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           try { selection = url.searchParams.get('selection') ? JSON.parse(url.searchParams.get('selection')) : undefined; } catch { throw new Problem('The selection is not valid JSON.'); }
           return send(res, 200, await store.previewMapJob(previewRoute[1], url.searchParams.get('type'), selection));
         }
+        // An accepted ADR's file (F5): what Save file would write, read only. Saving is the POST below.
+        const adrRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/adr-file$/);
+        if (req.method === 'GET' && adrRoute) { const q = url.searchParams; return send(res, 200, await adrFilePreview(store, workspace, adrRoute[1], { proposalId: q.get('proposal'), itemId: q.get('item'), ...(q.get('path') ? { path: q.get('path') } : {}) })); }
         // Asking again for help nothing has changed since (Z4): read only, checked when the user asks.
         const reusableRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/reusable$/);
         if (req.method === 'GET' && reusableRoute) { const q = url.searchParams; return send(res, 200, await reusableResult(store, reusableRoute[1], { type: q.get('type'), nodeId: q.get('node'), questionId: q.get('question') })); }
@@ -153,6 +157,8 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (url.pathname === '/api/recover-copy') return send(res, 200, await store.recoverCopy(body.mapId, body.version));
         if (url.pathname === '/api/import') return send(res, 200, await store.importMap(body.data, { asCopy: body.asCopy === true }));
         if (match?.[2] === 'action') return send(res, 200, store.view(await store.action(match[1], body, { actor: await contributor() })));
+        // The only write into the project: an accepted ADR to docs/adr/, with the workspace given here alone.
+        if (adrRoute) return send(res, 200, store.view(await store.action(adrRoute[1], { ...body, type: 'adr-save' }, { actor: await contributor(), file: { workspace } })));
         if (match?.[2] === 'result') {
           if (body.check === true) return send(res, 200, await store.checkResult(match[1], body.jobId, body.claimKey, body.result));
           const { map, warnings } = await store.deliver(match[1], body.jobId, body.claimKey, body.result);
@@ -163,7 +169,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = {'/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/glossary-dialog.js': 'glossary-dialog.js', '/glossary.js': 'glossary.js', '/inbox.js': 'inbox.js', '/inbox-dialog.js': 'inbox-dialog.js', '/criteria.js': 'criteria.js', '/criteria-dialog.js': 'criteria-dialog.js', '/hypothesis.js': 'hypothesis.js', '/answer-file.js': 'answer-file.js', '/answers-dialog.js': 'answers-dialog.js', '/assumptions.js': 'assumptions.js', '/assumptions-dialog.js': 'assumptions-dialog.js', '/sources.js': 'sources.js', '/stance.js': 'stance.js', '/sources-dialog.js': 'sources-dialog.js', '/brief-dialog.js': 'brief-dialog.js', '/import-dialog.js': 'import-dialog.js', '/done-when.js': 'done-when.js', '/limitations.js': 'limitations.js', '/claims.js': 'claims.js', '/pinned-answers.js': 'pinned-answers.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/recover-dialog.js': 'recover-dialog.js', '/usage-dialog.js': 'usage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/more-filters.js': 'more-filters.js', '/next-question.js': 'next-question.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg', '/command-palette.js': 'command-palette.js', '/impact.js': 'impact.js', '/minimap.js': 'minimap.js', '/outline.js': 'outline.js', '/folds.js': 'folds.js', '/guidance.js': 'guidance.js'};
+      const names = {'/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/glossary-dialog.js': 'glossary-dialog.js', '/glossary.js': 'glossary.js', '/adr.js': 'adr.js', '/adr-dialog.js': 'adr-dialog.js', '/inbox.js': 'inbox.js', '/inbox-dialog.js': 'inbox-dialog.js', '/dialog-focus.js': 'dialog-focus.js', '/criteria.js': 'criteria.js', '/criteria-dialog.js': 'criteria-dialog.js', '/hypothesis.js': 'hypothesis.js', '/answer-file.js': 'answer-file.js', '/answers-dialog.js': 'answers-dialog.js', '/assumptions.js': 'assumptions.js', '/assumptions-dialog.js': 'assumptions-dialog.js', '/sources.js': 'sources.js', '/stance.js': 'stance.js', '/sources-dialog.js': 'sources-dialog.js', '/brief-dialog.js': 'brief-dialog.js', '/import-dialog.js': 'import-dialog.js', '/done-when.js': 'done-when.js', '/limitations.js': 'limitations.js', '/claims.js': 'claims.js', '/pinned-answers.js': 'pinned-answers.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/recover-dialog.js': 'recover-dialog.js', '/usage-dialog.js': 'usage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/more-filters.js': 'more-filters.js', '/next-question.js': 'next-question.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg', '/command-palette.js': 'command-palette.js', '/impact.js': 'impact.js', '/minimap.js': 'minimap.js', '/outline.js': 'outline.js', '/folds.js': 'folds.js', '/guidance.js': 'guidance.js'};
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };

@@ -147,6 +147,7 @@ export const mapJobActions = {
     const definition = store.jobType(proposal.type ?? CHECK_ANSWERS);
     need((definition?.reviewDecisions ?? ['accepted', 'dismissed']).includes(input.decision), definition?.reviewRefusal ?? 'Choose Keep or Dismiss.');
     need(!definition?.finalReview || item.review === 'unreviewed', 'This was already accepted or dismissed.', 409);
+    definition?.review?.({ map, proposal, item, input, actor }); // An editable item takes the user's text (F5).
     Object.assign(item, { review: input.decision, reviewedAt: new Date().toISOString(), ...(actor?.name ? { reviewedBy: { name: actor.name } } : {}) });
     store.event(map, 'proposal-reviewed', null, `${proposal.id}/${item.id}: ${input.decision}`);
   } },

@@ -244,11 +244,11 @@ export class Store {
       // A failure to record never rolls back the map; it is reported after the save.
       if (shouldRecord(labels)) { try { await this.versions.record(map, { labels, author: actor?.name }); } catch (error) { versionError = error; } }
     });
-    if (versionError) { await this.project(map).catch(() => {}); throw new Problem(`Map saved, but this version could not be recorded: ${versionError.message}`, 500); }
+    if (versionError) { await this.project(map).catch(() => {}); throw new Problem(`Map saved, but this version could not be recorded: ${versionError.message}`, 500, 'saved'); }
     // Views carry their revision: a crash here cannot make them authoritative.
     try { await this.project(map); }
     catch (error) {
-      throw new Problem(`Map revision ${map.revision} was saved, but readable views could not be generated: ${error.message}. Reopen the map before retrying.`, 500);
+      throw new Problem(`Map revision ${map.revision} was saved, but readable views could not be generated: ${error.message}. Reopen the map before retrying.`, 500, 'saved');
     }
     return map;
   }
@@ -440,7 +440,7 @@ export class Store {
     });
   }
   // `actor` is { name } from the server's own Git lookup, never from the request body.
-  action(mapId, input, { actor = null } = {}) {
+  action(mapId, input, { actor = null, file = null } = {}) {
     return this.serial(async () => {
       object(input, 'Input');
       // An edit made from an outdated view never overwrites a map changed outside Explore, even
@@ -455,7 +455,7 @@ export class Store {
       const mapLevel = mapLevelActions.has(input.type) || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);
       if (!mapLevel) need(n, 'Node not found.', 404);
-      if (declared) { await declared.apply({ map, node: n, input, store: this, actor }); return this.save(map, { actor }); }
+      if (declared) { const undo = await declared.apply({ map, node: n, input, store: this, actor, file }); return this.save(map, { actor }).catch(async error => { if (typeof undo === 'function' && error.code !== 'saved') await undo(); throw error; }); }
       // Naming a version changes only that version's file, so the map is not saved again.
       if (input.type === 'name-version' || input.type === 'unname-version') {
         await this.withMapLock(map.id, () => this.versions.name(map.id, input.version, input.type === 'name-version' ? input.name : null));
