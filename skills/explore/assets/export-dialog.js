@@ -1,15 +1,20 @@
 import { exportAs } from './export-formats.js';
 import { downloadName } from './workspace-view.js';
+import { viewerPicker } from './viewer-picker.js';
 
-// Export in Map tools (I2, I3): the complete map as JSON to import again, or a diagram or printable page of the whole
-// map or the selected idea's branch. Diagrams are made here from the live map, never from a growth-history step.
+// Export in Map tools (I2, I3, I4): the complete map as JSON to import again, a diagram or printable page of the whole
+// map or the selected idea's branch, or a read-only viewer of chosen ideas. Diagrams are made here from the live map,
+// never from a growth-history step; the viewer is made by the server from the saved map, after a preview.
 // `positions()` is the live map's layout when the page has it, or null to lay the map out here.
 export function exportPanel({ api, map, selected, positions, download }) {
   const $ = selector => document.querySelector(selector), format = $('#export-format'), branch = $('#export-branch'), status = $('#export-status');
   const chosenIdea = () => map()?.nodes.find(node => node.id === selected()) ?? null;
+  const viewer = () => format.value === 'viewer', save = $('#export-download');
+  const picker = viewerPicker({ api, map, onChange: () => { save.disabled = viewer() && !picker.ready(); } });
   // A branch needs a selected idea and a diagram format: the JSON export is always the complete map.
   function render() {
-    const idea = chosenIdea(), possible = !!idea && format.value !== 'json';
+    $('.export-scope').hidden = viewer(); picker.show(viewer()); save.disabled = viewer() && !picker.ready();
+    const idea = chosenIdea(), possible = !!idea && !['json', 'viewer'].includes(format.value);
     branch.disabled = !possible; if (!possible) $('#export-whole').checked = true;
     $('#export-branch-label').textContent = idea ? `“${idea.title}” and everything below it` : 'One branch: select an idea first';
     status.textContent = '';
@@ -18,6 +23,7 @@ export function exportPanel({ api, map, selected, positions, download }) {
   $('#export-download').addEventListener('click', async () => {
     const open = map(); if (!open) return;
     try {
+      if (viewer()) { picker.download(download); return; }
       if (format.value === 'json') {
         download(JSON.stringify(await api(`/maps/${open.id}/export`), null, 2) + '\n', 'application/json', downloadName(open.title, '-map.json'));
         status.textContent = 'Map exported as JSON.'; return;
@@ -28,5 +34,5 @@ export function exportPanel({ api, map, selected, positions, download }) {
       status.textContent = format.value === 'print' ? `Downloaded ${file.filename}. Open it, then choose Print and Save as PDF.` : `Downloaded ${file.filename}.`;
     } catch (error) { status.textContent = error.message; }
   });
-  return { render };
+  return { render, mapChanged() { picker.mapChanged(); } };
 }

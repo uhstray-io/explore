@@ -69,6 +69,8 @@ Machine-local connection tokens, process locks, result drafts, and claim-deliver
 
 Diagram exports (Mermaid, JSON Canvas, SVG and the printable page, made by `assets/export-formats.js` in the browser and the CLI) are one-way views of the live map or one branch: they are never imported.
 
+A read-only viewer file (`POST /api/maps/:id/viewer` with `{ expectedRevision, nodes: [{ id, answers, findings }] }`, built by `scripts/viewer.mjs` from the saved map) holds only the ideas the user chose: title, kind and states always, answers and findings with sources only when chosen, a parent link only to a chosen parent, and the app's layout. The map's text sits in a JSON block and reaches the page only as text; a Content-Security-Policy allows just the file's own script and style by hash, so it fetches nothing. Jobs, history, workers, claim keys, paths and the server token never go in. A stale revision, more than 500 ideas or more than 4 MiB is refused. The browser shows the file's text as a preview and downloads only that preview, for the same selection at the same revision.
+
 An export is `{ format: "explore-map", version: 1, exportedAt, map }`, where `map` is the saved map without claim data (`claimKey`, `claimHash`, `inputSignature`). Everything else travels, including history, growth, positions and settings that live in the map. Nothing from `.explore/` is read.
 
 An import accepts an export or a bare format-1 `map.json`. It is untrusted data and must pass the validator (`scripts/map-validation.mjs`) with no errors, or nothing is written. Then one of four things happens:

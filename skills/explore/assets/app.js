@@ -122,7 +122,7 @@ function renderEdges() {
 }
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
-  changes.mapChanged(state.map.id, state.map.revision);
+  changes.mapChanged(state.map.id, state.map.revision); exporter.mapChanged();
   const historic = state.historyStep !== null;
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
