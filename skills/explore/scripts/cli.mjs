@@ -14,7 +14,14 @@ const option = (name, fallback) => {
   return args[i + 1];
 };
 const required = name => { const value = option(name); if (!value) throw new Error(`--${name} is required.`); return value; };
-const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  doctor --support [--out FILE]          A redacted report to attach to a bug report; --out writes a new file\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  maps --query TEXT --content          Search every map's ideas, answers and sources\n  maps --archived include|only           List archived maps too, or only them\n  create --file idea.json                 {title, idea}\n  export --map ID --out FILE               Complete map as JSON (no claim data); refuses to overwrite\n  import --file FILE [--as-copy]          Import an export or map.json; prints a conflict instead of choosing\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?}\n  result --job ID --file F --check        Check a result against the exploration rules without saving it\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
+// Commands whose reply carries Markdown: --format markdown prints it as it is; json prints the rest of the reply.
+const outputFormat = () => { const format = option('format', 'json'); if (!['json', 'markdown'].includes(format)) throw new Error('--format must be json or markdown.'); return format; };
+function inFormat(output, format, name) {
+  if (format === 'json') { delete output.markdown; return undefined; }
+  if (typeof output.markdown !== 'string') throw new Error(`The server did not provide a Markdown ${name}.`);
+  return output.markdown;
+}
+const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  doctor --support [--out FILE]          A redacted report to attach to a bug report; --out writes a new file\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  maps --query TEXT --content          Search every map's ideas, answers and sources\n  maps --archived include|only           List archived maps too, or only them\n  create --file idea.json                 {title, idea}\n  export --map ID --out FILE               Complete map as JSON (no claim data); refuses to overwrite\n  import --file FILE [--as-copy]          Import an export or map.json; prints a conflict instead of choosing\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?}\n  result --job ID --file F --check        Check a result against the exploration rules without saving it\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  changes --map ID [--since REF] [--format json|markdown]  What changed since a Git commit (read-only)\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
 const secrets = [];
 const page = (items, revision, fields = ['title']) => {
   const integer = (name, fallback, min, max) => {
@@ -40,7 +47,7 @@ try {
     if (stdout) console.log(stdout);
     if (stderr) console.error(stderr);
   } else {
-    if (!['status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'usage', 'act', 'export', 'import'].includes(command)) throw new Error(usage);
+    if (!['status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'changes', 'usage', 'act', 'export', 'import'].includes(command)) throw new Error(usage);
     const connection = command === 'usage' ? null : await readConnection(workspace);
     if (connection) secrets.push(connection.token);
     async function api(route, data) {
@@ -115,15 +122,16 @@ try {
       }
       case 'import': output = await api('/api/import', { data: await input(), asCopy: args.includes('--as-copy') }); break;
       case 'brief': {
-        const format = option('format', 'json');
-        if (!['json', 'markdown'].includes(format)) throw new Error('--format must be json or markdown.');
-        const query = new URLSearchParams();
+        const format = outputFormat(), query = new URLSearchParams();
         if (option('node')) query.set('node', option('node'));
         output = await api(`/api/maps/${required('map')}/brief${query.size ? `?${query}` : ''}`);
-        if (format === 'markdown') {
-          if (typeof output.markdown !== 'string') throw new Error('The server did not provide a Markdown brief.');
-          rendered = output.markdown;
-        } else delete output.markdown;
+        rendered = inFormat(output, format, 'brief');
+        break;
+      }
+      case 'changes': {
+        const format = outputFormat();
+        output = await api(`/api/maps/${required('map')}/changes?${new URLSearchParams({ since: option('since', 'HEAD') })}`);
+        rendered = inFormat(output, format, 'change summary');
         break;
       }
       case 'usage': {

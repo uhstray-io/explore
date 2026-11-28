@@ -2,6 +2,7 @@ import { constellationLayout, connectionPath, presentation, overviewView, focuse
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
+import { changesDialog } from './changes-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
 import { questionClick } from './question-clicks.js';
@@ -120,6 +121,7 @@ function renderEdges() {
 }
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
+  changes.mapChanged(state.map.id, state.map.revision);
   const historic = state.historyStep !== null;
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
@@ -747,6 +749,9 @@ $('#new-map').addEventListener('click', showCreate); $('#start-exploration').add
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
 // Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
+// Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
+const changes = changesDialog({ api, map: () => state.map, download });
+$('#changes-open').addEventListener('click', () => { $('#tools-dialog').close(); changes.show(); });
 // The rail (I1): Pin and Archive act on any map through the action queue; the open map uses its own revision.
 const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference,
   // The open map goes through the action queue, except while growth history shows (act() refuses then);

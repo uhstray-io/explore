@@ -4,24 +4,25 @@ import { execFile } from 'node:child_process';
 // optional locks (so the index is never rewritten), fsmonitor off, a timeout and an output cap, messages in
 // English, and none of the inherited variables that point Git at another repository, index or object store
 // (what `git rev-parse --local-env-vars` lists, plus inline config). The user's own config still applies.
-// Explore never stages, commits, fetches or changes refs.
+// Explore never stages, commits, fetches or changes refs: GIT_NO_LAZY_FETCH stops a partial clone fetching a
+// missing object over the network (older Git ignores it).
 const maxOutput = 64 * 1024;
 const repositoryVariables = new Set(['GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE',
   'GIT_IMPLICIT_WORK_TREE', 'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX', 'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR']);
-const environment = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !repositoryVariables.has(name.toUpperCase()) && !/^GIT_CONFIG_(KEY|VALUE)_d+$/i.test(name))), LC_ALL: 'C', LANGUAGE: 'C' });
+const environment = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !repositoryVariables.has(name.toUpperCase()) && !/^GIT_CONFIG_(KEY|VALUE)_d+$/i.test(name))), LC_ALL: 'C', LANGUAGE: 'C', GIT_NO_LAZY_FETCH: '1' });
 
 // Resolves, and never rejects, with one of:
-//   { outcome: 'ok', stdout }            Git succeeded.
+//   { outcome: 'ok', stdout }            Git succeeded. stdout is text, or a Buffer with encoding: 'buffer'.
 //   { outcome: 'exit', code, stderr }    Git ran and exited with an error. stderr is for the caller's own
 //                                        decisions and is never shown or returned to a client.
 //   { outcome: 'missing' }               Git is not installed. `cwd` must exist; every caller checks it.
 //   { outcome: 'failed' }                A timeout, the output cap, or any other failure to run.
-export function git(args, { cwd, input, binary = 'git', timeout = 5000 } = {}) {
+export function git(args, { cwd, input, binary = 'git', timeout = 5000, maxBuffer = maxOutput, encoding = 'utf8' } = {}) {
   return new Promise(resolve => {
-    const child = execFile(binary, ['--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], { cwd, env: environment(), timeout, maxBuffer: maxOutput, windowsHide: true },
+    const child = execFile(binary, ['--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], { cwd, env: environment(), timeout, maxBuffer, encoding, windowsHide: true },
       (error, stdout, stderr) => resolve(!error ? { outcome: 'ok', stdout }
         : error.code === 'ENOENT' ? { outcome: 'missing' }
-        : typeof error.code === 'number' && !error.killed ? { outcome: 'exit', code: error.code, stderr }
+        : typeof error.code === 'number' && !error.killed ? { outcome: 'exit', code: error.code, stderr: String(stderr) }
         : { outcome: 'failed' }));
     if (input !== undefined) { child.stdin.on('error', () => {}); child.stdin.end(input); } // Git may exit before reading it all.
   });

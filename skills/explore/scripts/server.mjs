@@ -11,6 +11,7 @@ import { exportMap } from './transfer.mjs';
 import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
+import { changesSince } from './changes.mjs';
 import { searchMaps } from './search.mjs';
 import { listedMaps } from '../assets/rail.js';
 import { createStorage } from './storage.mjs';
@@ -92,6 +93,8 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         // Git status of a map's file (H9): read-only, and available even for a map that cannot be opened.
         const gitRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/git-status$/);
         if (req.method === 'GET' && gitRoute) return send(res, 200, await store.gitStatus(gitRoute[1]));
+        const changesRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/changes$/);
+        if (req.method === 'GET' && changesRoute) return send(res, 200, await changesSince(store, changesRoute[1], url.searchParams.get('since') ?? 'HEAD'));
         const exportRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/export$/);
         if (req.method === 'GET' && exportRoute) return send(res, 200, await exportMap(store, exportRoute[1]));
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
@@ -141,7 +144,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };

@@ -86,6 +86,10 @@ Before an investigation result is saved, it is checked against these exploration
 
 A repeated delivery of a saved result changes nothing and returns only the saved `{ code, field }` of its warnings. Run `result --job ID --file result.json --check` to get `{ ok, errors, warnings }` without saving or touching the job (it exits non-zero when `ok` is false, and a malformed result fails as it would on delivery), and reconsider warnings before the final `result`: a completed branch cannot change afterwards.
 
+### What changed since a commit
+
+`changes --map ID --since REF [--format json|markdown]` compares the map as committed at `REF` (default `HEAD`) with the current saved map, matching ideas and questions by ID: new, removed and revised ideas, answers given or changed, questions now waiting, saved for later or closed, links added or removed, and changed findings. JSON replies give `before: { sha, ref, existed }` and `after: { revision }`, with counts and the Markdown. It only reads Git (`rev-parse` and `show`), never commits or fetches (not even a partial clone's missing objects, with Git 2.44 or later), reads the committed map by the same rules as a saved one, and refuses refs that could be read as options.
+
 ### Connections the user records
 
 The user can record links themselves with the `link` action (`nodeId` is the dependent, `to` the other idea, `relation` one of `depends_on`, `supports`, `contradicts`, `related_to`, optional `note`) and remove any non-containment link with `unlink`. These edges carry `addedBy: "user"`. Use these actions only when the user explicitly asks; otherwise record links in a result.
