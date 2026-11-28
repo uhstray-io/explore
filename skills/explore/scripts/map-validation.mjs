@@ -168,6 +168,8 @@ export function validateMap(map, { folderId } = {}) {
     if (missing(job.nodeId)) report('missing-node', `jobs[${i}].nodeId`);
     if (isOpenJob(job)) { const key = openJobKey(job); if (open.has(key)) report('duplicate-open-job', `jobs[${i}]`); open.add(key); }
   });
+  // Folds (Z6): a list of idea IDs; anything else is reported, and shownNodes ignores it.
+  if (isRecord(map.view) && map.view.collapsed !== undefined && !(Array.isArray(map.view.collapsed) && map.view.collapsed.every(validId))) report('invalid-field', 'view.collapsed');
   const positions = map.view?.positions;
   if (isRecord(map.view) && positions !== undefined && !isRecord(positions)) report('invalid-field', 'view.positions');
   for (const [key, point] of Object.entries(isRecord(positions) ? positions : {})) {

@@ -1,4 +1,4 @@
-import { treeOrder, branchComplete } from './graph.js';
+import { treeOrder, branchComplete, branchIds } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY, answerStateLabels, effectiveAnswerState, certaintyText,
   hasCurrentAnswer, isOpen, isSavedForLater, importanceLevels, importanceName } from './questions.js';
 
@@ -378,38 +378,33 @@ export function nodeMenuHtml(node, { esc, live = false, items = [] }) {
   return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open>Add a connection</button>`] : []), ...items.filter(Boolean)]);
 }
 
-// Which ideas a view shows (Z6). Every idea except the descendants of a folded one. With branch `focus`, only the
-// starting idea, the path down to the focused idea and its subtree, where alone folds apply. The starting idea is never
-// hidden; an idea whose parent is gone stays shown unless a branch is focused. Unknown IDs are ignored.
-// Returns { shown: Set of IDs, hiddenBelow: Map of a folded idea's ID → { total, needsAnswer, needsReview, working } }.
+// Which ideas a view shows (Z6). Every idea except those below an effective fold. With branch `focus`, only the
+// starting idea, the path down to the focused idea and its subtree; folds on that path (`locked`) are ignored, so
+// folds apply only inside the subtree. The starting idea is never hidden; ideas outside the tree (a missing parent or a
+// loop of parents) stay shown unless a branch is focused. Unknown or malformed IDs are ignored.
+// Returns { shown: Set, hiddenBelow: Map of a folded idea's ID → { total, needsAnswer, needsReview, working },
+// folded: Set of the folds in effect, locked: Set of path ideas that cannot fold here, focus: ID or null }.
 export function shownNodes(map, { folded = [], focus = null } = {}) {
-  const byId = new Map(map.nodes.map(node => [node.id, node])), children = new Map();
-  for (const node of map.nodes) { if (!children.has(node.parentId)) children.set(node.parentId, []); children.get(node.parentId).push(node); }
-  const below = id => { const out = [], stack = [...(children.get(id) ?? [])]; while (stack.length) { const node = stack.pop(); out.push(node); stack.push(...(children.get(node.id) ?? [])); } return out; };
-  const folds = new Set((Array.isArray(folded) ? folded : []).filter(id => byId.has(id)));
+  const byId = new Map(map.nodes.map(node => [node.id, node]));
+  const folds = new Set((Array.isArray(folded) ? folded : []).filter(id => typeof id === 'string' && byId.has(id)));
   let allowed = null;
-  if (focus && byId.has(focus)) {
-    allowed = new Set([map.rootId, focus, ...below(focus).map(node => node.id)]);
-    for (let at = byId.get(byId.get(focus).parentId); at && !allowed.has(at.id); at = byId.get(at.parentId)) { allowed.add(at.id); folds.delete(at.id); }
-    folds.delete(map.rootId);
+  const locked = new Set(), centre = focus && byId.has(focus) ? focus : null;
+  if (centre) {
+    allowed = new Set([map.rootId, ...branchIds(map, centre)]);
+    locked.add(map.rootId);
+    for (let at = byId.get(byId.get(centre).parentId); at && !locked.has(at.id) && at.id !== centre; at = byId.get(at.parentId)) { allowed.add(at.id); locked.add(at.id); }
   }
-  const ok = id => !allowed || allowed.has(id), shown = new Set(), hiddenBelow = new Map();
-  const visit = start => {
-    for (const stack = [start]; stack.length;) {
-      const node = stack.pop();
-      if (shown.has(node.id)) continue;
-      shown.add(node.id);
-      if (folds.has(node.id)) {
-        const hidden = below(node.id).filter(item => ok(item.id));
-        if (hidden.length) hiddenBelow.set(node.id, { total: hidden.length, needsAnswer: hidden.filter(item => item.status === 'awaiting-answer').length,
-          needsReview: hidden.filter(item => item.stale).length, working: hidden.filter(item => item.status === 'queued' || item.status === 'running').length });
-        continue;
-      }
-      for (const child of children.get(node.id) ?? []) if (ok(child.id)) stack.push(child);
-    }
-  };
-  for (const node of map.nodes) if (ok(node.id) && (!byId.has(node.parentId) || !ok(node.parentId))) visit(node);
-  return { shown, hiddenBelow };
+  const ok = id => !allowed || allowed.has(id);
+  const active = new Set([...folds].filter(id => ok(id) && !locked.has(id))), below = id => [...branchIds(map, id)].filter(other => other !== id && ok(other));
+  const hidden = new Set();
+  for (const id of active) for (const other of below(id)) hidden.add(other);
+  const shown = new Set(map.nodes.map(node => node.id).filter(id => ok(id) && !hidden.has(id))), hiddenBelow = new Map();
+  for (const id of active) {
+    const under = shown.has(id) ? below(id).map(other => byId.get(other)) : [];
+    if (under.length) hiddenBelow.set(id, { total: under.length, needsAnswer: under.filter(node => node.status === 'awaiting-answer').length,
+      needsReview: under.filter(node => node.stale).length, working: under.filter(node => node.status === 'queued' || node.status === 'running').length });
+  }
+  return { shown, hiddenBelow, folded: active, locked, focus: centre };
 }
 
 // Find an idea's rule, which the command palette shares: the title or summary contains the text, ignoring case.

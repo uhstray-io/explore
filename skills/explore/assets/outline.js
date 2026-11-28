@@ -16,7 +16,7 @@ export function outlineRows(map, view = null) {
   const shown = view ? { ...map, nodes: map.nodes.filter(node => view.shown.has(node.id)) } : map, parents = new Set(map.nodes.map(node => node.parentId));
   const connected = branchIds(shown, shown.rootId);
   const rows = treeOrder(shown).map(({ node, depth }) => ({ id: node.id, node, level: depth + 1, parentId: depth ? node.parentId : null, connected: connected.has(node.id),
-    ...(view && parents.has(node.id) ? { expanded: !view.hiddenBelow.has(node.id), hidden: view.hiddenBelow.get(node.id) ?? null } : {}) }));
+    ...(view && parents.has(node.id) ? { expanded: !view.hiddenBelow.has(node.id), hidden: view.hiddenBelow.get(node.id) ?? null, foldable: !view.locked?.has(node.id) } : {}) }));
   const sets = new Map();
   for (const row of rows) {
     const set = JSON.stringify([row.parentId, row.connected]);
@@ -81,7 +81,8 @@ export function outlinePanel({ $, $$, esc, glyphs, state, select, showMap, fold 
   }
   function render() {
     if (view !== 'outline' || !state.visibleMap) return;
-    // The same map and view objects as last time: nothing to redraw. A changed map or view is a new object.
+    // The same map and view objects as last time: nothing to redraw. A changed map is a new object, and the folds
+    // panel returns the same view object until the map, its folds or the branch focus change.
     if (drawnFrom === state.visibleMap && drawnView === state.view && written) { mark(); return; }
     rows = outlineRows(state.visibleMap, state.view); drawnFrom = state.visibleMap; drawnView = state.view;
     const html = outlineHtml(rows, { esc, glyphs });
@@ -122,7 +123,7 @@ export function outlinePanel({ $, $$, esc, glyphs, state, select, showMap, fold 
     if (!moves.has(event.key)) return;
     event.preventDefault();
     const item = rows.find(entry => entry.id === row.dataset.outlineNode);
-    if ((event.key === 'ArrowRight' && item?.expanded === false) || (event.key === 'ArrowLeft' && item?.expanded === true)) { if (fold(item.id, item.expanded)) return; }
+    if (item?.foldable !== false && ((event.key === 'ArrowRight' && item?.expanded === false) || (event.key === 'ArrowLeft' && item?.expanded === true))) { if (fold(item.id, item.expanded)) return; }
     const target = outlineMove(rows, row.dataset.outlineNode, event.key);
     if (target) moveTo(target);
   });

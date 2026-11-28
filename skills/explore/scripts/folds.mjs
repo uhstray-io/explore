@@ -11,17 +11,26 @@ function setFolds(map, list) {
   if (next.length) map.view.collapsed = next; else delete map.view.collapsed;
 }
 
+// After ideas are removed (a restart): folds of ideas that are gone or have no directions left go too.
+export function tidyFolds(map) {
+  if (!Array.isArray(map.view?.collapsed)) return;
+  const parents = new Set(map.nodes.map(node => node.parentId));
+  setFolds(map, map.view.collapsed.filter(id => parents.has(id)));
+}
+
 export const foldActions = {
   // `collapsed`: true hides the idea's directions, false shows them again.
   fold: { target: 'node', apply: ({ map, node, input }) => {
     need(typeof input.collapsed === 'boolean', 'collapsed must be true or false.');
     if (input.collapsed) need(map.nodes.some(item => item.parentId === node.id), 'This idea has no directions to hide.');
+    need(foldsOf(map).includes(node.id) !== input.collapsed, input.collapsed ? 'Its directions are already hidden.' : 'Its directions are already shown.', 409);
     setFolds(map, input.collapsed ? [...foldsOf(map), node.id] : foldsOf(map).filter(id => id !== node.id));
   } },
   // Shows the idea wherever it is: every folded idea above it unfolds.
   reveal: { target: 'node', apply: ({ map, node }) => {
     const byId = new Map(map.nodes.map(item => [item.id, item])), above = new Set();
     for (let at = byId.get(node.parentId); at && !above.has(at.id); at = byId.get(at.parentId)) above.add(at.id);
+    need(foldsOf(map).some(id => above.has(id)), 'It is already shown.', 409);
     setFolds(map, foldsOf(map).filter(id => !above.has(id)));
   } },
 };

@@ -1,25 +1,26 @@
 import { shownNodes } from './workspace-view.js';
+import { branchIds } from './graph.js';
 
-// Collapse and focus branches (Z6) in the workspace: the idea's ⋯ menu items, the marker's words, the branch bar
-// and their clicks. Folds are saved with the map (the `fold` and `reveal` actions); branch focus is this browser's
-// own (state.branchFocus) and resets when another map opens. Neither queues research or changes an idea.
+// Collapse and focus branches (Z6) in the workspace. Folds are saved with the map (the `fold` and `reveal` actions),
+// like positions; branch focus is this browser's own (state.branchFocus). Neither queues research or changes an idea.
+// In growth history and a version preview, which are read-only, folds come from the map shown and can be opened in
+// this browser only, until the user returns to live.
 
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-// "5 hidden directions, 1 needs your answer, 2 need review": the folded idea's accessible label adds this.
-export function hiddenLabel({ total, needsAnswer, needsReview }) {
-  return [count(total, 'hidden direction', 'hidden directions'), needsAnswer ? `${needsAnswer} ${needsAnswer === 1 ? 'needs' : 'need'} your answer` : '',
-    needsReview ? `${needsReview} ${needsReview === 1 ? 'needs' : 'need'} review` : ''].filter(Boolean).join(', ');
+// "5 hidden directions, 1 needs your answer, 2 need review, 1 being explored": the folded idea's label adds this.
+export function hiddenLabel({ total, needsAnswer, needsReview, working = 0 }) {
+  return [count(total, 'hidden direction', 'hidden directions'), needsAnswer ? count(needsAnswer, 'needs your answer', 'need your answer') : '',
+    needsReview ? count(needsReview, 'needs review', 'need review') : '', working ? `${working} being explored` : ''].filter(Boolean).join(', ');
 }
+const noView = { folded: new Set(), locked: new Set(), focus: null };
 
-// The idea's ⋯ menu items. Folds are view state saved with the map, so growth history (`live` false) offers only
-// branch focus, which is this browser's own.
-export function foldMenuItems(node, { esc, map, folded = [], focus = null, live }) {
+// The idea's ⋯ menu items, from the view on screen: folds that cannot change here (growth history, or the path to a
+// focused branch) are not offered.
+export function foldMenuItems(node, { esc, map, view = noView, live }) {
   const id = esc(node.id), item = (attribute, value, label) => `<button type="button" role="menuitem" tabindex="-1" ${attribute}="${value}">${label}</button>`;
-  const below = [], children = new Map();
-  for (const other of map.nodes) { if (!children.has(other.parentId)) children.set(other.parentId, []); children.get(other.parentId).push(other); }
-  for (const stack = [...(children.get(node.id) ?? [])]; stack.length;) { const next = stack.pop(); below.push(next); stack.push(...(children.get(next.id) ?? [])); }
-  const fold = !live || !below.length ? '' : folded.includes(node.id) ? item('data-unfold', id, 'Show its directions') : item('data-fold', id, `Hide its directions (${below.length})`);
-  const branch = node.id === map.rootId ? '' : focus === node.id ? item('data-branch-focus', '', 'Show whole map') : item('data-branch-focus', id, 'Show only this branch');
+  const below = branchIds(map, node.id).size - 1;
+  const fold = !live || below < 1 || view.locked.has(node.id) ? '' : view.folded.has(node.id) ? item('data-unfold', id, 'Show its directions') : item('data-fold', id, `Hide its directions (${below})`);
+  const branch = node.id === map.rootId ? '' : view.focus === node.id ? item('data-branch-focus', '', 'Show whole map') : item('data-branch-focus', id, 'Show only this branch');
   return fold + branch;
 }
 
@@ -29,12 +30,16 @@ export function branchBarHtml(map, focus, { esc }) {
   return node ? `<p>Showing one branch: <strong>${esc(node.title)}</strong></p><button type="button" class="secondary" data-branch-focus="" data-command="whole-map" data-command-label="Show whole map">Show whole map</button>` : '';
 }
 
+// The ideas above `id`, nearest first; a loop of parents ends the walk.
+export function ancestorsOf(map, id) {
+  const byId = new Map(map.nodes.map(node => [node.id, node])), out = [];
+  for (let at = byId.get(byId.get(id)?.parentId); at && at.id !== id && !out.includes(at.id); at = byId.get(at.parentId)) out.push(at.id);
+  return out;
+}
 // The selection a view can show: the selected idea, or the nearest shown idea above it (a fold hid it).
 export function shownSelection(map, view, selected) {
-  const byId = new Map(map.nodes.map(node => [node.id, node]));
-  let at = selected;
-  for (const seen = new Set(); at && !view.shown.has(at) && !seen.has(at); at = byId.get(at)?.parentId ?? null) seen.add(at);
-  return at && view.shown.has(at) ? at : selected && view.shown.has(map.rootId) ? map.rootId : null;
+  if (!selected || view.shown.has(selected)) return selected;
+  return ancestorsOf(map, selected).find(id => view.shown.has(id)) ?? (view.shown.has(map.rootId) ? map.rootId : null);
 }
 // What it takes to show a hidden idea: leaving branch focus, unfolding the folds above it, both or neither.
 export function revealPlan(map, id, { folded = [], focus = null }) {
@@ -42,19 +47,67 @@ export function revealPlan(map, id, { folded = [], focus = null }) {
   return { leaveFocus, unfold: !shownNodes(map, { folded, focus: leaveFocus ? null : focus }).shown.has(id) };
 }
 
-// Hide or show an idea's directions, and branch focus, from the ⋯ menu or the branch bar. Returns true when handled.
-export async function foldsClick(event, { state, act, show, toast, closeMenus }) {
-  const fold = event.target.closest('[data-fold], [data-unfold]');
-  if (fold) {
+// The folds in the workspace.
+//   render()        the view for this redraw (the same object while nothing changed), with the selection a fold hid
+//                   moved to the folded idea above it (and the address with it), and the branch bar
+//   reveal(id)      shows a hidden idea, then chooses it: Find an idea, filter lists, links, the palette
+//   click(event)    the ⋯ menu items and the bar; true when handled
+//   foldRow(id, collapsed)  the outline's Left and Right; false where folds cannot change
+// `redraw()` redraws the map as it is; `showAddress()` writes the selection into the address bar.
+export function foldsPanel({ $, esc, state, act, toast, closeMenus, redraw, fitMap, focusNode, showAddress }) {
+  const opened = new Set(); // Folds opened in a read-only view, in this browser only.
+  let cached = null, bar = '';
+  const live = () => state.historyStep === null;
+  const folded = () => {
+    const list = (state.historySource ?? state.map)?.view?.collapsed; // Folds belong to the map shown, as positions do.
+    return (Array.isArray(list) ? list : []).filter(id => live() || !opened.has(id));
+  };
+  function view() {
+    const key = JSON.stringify([folded(), state.branchFocus ?? null]);
+    if (cached?.map !== state.visibleMap || cached.key !== key) cached = { map: state.visibleMap, key, view: shownNodes(state.visibleMap, { folded: folded(), focus: state.branchFocus }) };
+    return cached.view;
+  }
+  function render() {
+    if (live()) opened.clear();
+    const current = view(), selected = shownSelection(state.visibleMap, current, state.selected);
+    if (selected !== state.selected) { state.selected = selected; showAddress(); }
+    const html = branchBarHtml(state.visibleMap, current.focus, { esc });
+    if (html !== bar) { $('#branch-bar').innerHTML = bar = html; $('#branch-bar').hidden = !html; }
+    return current;
+  }
+  async function reveal(nodeId) {
+    const plan = revealPlan(state.visibleMap, nodeId, { folded: folded(), focus: state.branchFocus });
+    if (plan.unfold) {
+      if (live()) { if (!(await act(nodeId, 'reveal'))) return; }
+      else for (const id of ancestorsOf(state.visibleMap, nodeId)) opened.add(id);
+    }
+    if (plan.leaveFocus) state.branchFocus = null;
+    redraw();
+    if (view().shown.has(nodeId)) focusNode(nodeId);
+  }
+  async function click(event) {
+    const fold = event.target.closest('[data-fold], [data-unfold]');
+    if (fold) {
+      closeMenus();
+      const hide = fold.dataset.fold !== undefined, before = state.selected;
+      if (await act(hide ? fold.dataset.fold : fold.dataset.unfold, 'fold', { collapsed: hide })) {
+        toast(hide ? 'Its directions are hidden. Find an idea still finds them.' : 'Its directions are shown.');
+        if (state.selected !== before) focusNode(state.selected); // The fold hid the selection: the folded idea is chosen.
+      }
+      return true;
+    }
+    const branch = event.target.closest('[data-branch-focus]');
+    if (!branch) return false;
     closeMenus();
-    const hide = fold.dataset.fold !== undefined;
-    if (await act(hide ? fold.dataset.fold : fold.dataset.unfold, 'fold', { collapsed: hide })) toast(hide ? 'Its directions are hidden. Find an idea still finds them.' : 'Its directions are shown.');
+    state.branchFocus = branch.dataset.branchFocus || null;
+    redraw(); fitMap();
     return true;
   }
-  const branch = event.target.closest('[data-branch-focus]');
-  if (!branch) return false;
-  closeMenus();
-  state.branchFocus = branch.dataset.branchFocus || null;
-  show();
-  return true;
+  function foldRow(id, collapsed) {
+    const current = view();
+    if (!live() || current.locked.has(id) || current.folded.has(id) === collapsed) return false;
+    act(id, 'fold', { collapsed });
+    return true;
+  }
+  return { render, view, reveal, click, foldRow };
 }
