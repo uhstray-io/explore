@@ -13,13 +13,15 @@ export function inboxDialog({ map, act, api, esc, toast, live, readOnly = () => 
     const shown = map(); if (!shown) return;
     if (preview && preview.mapRevision !== shown.revision) preview = null; // A preview describes the map it was made for.
     const html = inboxHtml({ map: shown, esc, live: live(), editing, preview, listening: listening(), readOnly: readOnly() });
-    const pending = (shown.jobs ?? []).some(job => job.type === SORT_THOUGHTS && (job.status === 'queued' || job.status === 'running')), arrived = waiting && !pending && dialog.open;
+    const sorts = (shown.jobs ?? []).filter(job => job.type === SORT_THOUGHTS), pending = sorts.some(job => job.status === 'queued' || job.status === 'running');
+    const ended = waiting && !pending && dialog.open ? sorts.at(-1)?.status : null; // How the sort being waited for ended.
     waiting = pending;
     if (html !== written) {
       // A redraw (a poll, or the agent taking the work) keeps focus on the same control, or the nearest one left.
       const active = document.activeElement, kept = active && body.contains?.(active) ? keyOf(active) : null;
       body.innerHTML = written = html; // Never compare with innerHTML read back.
-      if (arrived) { toast('Your agent\'s suggestions are in.'); focus('[data-place-thought]', '[data-dismiss-item]', kept); }
+      if (ended === 'completed') { toast('Your agent\'s suggestions are in.'); focus('[data-place-thought]', '[data-dismiss-item]', kept); }
+      else if (ended === 'failed' || ended === 'interrupted') focus('#inbox-status', kept);
       else if (kept) focus(kept, '[data-inbox-stop]', '[data-inbox-sort]');
     }
     for (const control of [text, capture.querySelector('button')]) if (control) control.disabled = !live(); // Growth history and saved versions are read-only.

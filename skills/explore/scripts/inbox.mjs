@@ -7,7 +7,7 @@ import { existingChild } from './result-checks.mjs';
 import { hypothesisTest } from './hypotheses.mjs';
 import { includedKey } from './map-jobs.mjs';
 import { isCompleted } from './completion.mjs';
-import { markdownText } from '../assets/workspace-view.js';
+import { markdownText, comparableText } from '../assets/workspace-view.js';
 import { treeOrder } from '../assets/graph.js';
 import { SORT_THOUGHTS, thoughtMax, maxOpenThoughts, maxSorted, openThoughts, notesOf, sortOrder, textKey } from '../assets/inbox.js';
 
@@ -103,7 +103,7 @@ function validateSort(result, { map, job }) {
       // A title its parent already has could never be accepted: propose a note on that direction instead.
       need(!existingChild(map, map.nodes.find(node => node.id === item.parentId), title), `${label}: "${title}" is already a direction under that idea; propose a note on it instead.`);
       need(item.test === undefined || item.kind === 'hypothesis', `${label}: only a hypothesis carries a test.`);
-      const titleKey = `${item.parentId}/${title.trim().toLowerCase()}`;
+      const titleKey = `${item.parentId}/${comparableText(title)}`; // As Accept compares them.
       need(!titles.has(titleKey), `${label}: another placement already proposes "${title}" under that idea; give each new branch its own title.`); titles.add(titleKey);
       return { thoughtId: item.thoughtId, action: 'new-branch', parentId: item.parentId, title, body: textField(item.body, `${label} body`, 4000, fail), kind: item.kind ?? 'research', ...(item.test !== undefined ? { test: hypothesisTest(item.test, fail) } : {}) };
     }

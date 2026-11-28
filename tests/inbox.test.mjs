@@ -201,6 +201,7 @@ test('accepting a new branch makes one inactive suggestion as Add a direction do
   const { store, map, act, thoughts, packet, placements } = await sorted();
   const twice = [{ ...placements[0], kind: 'hypothesis', test: 'Leave a phone flat for a day.' }, { thoughtId: placements[1].thoughtId, action: 'new-branch', parentId: map.rootId, title: 'paper backup', body: 'Again.' }, placements[2]];
   await assert.rejects(store.complete(map.id, packet.jobId, packet.claimKey, { placements: twice }), /another placement already proposes "paper backup"/, 'one title once per result');
+  await assert.rejects(store.complete(map.id, packet.jobId, packet.claimKey, { placements: [twice[0], { ...twice[1], title: 'Paper  backup?' }, placements[2]] }), /another placement already proposes/, 'compared as Accept compares them');
   let saved = await store.complete(map.id, packet.jobId, packet.claimKey, { placements: [twice[0], { ...twice[1], title: 'Encrypted backup' }, placements[2]] });
   const [proposal] = sortsOf(saved), nodes = saved.nodes.length, batches = saved.growth?.batches.length ?? 0, jobs = saved.jobs.length;
   saved = await act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[0].id }, { actor: { name: 'Sam' } });
@@ -295,6 +296,12 @@ test('restoring the branch a thought was placed on puts the thought back in the 
   assert.equal(saved.nodes.find(node => node.id === storage.id).notes, undefined, 'the note went with the restore');
   const thought = saved.inbox.find(item => item.id === thoughts[1].id);
   assert.deepEqual([thought.state, thought.placement, thought.placedAt], ['open', undefined, undefined], 'so the thought is open again');
+  // A thought placed as a new branch goes back the same way once that branch is gone, by any save.
+  saved = await act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[0].id });
+  const branch = saved.nodes.at(-1), raw = await store.get(map.id);
+  raw.nodes = raw.nodes.filter(node => node.id !== branch.id); raw.edges = raw.edges.filter(edge => edge.from !== branch.id && edge.to !== branch.id);
+  saved = await store.save(raw);
+  assert.equal(saved.inbox.find(item => item.id === thoughts[0].id).state, 'open', 'a thought whose branch is gone is open again');
 });
 
 test('maps without an inbox or notes load unchanged; malformed ones are reported', () => {
@@ -396,9 +403,17 @@ test('the inbox dialog captures, edits, discards and asks after F1\'s preview, k
     map.jobs = [{ id: 'job-7', type: SORT_THOUGHTS, status: 'running' }]; io.dialog.mapChanged();
     assert.equal(io.focused.at(-1), '[data-inbox-stop="job-7"]', 'focus stays on Stop through the redraw');
     // The suggestions arrive: the dialog says so and focus moves to the first one.
-    map.jobs = []; io.dialog.mapChanged();
+    map.jobs = [{ id: 'job-7', type: SORT_THOUGHTS, status: 'completed' }]; io.dialog.mapChanged();
     assert.equal(io.toasts.at(-1), 'Your agent\'s suggestions are in.'); assert.equal(io.focused.at(-1), '[data-place-thought]');
-    globalThis.document.activeElement = null; io.element('inbox-body').contains = () => false;
+    // A sort that fails takes focus to its error, and says nothing of suggestions; one the user stopped says nothing.
+    const toastsBefore = io.toasts.length;
+    map.jobs = [...map.jobs, { id: 'job-8', type: SORT_THOUGHTS, status: 'running' }]; io.dialog.mapChanged();
+    map.jobs = [map.jobs[0], { id: 'job-8', type: SORT_THOUGHTS, status: 'failed', error: 'The agent hit an error.' }]; io.dialog.mapChanged();
+    assert.equal(io.toasts.length, toastsBefore, 'no arrival for a failure'); assert.equal(io.focused.at(-1), '#inbox-status', 'focus on the error');
+    map.jobs = [...map.jobs, { id: 'job-9', type: SORT_THOUGHTS, status: 'queued' }]; io.dialog.mapChanged();
+    map.jobs = [...map.jobs.slice(0, 2), { id: 'job-9', type: SORT_THOUGHTS, status: 'cancelled' }]; io.dialog.mapChanged();
+    assert.equal(io.toasts.length, toastsBefore, 'no arrival for a stop');
+    map.jobs = []; globalThis.document.activeElement = null; io.element('inbox-body').contains = () => false;
     await io.click({ placeThought: 'item-1', proposal: 'proposal-1', thought: 'thought-1' });
     assert.deepEqual(calls.at(-1), [null, 'place-thought', { proposalId: 'proposal-1', itemId: 'item-1' }]); assert.equal(io.focused.at(-1), '[data-thought-edit="thought-2"]', 'the next thought');
     await io.click({ dismissItem: 'item-1', proposal: 'proposal-1', thought: 'thought-1' });
