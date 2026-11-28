@@ -77,13 +77,12 @@ test('a result may report how it ran; that is kept on the job, labelled as the a
 
 test('an empty or missing note is no note', async () => {
   const { store, map } = await workspace();
-  for (const note of ['', null]) {
-    const job = await store.claim('agent', map.id) ?? null;
-    if (!job) break;
-    assert.deepEqual((await store.checkResult(map.id, job.jobId, job.claimKey, { summary: 'S.', body: 'B.', execution: { delegated: false, model: 'own model', note } })).ok, true, JSON.stringify(note));
-    const saved = await store.complete(map.id, job.jobId, job.claimKey, { summary: 'S.', body: 'B.', execution: { delegated: false, model: 'own model', note } });
-    assert.deepEqual(saved.jobs.find(entry => entry.id === job.jobId).execution, { delegated: false, model: 'own model' });
-  }
+  const job = await store.claim('agent', map.id);
+  const result = note => ({ summary: 'S.', body: 'B.', execution: { delegated: false, model: 'own model', note } });
+  // A check does not use up the claim, so both notes are checked against the same job.
+  for (const note of ['', null]) assert.equal((await store.checkResult(map.id, job.jobId, job.claimKey, result(note))).ok, true, JSON.stringify(note));
+  const saved = await store.complete(map.id, job.jobId, job.claimKey, result(null));
+  assert.deepEqual(saved.jobs.find(entry => entry.id === job.jobId).execution, { delegated: false, model: 'own model' });
 });
 
 test('the settings route saves and clears the hint, rejects a bad one, and next hands it out', async () => {

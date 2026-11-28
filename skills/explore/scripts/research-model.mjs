@@ -4,7 +4,7 @@ import { textField } from './fields.mjs';
 // passes it on as a hint; a host that can run a delegated subagent on that model may follow it, and any other host
 // does the work itself. Built into every registry as researchModelHint in ideas/settings.json, the same for
 // everyone who opens the repo.
-export const researchModelMax = 100;
+const researchModelMax = 100;
 export const modelHintNote = 'User preference for research jobs. Follow it only if your host can run a delegated subagent on this model; otherwise do the work yourself.';
 class ResearchModelProblem extends Error { constructor(message) { super(message); this.status = 400; } }
 export const researchModelSetting = { default: '', validate: value => {
