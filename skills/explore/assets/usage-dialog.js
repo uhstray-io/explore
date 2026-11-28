@@ -5,7 +5,7 @@ import { plural } from './workspace-view.js';
 // is out of; failure reasons, which are free text and may hold the user's words, stay folded until opened.
 const number = value => value === null || value === undefined ? '—' : Number.isInteger(value) ? String(value) : value.toFixed(1);
 const seconds = value => value === null ? 'unknown' : value < 90 ? `${Math.round(value)} s` : `${(value / 60).toFixed(1)} min`;
-const kindWords = { idea: 'Idea', question: 'Question', research: 'Research', decision: 'Decision', risk: 'Risk' };
+const kindWords = { idea: 'Idea', question: 'Question', research: 'Research', decision: 'Decision', risk: 'Risk', hypothesis: 'Hypothesis' };
 const jobWords = { completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', interrupted: 'Interrupted', queued: 'Queued', running: 'Running', other: 'Other' };
 
 export function usageHtml(stats, { esc }) {

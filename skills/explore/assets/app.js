@@ -25,6 +25,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
+import { hypothesisHtml, directionKindHtml, outcomeMarkHtml, outcomeLabel, suggestPayload, outcomePayload } from './hypothesis.js';
 import { impactHtml, impactFilter } from './impact.js';
 import { goalInput, goalFieldsHtml, goalSectionHtml, goalEditorHtml, goalEdits, modeLabel } from './guidance.js';
 import { minimapPanel } from './minimap.js';
@@ -40,7 +41,7 @@ const state = { token: '', map: null, visibleMap: null, maps: [], selected: null
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
 function rememberHelp(id) { if (state.helpSeen.has(id)) return; state.helpSeen.add(id); try { localStorage.setItem('explore-help-seen', JSON.stringify([...state.helpSeen].slice(-200))); } catch {} }
-const glyphs = { idea: '✳', research: '◇', question: '?', decision: '✓', risk: '△' };
+const glyphs = { idea: '✳', research: '◇', question: '?', decision: '✓', risk: '△', hypothesis: '◐' };
 let toastTimer, gesture, suppressClick = false, openVersion = 0, actionTail = Promise.resolve();
 const accents = ['var(--teal)', 'var(--blue)', 'var(--orange)'];
 function navigation(open) { document.body.classList.toggle('rail-open', open); $('#map-navigation').inert = !open; $('#maps-toggle').setAttribute('aria-expanded', String(open)); }
@@ -168,7 +169,7 @@ function renderMap(fit = false, preserveView = false) {
   $('#nodes').innerHTML = state.visibleMap.nodes.filter(n => state.view.shown.has(n.id)).map(n => {
     const pos = state.positions[n.id], hidden = state.view.hiddenBelow.get(n.id);
     const root = n.id === state.map.rootId, status = presentation(n), major = root || n.parentId === state.map.rootId;
-    return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}${hidden ? `, ${hiddenLabel(hidden)}` : ''}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span><span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span>${hidden ? `<span class="node-hidden" aria-hidden="true">+${hidden.total}</span>` : ''}<span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span><span class="node-caption"><span class="caption-title">${esc(n.title)}</span><span class="caption-state">${esc(status.label)}</span></span></button>`;
+    return `<button class="node ${n.kind} ${n.status} ${root ? 'root' : ''} ${major ? 'major' : ''} ${status.lit ? 'lit' : ''} ${n.stale ? 'stale' : ''} ${n.reviewState === 'accepted' ? 'accepted' : ''} ${n.id === state.selected ? 'selected' : ''}" data-node="${n.id}" style="left:${pos.x}px;top:${pos.y}px;--accent:${accents[state.domains[n.id] % accents.length]}" aria-label="${esc(n.title)}, ${esc(status.label)}${outcomeLabel(n)}${hidden ? `, ${hiddenLabel(hidden)}` : ''}" aria-pressed="${n.id === state.selected}"><span class="node-symbol" aria-hidden="true">${glyphs[n.kind]}</span>${outcomeMarkHtml(n)}<span class="node-badge" aria-hidden="true">${n.stale ? '!' : n.status === 'awaiting-answer' ? '?' : n.reviewState === 'accepted' ? '✓' : ''}</span>${hidden ? `<span class="node-hidden" aria-hidden="true">+${hidden.total}</span>` : ''}<span class="node-tooltip">${esc(n.title)} · ${esc(status.label)}</span><span class="node-caption"><span class="caption-title">${esc(n.title)}</span><span class="caption-state">${esc(status.label)}</span></span></button>`;
   }).join('');
   renderEdges(); minimap.render();
   renderDetail(); renderOverview(); outline.render(); renderHistory(); renderVersionsPanel(); if (state.toolsOpen) renderTools();
@@ -670,13 +671,14 @@ function renderDetail(force = false) {
     ${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
     ${questionHtml}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
+    ${hypothesisHtml(n, { esc, live: !historic, drafts: state.drafts })}
     ${!historic ? impactHtml(state.visibleMap, n, { esc }) : ''}
     ${notesHtml(n, { esc })}
     ${n.body && n.body !== n.summary ? `<h3 class="section-label">${n.status === 'suggested' ? 'What to explore' : 'Notes & findings'}</h3><div class="prose">${prose(n.body)}</div>` : ''}
     ${job?.stale && job.result ? `<h3 class="section-label">Result from the earlier premise</h3><div class="prose">${prose(job.result.body)}</div>` : ''}
     ${claimsHtml(n, { esc })}${n.sources.length ? `<h3 class="section-label">Sources & evidence</h3>${n.sources.map(s => `<a class="evidence-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} <span aria-hidden="true">↗</span><small>${esc(s.note)}</small></a>`).join('')}` : ''}
     ${connectionsHtml(n, state.visibleMap, { esc, live: !historic })}
-    ${!historic ? `<details data-editor="suggest"><summary data-command="add-direction" data-command-editor="suggest" data-node-id="${n.id}">Add a direction</summary><form id="suggest-form" data-node-id="${n.id}"><label for="branch-title">What's worth exploring?</label><input id="branch-title" name="title" maxlength="100" data-draft="${n.id}-title" value="${esc(state.drafts[`${n.id}-title`] ?? '')}" required><label for="branch-body">A little context</label><textarea id="branch-body" name="body" rows="3" maxlength="4000" data-draft="${n.id}-branch">${esc(state.drafts[`${n.id}-branch`] ?? '')}</textarea><button type="submit" class="secondary">Add suggested branch</button></form></details>
+    ${!historic ? `<details data-editor="suggest"><summary data-command="add-direction" data-command-editor="suggest" data-node-id="${n.id}">Add a direction</summary><form id="suggest-form" data-node-id="${n.id}"><label for="branch-title">What's worth exploring?</label><input id="branch-title" name="title" maxlength="100" data-draft="${n.id}-title" value="${esc(state.drafts[`${n.id}-title`] ?? '')}" required><label for="branch-body">A little context</label><textarea id="branch-body" name="body" rows="3" maxlength="4000" data-draft="${n.id}-branch">${esc(state.drafts[`${n.id}-branch`] ?? '')}</textarea>${directionKindHtml(n.id, { esc, drafts: state.drafts })}<button type="submit" class="secondary">Add suggested branch</button></form></details>
     ${!historic ? linkEditorHtml(n, state.visibleMap, { esc, drafts: state.drafts, shown: state.editors[`${n.id}:link`] === true }) : ''}
     <details data-editor="revise"><summary data-command="revise" data-command-editor="revise" data-node-id="${n.id}">${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new branch and starts exploring it. Affected findings are flagged for review; the original is preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
     ${!historic && n.id === state.map?.rootId ? goalEditorHtml(state.map, { esc, drafts: state.drafts }) : ''}
@@ -902,7 +904,8 @@ $('#detail').addEventListener('submit', async event => {
       if (success) delete state.tidyRestore?.[questionId]; // Saved: nothing left to restore.
       if (!success) renderDetail(true);
     }
-    if (form.id === 'suggest-form') success = await act(node, 'suggest', { title: data.title, body: data.body.trim() || data.title });
+    if (form.id === 'suggest-form') success = await act(node, 'suggest', suggestPayload(data));
+    if ('outcomeForm' in form.dataset) success = await act(node, 'record-outcome', outcomePayload(data));
     if (form.id === 'guidance-form') {
       const edits = goalEdits(state.map, data);
       // Nothing changed: the editor closes and its drafts go, so a later change by someone else shows as it is.
