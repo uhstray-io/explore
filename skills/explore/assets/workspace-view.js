@@ -246,8 +246,30 @@ export function answerChoices(map, { findings = false } = {}) {
     .map(node => ({ nodeId: node.id, title: node.title, ...(findings ? { findings: node.status === 'explored' } : {}), answers: node.questions.filter(q => q.answer && !q.supersededAt).map(q => ({ questionId: q.id, question: q.text })) }))
     .filter(group => group.answers.length || group.findings);
 }
+// The choices as checkboxes, one fieldset per idea: each carries data-<prefix>-node and, for an answer,
+// data-<prefix>-question, ticked when `chosen` holds it. Shared by every map review that reads chosen records.
+export function answerChooserHtml(map, { esc, prefix, chosen = [], findings = false }) {
+  const isChosen = (nodeId, questionId) => chosen.some(record => record.nodeId === nodeId && (record.questionId ?? null) === (questionId ?? null));
+  const box = (nodeId, questionId, label) => `<label class="tools-choice"><input type="checkbox" data-${prefix}-node="${esc(nodeId)}"${questionId ? ` data-${prefix}-question="${esc(questionId)}"` : ''}${isChosen(nodeId, questionId) ? ' checked' : ''}> ${esc(label)}</label>`;
+  return answerChoices(map, { findings }).map(group => `<fieldset class="tools-group"><legend>${esc(group.title)}</legend>${group.findings ? box(group.nodeId, null, 'Its findings') : ''}${group.answers.map(answer => box(group.nodeId, answer.questionId, answer.question)).join('')}</fieldset>`).join('');
+}
+// What a review point cites, as a label: its idea, then the question.
+export function answerRefLabel(map, ref) {
+  const node = map.nodes.find(n => n.id === ref.nodeId), question = node?.questions.find(q => q.id === ref.questionId);
+  return `${node?.title ?? 'A removed idea'}${question ? ` · ${question.text}` : ''}`;
+}
+// One point of an answer review (Check answers, Challenge decisions): its kind in `words`, the explanation, what would
+// settle it, the answers it rests on (each selects its idea), then `extra` (such as sources), and Keep or Dismiss while
+// unreviewed and `live`. `kept` is the markup for a kept point, if the review offers more there.
+export function reviewItemHtml(map, item, { esc, proposalId, words, live = true, extra = '', kept = '' }) {
+  const refs = item.refs.map(ref => `<button type="button" class="text-button" data-select="${esc(ref.nodeId)}">${esc(answerRefLabel(map, ref))}</button>`).join('');
+  const decision = !live ? '' : item.review === 'unreviewed'
+    ? `<div class="review-actions"><button type="button" class="secondary" data-review-item="${esc(item.id)}" data-proposal="${esc(proposalId)}" data-decision="accepted">Keep</button><button type="button" class="text-button" data-review-item="${esc(item.id)}" data-proposal="${esc(proposalId)}" data-decision="dismissed">Dismiss</button></div>`
+    : `<p class="review-decision">${item.review === 'accepted' ? `Kept.${kept ? ` ${kept}` : ''}` : 'Dismissed.'}</p>`;
+  return `<article class="review-item"><strong>${esc(words[item.category] || item.category)}</strong><p>${esc(item.explanation)}</p><p><strong>What would settle it:</strong> ${esc(item.resolution)}</p><div class="review-refs">${refs}</div>${extra}${decision}</article>`;
+}
 
-const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
+export const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 export const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 // The Check answers panel: what will be read, progress, and the latest points to keep or dismiss.
 export function checkAnswersHtml({ map, preview, listening, esc }) {
@@ -260,10 +282,7 @@ export function checkAnswersHtml({ map, preview, listening, esc }) {
     ? `<p class="state-note">${job.status === 'running' ? 'Your agent is checking your answers…' : listening ? 'Your agent will pick this up next.' : 'Saved in the queue. Connect your agent to run the check.'}</p><button class="secondary" data-cancel-job="${esc(job.id)}">Stop</button>`
     : '<button class="primary" data-check-answers>Check answers</button>';
   const latest = proposalsOf(map, 'check-answers').at(-1);
-  const label = ref => { const node = map.nodes.find(n => n.id === ref.nodeId), q = node?.questions.find(x => x.id === ref.questionId); return `${node?.title ?? 'A removed idea'}${q ? ` · ${q.text}` : ''}`; };
-  const items = latest ? (latest.items.length ? latest.items.map(item => `<article class="review-item"><strong>${esc(reviewWords[item.category] || item.category)}</strong><p>${esc(item.explanation)}</p><p><strong>What would settle it:</strong> ${esc(item.resolution)}</p><div class="review-refs">${item.refs.map(ref => `<button class="text-button" data-select="${esc(ref.nodeId)}">${esc(label(ref))}</button>`).join('')}</div>${item.review === 'unreviewed'
-      ? `<div class="review-actions"><button class="secondary" data-review-item="${esc(item.id)}" data-proposal="${esc(latest.id)}" data-decision="accepted">Keep</button><button class="text-button" data-review-item="${esc(item.id)}" data-proposal="${esc(latest.id)}" data-decision="dismissed">Dismiss</button></div>`
-      : `<p class="review-decision">${item.review === 'accepted' ? 'Kept' : 'Dismissed'}</p>`}</article>`).join('') : '<p class="form-note">No tensions found in these answers.</p>') : '';
+  const items = latest ? (latest.items.length ? latest.items.map(item => reviewItemHtml(map, item, { esc, proposalId: latest.id, words: reviewWords })).join('') : '<p class="form-note">No tensions found in these answers.</p>') : '';
   const results = latest ? `<h3 class="section-label">Latest check · ${esc(new Date(latest.createdAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}</h3>${latest.stale ? '<p class="state-note warning">Some answers changed since this check. Run it again for a fresh read.</p>' : ''}${latest.summary ? `<p>${esc(latest.summary)}</p>` : ''}${items}` : '';
   return `<p>Your agent reads your saved answers and points out possible tensions, unresolved choices and untested assumptions. It never changes an answer, and every point waits for you to keep or dismiss it.</p>${reads}${progress}${results}`;
 }

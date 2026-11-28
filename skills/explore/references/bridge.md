@@ -177,9 +177,9 @@ A map job reads across many saved answers instead of one branch. Only the user s
 
 - `records`: the original idea, then every current answer (with its question, idea title, certainty, work and review state, staleness) and open question, root first. A user may have narrowed the check to chosen answers.
 - `omittedRecords`: IDs left out, with the reason (`earlier premise`, or `over the packet budget`).
-- `resultFormat` and `instruction`.
+- `resultFormat`, `instruction`, and `retrieval`: how to read an answer shortened here in full.
 
-Deliver with the same `result --job ID --file result.json`:
+Like every map job, the packet also carries the map's title and, when the map has them, its goal and agreed glossary terms. Deliver with the same `result --job ID --file result.json`:
 
 ```json
 {
@@ -190,11 +190,11 @@ Deliver with the same `result --job ID --file result.json`:
 }
 ```
 
-Categories: `possible-tension`, `unresolved-choice`, `untested-assumption`. At most 12 findings; text up to 1,000 characters; each finding cites 1–8 records from `records`. An empty list is a valid result. Report what you notice between saved statements; never call an answer wrong or answer for the user. The result becomes a proposal: each point waits for the user to keep or dismiss it, and nothing in the map changes. A tension that rests on an answer the user has not marked Decided is shown as an unresolved choice. A check whose answers changed meanwhile is marked stale. `GET /api/maps/ID/job-preview?type=check-answers` shows the packet without starting anything.
+Categories: `possible-tension`, `unresolved-choice`, `untested-assumption`. At most 12 findings; text up to 1,000 characters; each finding cites 1–8 records from `records`. An empty list is a valid result. Any other field rejects the result. Report what you notice between saved statements; never call an answer wrong or answer for the user. The result becomes a proposal: each point waits for the user to keep or dismiss it, and nothing in the map changes. A tension that rests on an answer the user has not marked Decided is shown as an unresolved choice. A check is marked stale once an answer it read changes, or how sure the user is of it, or a changed premise sets it aside. A check of chosen answers that were set aside before you took it fails with the reason instead of reading fewer. `GET /api/maps/ID/job-preview?type=check-answers` shows the packet without starting anything.
 
 ## Map jobs: Challenge decisions
 
-Only the user asks for this (`request-map-job` with `challenge`); never request it on their behalf. A `challenge` packet carries `records`: the original idea, then the 1–40 saved answers the user chose (`{ nodeId, questionId, nodeTitle, question, answer, certainty, status, reviewState, stale }`), and nothing else. Argue against them in good faith:
+Only the user asks for this (`request-map-job` with `challenge`); never request it on their behalf. `next` returns it with `jobType: "challenge"` and `nodeId: null`. It is an answer review like Check answers, with the same packet shape: `records` holds the original idea, then exactly the 1–40 saved answers the user chose (`{ nodeId, questionId, nodeTitle, question, answer, certainty, status, reviewState, stale }`), with the map's title and, when it has them, its goal and agreed glossary terms. The browser shows the user that packet first, through `GET /api/maps/ID/job-preview?type=challenge&selection=[…]`. If a chosen answer was set aside before you take the job, it fails with the reason. Argue against them in good faith:
 
 ```json
 {

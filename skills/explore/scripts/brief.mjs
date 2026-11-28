@@ -11,13 +11,15 @@ import { agreedTerms, proposedTerms } from '../assets/glossary.js';
 import { goalOf } from '../assets/guidance.js';
 import { goalLines } from './guidance.mjs';
 import { openThoughts } from '../assets/inbox.js';
-import { proposalsOf } from '../assets/workspace-view.js';
+import { proposalsOf, reviewWords } from '../assets/workspace-view.js';
+import { CHALLENGE, challengeWords } from '../assets/challenge.js';
 import { reconsideredBriefText } from './reconsider.mjs';
 import { hypothesisBriefText } from './hypotheses.mjs';
 import { hypothesisOf, outcomeOf } from '../assets/hypothesis.js';
 import { assumptionRegister } from '../assets/assumptions.js';
 
-const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
+// The answer reviews whose points wait for the user here (Check answers, Challenge decisions), in the words the app uses.
+const reviewKinds = { ...reviewWords, ...challengeWords };
 
 const clip = (value, limit) => {
   const text = String(value ?? '');
@@ -55,9 +57,9 @@ export function mapBrief(map, nodeId = null) {
     // Older results could not record these, so an empty section never reads as "none found".
     ['limitations', 'Conflicts and evidence gaps — unresolved', nodes.flatMap(n => (n.limitations || []).map(record => entry(n, `${limitationLabel(record.kind)}: ${clip(record.summary, 180)} Next step: ${clip(record.nextStep, 100)}`, { limitationId: record.id, kind: record.kind }))),
       '_None recorded. Results saved before this feature could not record them._'],
-    ['reviews', 'Agent reviews waiting for you — not conclusions', proposalsOf(map, 'check-answers').filter(proposal => !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
+    ['reviews', 'Agent reviews waiting for you — not conclusions', [...proposalsOf(map, 'check-answers'), ...proposalsOf(map, CHALLENGE)].filter(proposal => !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
       const node = nodes.find(n => item.refs.some(ref => ref.nodeId === n.id));
-      return node ? entry(node, `${reviewWords[item.category] || item.category}: ${item.explanation}`, { proposalId: proposal.id, itemId: item.id }) : null;
+      return node ? entry(node, `${reviewKinds[item.category] || item.category}: ${item.explanation}`, { proposalId: proposal.id, itemId: item.id }) : null;
     }).filter(Boolean))],
     ['risks', 'Risk investigations — not verified risks', nodes.filter(n => n.kind === 'risk').map(n => entry(n))],
     // Hypotheses (K13): the outcome the user recorded and the agent's proposal, never read as one another.
