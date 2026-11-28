@@ -4,7 +4,7 @@ import { atomicJson } from './store.mjs';
 import { runDoctor, readConnection } from './doctor.mjs';
 import { runtimePath } from './server-lock.mjs';
 import { catalogRevision } from './search.mjs';
-import { guidanceOf } from '../assets/guidance.js';
+import { goalOf } from '../assets/guidance.js';
 
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
@@ -111,7 +111,7 @@ try {
         }
         const m = await api(`/api/maps/${required('map')}`);
         const { items, ...paging } = page(m.nodes, m.revision, ['id', 'title', 'prompt', 'summary', 'body']);
-        output = { mapId: m.id, title: m.title, ...(guidanceOf(m) ? { guidance: guidanceOf(m) } : {}), ...paging, nodes: items.map(n => ({ id: n.id, title: n.title, status: n.status, reviewState: n.reviewState, stale: !!n.stale, summary: n.summary.slice(0, 200) })), omittedNodes: paging.matching - items.length };
+        output = { mapId: m.id, title: m.title, goal: goalOf(m), ...paging, nodes: items.map(n => ({ id: n.id, title: n.title, status: n.status, reviewState: n.reviewState, stale: !!n.stale, summary: n.summary.slice(0, 200) })), omittedNodes: paging.matching - items.length };
         break;
       }
       case 'export': {

@@ -20,7 +20,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
-import { guidanceInput, modeChoicesHtml, guidanceSectionHtml, guidanceEditorHtml, modeLabel } from './guidance.js';
+import { guidanceInput, goalFieldsHtml, guidanceSectionHtml, guidanceEditorHtml, guidanceUnchanged, modeLabel } from './guidance.js';
 import { minimapPanel } from './minimap.js';
 import { outlinePanel } from './outline.js';
 import { nextQuestionPanel } from './next-question.js';
@@ -149,7 +149,7 @@ function renderMap(fit = false, preserveView = false) {
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
   $('#map-title').textContent = state.map.title; $('#canvas-title').textContent = state.map.title;
   const overview = mapOverview(state.visibleMap);
-  $('#canvas-subtitle').textContent = `${state.map.library?.archived ? 'Archived · ' : ''}${modeLabel(state.map) ? `${modeLabel(state.map)} · ` : ''}${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
+  $('#canvas-subtitle').textContent = `${state.map.library?.archived ? 'Archived · ' : ''}${modeLabel(state.visibleMap) ? `${modeLabel(state.visibleMap)} · ` : ''}${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
   showGitStatus();
   $('#workspace').classList.toggle('history-mode', historic);
   $('#canvas').setAttribute('aria-label', historic ? 'Map growth history. Read-only. Drag the background to pan; select an idea to view today’s findings.' : 'Constellation. Drag a node to move it or the background to pan. Focus a node and use Alt plus arrow keys to move it.');
@@ -645,7 +645,7 @@ function renderDetail(force = false) {
     // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
     if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
   }
-  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? guidanceSectionHtml(state.map, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc))}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? guidanceSectionHtml(state.visibleMap, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc))}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${state.versionPreview && n.id !== state.versionPreview.map.rootId ? branchRestore.html(n.id) : ''}
     ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
@@ -673,7 +673,7 @@ function renderDetail(force = false) {
   // Only help the user can actually see counts as seen, not help inside a collapsed section.
   for (const help of detail.querySelectorAll('details.question-help[open]')) if (!help.parentElement?.closest('details:not([open])')) rememberHelp(help.dataset.help);
   if (focus && previousNode === n.id) {
-    const control = focus.key ? [...detail.querySelectorAll('[data-draft]')].find(item => item.dataset.draft === focus.key)
+    const control = focus.key ? [...detail.querySelectorAll('[data-draft]')].find(item => item.dataset.draft === focus.key && (item.type !== 'radio' || item.checked))
       : [...detail.querySelectorAll('button, a[href], summary')].find(item => !item.disabled && detailFocusKey(item) === focus.control);
     if (control) { control.focus({ preventScroll: true }); if (focus.key && focus.start !== null) control.setSelectionRange(focus.start, focus.end); }
     else { detail.tabIndex = -1; detail.focus({ preventScroll: true }); }
@@ -717,7 +717,7 @@ function showWelcome() {
   $('#welcome').classList.remove('hidden'); $('#workspace').classList.add('hidden'); $('#map-title').textContent = 'A place to think'; renderRail();
 }
 $('.brand').addEventListener('click', event => { event.preventDefault(); showWelcome(); location.hash = ''; });
-$('#mode-choices').innerHTML = modeChoicesHtml(esc);
+$('#create-guidance-fields').innerHTML = goalFieldsHtml({ esc, prefix: 'create' });
 $('#new-map').addEventListener('click', showCreate); $('#start-exploration').addEventListener('click', showCreate);
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
 // Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
@@ -863,7 +863,7 @@ $('#detail').addEventListener('submit', async event => {
   const submittedMapId = state.map?.id;
   const form = event.target; const button = event.submitter; button.disabled = true;
   const data = Object.fromEntries(new FormData(form)); const node = form.dataset.nodeId;
-  const fields = [...form.querySelectorAll('[data-draft]')];
+  const fields = [...form.querySelectorAll('[data-draft]')].filter(field => field.type !== 'radio' || field.checked);
   const submittedDrafts = new Map(fields.map(field => [field.dataset.draft, field.value]));
   // An answer is final once saved; do not allow a second, unsavable answer during the request.
   const answerFields = form.dataset.question ? fields.map(field => [field, field.readOnly]) : [];
@@ -881,7 +881,10 @@ $('#detail').addEventListener('submit', async event => {
       if (!success) renderDetail(true);
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', { title: data.title, body: data.body.trim() || data.title });
-    if (form.id === 'guidance-form') success = await act(node, 'set-guidance', { mode: data.mode || null, objective: data.objective, successCriteria: data.successCriteria });
+    if (form.id === 'guidance-form') {
+      if (guidanceUnchanged(state.map, data)) { form.closest('details').open = false; return; }
+      success = await act(node, 'set-guidance', { mode: data.mode || null, objective: data.objective, successCriteria: data.successCriteria });
+    }
     if (form.id === 'link-form') success = await act(node, 'link', { to: data.to, relation: data.relation, ...(data.note.trim() ? { note: data.note.trim() } : {}) });
     if (form.id === 'revise-form') success = await act(node, form.dataset.completed === 'true' ? 'fork-revision' : 'revise', form.dataset.completed === 'true' ? { ...data, start: true } : data);
     if (success) {

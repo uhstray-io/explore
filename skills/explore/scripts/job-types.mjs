@@ -8,8 +8,8 @@
 //     completion or growth history.
 //   Other types: { label, target: 'node' | 'map', packet(context), validate(result, context) }
 //     glossary: false keeps the map's agreed glossary (K9) out of this type's packets; every other type gets it.
-//     guidance: false keeps the map's mode, objective and success criteria (A1) out too; every other type gets them,
-//             and its packet() gets a `budget` already reduced by their size.
+//     goal: false keeps the map's goal (A1: mode, objective, success criteria) out too; every other type gets it,
+//             and its packet() gets a `budget` already reduced by its size (packetBudget).
 //     packet  returns the type-specific fields of the work packet, including `instruction`. The Store adds the
 //             identifying fields and appends searchPrivacy to the instruction, so write an instruction that reads
 //             well followed by it, and keep 800 characters of `budget` free for both.

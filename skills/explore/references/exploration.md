@@ -10,9 +10,9 @@ Ask only when a missing answer would change the next investigation. Budget, time
 
 On resumption, identify the saved goal, actual user answers, accepted findings, stale material, and the selected unfinished branch. State a concise orientation only if useful: “We settled X; Y remains open; this branch checks Z.” Do not restart discovery, ask an answered question, or present the original premise as a proven finding. Retrieve an older answer by its question ID or a targeted section search when the packet omits it.
 
-## Follow the map's mode, objective and success criteria
+## Follow the map's goal
 
-A packet may carry `guidance`: the map's `mode` with its `modeFocus`, an `objective` and `successCriteria` (what done looks like). Each is optional; without them, work as described here. Let the mode set what you look for first:
+A packet may carry `goal`: the map's `mode` with its `modeFocus`, an `objective` and `successCriteria` (what done looks like). Each is optional; without them, work as described here. Let the mode set what you look for first:
 
 - **Understand:** concepts, stakeholders and unknowns.
 - **Decide:** choices, criteria and trade-offs.
