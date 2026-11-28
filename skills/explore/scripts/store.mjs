@@ -444,7 +444,7 @@ export class Store {
     });
   }
   // `actor` is { name } from the server's own Git lookup, never from the request body.
-  action(mapId, input, { actor = null } = {}) {
+  action(mapId, input, { actor = null, file = null } = {}) {
     return this.serial(async () => {
       object(input, 'Input');
       // An edit made from an outdated view never overwrites a map changed outside Explore, even
@@ -459,7 +459,7 @@ export class Store {
       const mapLevel = mapLevelActions.has(input.type) || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);
       if (!mapLevel) need(n, 'Node not found.', 404);
-      if (declared) { await declared.apply({ map, node: n, input, store: this, actor }); return this.save(map, { actor }); }
+      if (declared) { await declared.apply({ map, node: n, input, store: this, actor, file }); return this.save(map, { actor }); }
       // Naming a version changes only that version's file, so the map is not saved again.
       if (input.type === 'name-version' || input.type === 'unname-version') {
         await this.withMapLock(map.id, () => this.versions.name(map.id, input.version, input.type === 'name-version' ? input.name : null));

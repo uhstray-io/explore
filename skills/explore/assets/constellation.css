@@ -112,6 +112,11 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 .assumption-editor{display:grid;gap:6px;margin:0 0 8px}.assumption-editor textarea{width:100%}.assumption-dependents{margin:0 0 6px;font-size:12px}.assumption-dependents summary{cursor:pointer;color:var(--teal)}.assumption-dependents .relationship{padding:4px 0}
 /* Reuse earlier research (Z4): Ask again, quietly at the end of a current result. */
 .reuse-again{margin:6px 0 0;font-size:12px}
+/* Decision records (F5): the choices, the editable draft, and the exact file before it is saved. */
+.adr-choices{max-height:40dvh;overflow:auto;margin:6px 0 10px}.adr-text{width:100%;font:12px/1.5 ui-monospace,Consolas,monospace}.adr-items{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:10px}
+.adr-item{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.adr-title{margin:0 0 6px;font-size:13px;color:var(--ink);overflow-wrap:anywhere}
+.adr-path{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.adr-path input#adr-number{width:5em}.adr-path input#adr-slug{flex:1 1 200px}
+.adr-file{max-height:40dvh;overflow:auto;margin:6px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 /* Answer in a file (K11): the import preview. */
 .answers-body{max-height:55dvh;overflow:auto}.answer-preview{list-style:none;margin:0;padding:0;display:grid;gap:10px}.answer-preview li{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .answer-preview-question{margin:0 0 4px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.answer-preview-text{margin:0 0 4px;font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
