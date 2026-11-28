@@ -237,6 +237,17 @@ test('a write or open that fails, or a link swapped in before the write, leaves 
     assert.equal(answer.status, 400); assert.match(answer.body.error, /changed while saving; nothing was saved/);
     assert.deepEqual(await readdir(elsewhere), [], 'nothing left through the link'); assert.equal(await ready.recorded(), undefined);
     await rm(folder); await rename(`${folder}-moved`, folder);
+    // Swapped after the write, to a folder holding a file of the same name: that file is never taken back.
+    const decoy = path.join(elsewhere, path.basename(ready.preview.path));
+    await writeFile(decoy, 'Someone else\'s record.');
+    answer = await withAdrOpen(async (open, file, flags) => {
+      const handle = await open(file, flags);
+      return { stat: options => handle.stat(options), close: () => handle.close(),
+        writeFile: async (...args) => { await handle.writeFile(...args); await handle.close(); await rename(folder, `${folder}-moved`); await symlink(elsewhere, folder, 'junction'); } };
+    }, ready.save);
+    assert.equal(answer.status, 400); assert.equal(await readFile(decoy, 'utf8'), 'Someone else\'s record.', 'another file is never removed');
+    assert.equal(await ready.recorded(), undefined);
+    await rm(folder); await rm(decoy); await rm(`${folder}-moved`, { recursive: true }); await mkdir(folder);
     answer = await ready.save();
     assert.equal(answer.status, 200, 'the same save works once the folder is plain again');
   } finally { await app.close(); }
