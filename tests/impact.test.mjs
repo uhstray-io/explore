@@ -93,7 +93,8 @@ test('the inspector says the band and what a change would reach, and lists the a
   assert.match(html, /<h3 class="section-label">Impact<\/h3><p class="impact-band medium">Medium impact<\/p>/);
   assert.match(html, /Changing this would affect 4 ideas: 2 in this branch, 2 elsewhere through dependencies\. 2 have findings that would need review\./);
   assert.match(html, /<details data-editor="impact"><summary>Show affected ideas<\/summary>/);
-  assert.match(html, /data-select="b"[^>]*>Storage &lt;fast&gt;<\/button><small>via Idea a1 → Storage &lt;fast&gt; \(depends on\)<\/small>/);
+  assert.match(html, /data-select="b"[^>]*>Storage &lt;fast&gt;<\/button><small>Depends on it · through Idea a1<\/small>/);
+  assert.match(html, /data-select="a1"[^>]*>Idea a1<\/button><small>Below it<\/small>/, 'a direct child does not repeat its own title');
   assert.doesNotMatch(html, /<fast>/);
-  assert.match(impactHtml(map, map.nodes.find(node => node.id === 'x'), { esc }), /Low impact<\/p><p>Changing this affects no other ideas\.<\/p>$/);
+  assert.match(impactHtml(map, map.nodes.find(node => node.id === 'x'), { esc }), /Low impact<\/p><p class="impact-sentence">Changing this affects no other ideas\.<\/p>$/);
 });

@@ -79,11 +79,15 @@ export function impactHtml(map, node, { esc }) {
   if (!map?.nodes) return '';
   const entry = impactIndex(map)[node.id];
   if (!entry) return '';
-  const head = `<h3 class="section-label">Impact</h3><p class="impact-band ${entry.band}">${bandWords[entry.band]}</p><p>${esc(impactSentence(entry, map))}</p>`;
+  const head = `<h3 class="section-label">Impact</h3><p class="impact-band ${entry.band}">${bandWords[entry.band]}</p><p class="impact-sentence">${esc(impactSentence(entry, map))}</p>`;
   if (!entry.affected.length) return head;
   const titles = new Map(map.nodes.map(item => [item.id, item.title]));
-  const via = id => (impactPath(map, node.id, id) ?? []).map(step => `${titles.get(step.to)}${step.via === 'depends on' ? ' (depends on)' : ''}`).join(' → ');
-  const items = entry.affected.slice(0, 12).map(id => `<li><button type="button" class="relationship" data-select="${esc(id)}">${esc(titles.get(id))}</button><small>via ${esc(via(id))}</small></li>`).join('');
+  // How the change gets there: the last link ("Below it", "Depends on it"), then the ideas in between, if any.
+  const via = id => {
+    const steps = impactPath(map, node.id, id) ?? [], last = steps.at(-1), between = steps.slice(0, -1).map(step => titles.get(step.to));
+    return `${last?.via === 'depends on' ? 'Depends on it' : 'Below it'}${between.length ? ` · through ${between.join(' → ')}` : ''}`;
+  };
+  const items = entry.affected.slice(0, 12).map(id => `<li><button type="button" class="relationship" data-select="${esc(id)}">${esc(titles.get(id))}</button><small>${esc(via(id))}</small></li>`).join('');
   const more = entry.affected.length > 12 ? `<p class="form-note">${entry.affected.length - 12} more. Find an idea reaches any of them.</p>` : '';
   return `${head}<details data-editor="impact"><summary>Show affected ideas</summary><ul class="impact-list">${items}</ul>${more}</details>`;
 }
