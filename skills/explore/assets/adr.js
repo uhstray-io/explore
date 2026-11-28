@@ -1,7 +1,7 @@
 // Lightweight ADR (F5): an architecture decision record drafted by the agent from chosen answers and findings, edited
 // and accepted by the user, and saved by the user to docs/adr/ in the workspace. Explore renders the file from a fixed
 // template: Status is always Proposed, and saving it approves nothing. Shared by the Store and the app.
-import { answerChoices, plural } from './workspace-view.js';
+import { answerChooserHtml, plural } from './workspace-view.js';
 
 export const ADR_DRAFT = 'adr-draft';
 export const maxAdrRecords = 40, adrTitleMax = 120, adrSectionMax = 6000, adrFileMax = 64 * 1024;
@@ -77,11 +77,9 @@ export function adrDialogHtml({ map, esc, listening, live = true, chosen = [], p
     const body = live && save?.itemId === item.id ? saveHtml(save, esc) : `<div class="brief-actions">${done}<button type="button" class="text-button" data-adr-copy="${esc(item.id)}">Copy</button></div>`;
     return `<li class="adr-item" id="adr-item-${esc(item.id)}"><p class="adr-title"><strong>${esc(item.title)}</strong></p>${body}</li>`;
   }).join('');
-  const choices = answerChoices(map, { findings: true }), isChosen = (nodeId, questionId) => chosen.some(record => record.nodeId === nodeId && (record.questionId ?? null) === (questionId ?? null));
-  const box = (nodeId, questionId, label) => `<label class="tools-choice"><input type="checkbox" data-adr-node="${esc(nodeId)}"${questionId ? ` data-adr-question="${esc(questionId)}"` : ''}${isChosen(nodeId, questionId) ? ' checked' : ''}> ${label}</label>`;
-  const list = choices.map(group => `<fieldset class="tools-group"><legend>${esc(group.title)}</legend>${group.findings ? box(group.nodeId, null, 'Its findings') : ''}${group.answers.map(answer => box(group.nodeId, answer.questionId, esc(answer.question))).join('')}</fieldset>`).join('');
+  const list = answerChooserHtml(map, { esc, prefix: 'adr', chosen, findings: true });
   const reads = preview ? `<p class="form-note" id="adr-preview">Your agent will read ${plural(preview.records.filter(record => record.questionId).length, 'answer')} and the findings of ${plural(preview.records.filter(record => !record.questionId).length, 'idea')}, and draft from those alone. Nothing is written to your project until you save the accepted record.</p>` : '';
-  const ask = !live || pending || draft ? '' : `<h3 class="section-label">Draft a new record</h3>${choices.length ? `<p class="form-note">Choose up to ${maxAdrRecords} answers or findings the decision rests on.</p><div class="adr-choices">${list}</div>`
+  const ask = !live || pending || draft ? '' : `<h3 class="section-label">Draft a new record</h3>${list ? `<p class="form-note">Choose up to ${maxAdrRecords} answers or findings the decision rests on.</p><div class="answer-choices">${list}</div>`
     + `<label for="adr-title-hint">Title, if you have one in mind</label><input id="adr-title-hint" maxlength="${adrTitleMax}" value="${esc(hint)}">${reads}<div class="brief-actions">${preview ? `<button type="button" class="primary" data-adr-send="">Send to your agent</button><button type="button" class="text-button" data-adr-cancel="">Change the choice</button>` : `<button type="button" class="secondary" data-adr-preview=""${chosen.length ? '' : ' disabled'}>Preview what it reads</button>`}</div>`
     : '<p class="form-note">Answer some questions or explore an idea first: a record is drafted from saved answers and findings.</p>'}`;
   return status + review + (accepted ? `<h3 class="section-label">Accepted records</h3><ul class="adr-items">${accepted}</ul>` : '') + ask;

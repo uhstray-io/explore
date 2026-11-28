@@ -6,7 +6,7 @@ import { lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { textField } from './fields.mjs';
 import { packetBudget } from './guidance.mjs';
-import { includedKey, proposalOutdated } from './map-jobs.mjs';
+import { includedKey, includedRecords, proposalOutdated } from './map-jobs.mjs';
 import { certaintyText } from '../assets/questions.js';
 import { answerChoices } from '../assets/workspace-view.js';
 import { ADR_DRAFT, maxAdrRecords, adrTitleMax, adrSectionMax, adrFileMax, adrSections, adrName, renderAdr, adrFileText, adrSlug, adrToday } from '../assets/adr.js';
@@ -49,7 +49,7 @@ function adrPacket({ map, job, budget }) {
     if (JSON.stringify(packet).length <= budget - 800) break;
   }
   need(JSON.stringify(packet).length <= budget - 800, 'These answers and findings do not fit in one draft. Choose fewer.');
-  packet[includedKey] = packet.records.map(({ nodeId, questionId }) => ({ nodeId, ...(questionId ? { questionId } : {}), contentRevision: map.nodes.find(n => n.id === nodeId).contentRevision }));
+  packet[includedKey] = includedRecords(map, packet.records);
   return packet;
 }
 const resultFormat = { title: `one line, at most ${adrTitleMax} characters`, context: 'Markdown', decision: 'Markdown', consequences: 'Markdown', alternatives: 'Markdown, optional', openQuestions: 'Markdown, optional',

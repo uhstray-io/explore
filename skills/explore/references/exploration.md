@@ -132,3 +132,7 @@ Without `doneWhen`, judge what would count as enough for this branch before inve
 A result should say what was learned, why it matters for the goal, what remains uncertain, and any distinct next directions. The summary should carry the main conclusion or current blocking point. The body should preserve enough evidence and reasoning to be useful after the chat is gone; avoid repeating the packet or padding every section. Do not close an unresolved branch merely to reset its job. Use questions for a real user dependency and `fail` for an execution block.
 
 When the session ends, give a short handoff: the map identifier or URL, the selected branch's state, the key unresolved point, and the action that resumes work. Do not claim queued work will run after the agent leaves, or continue investigating because another interesting topic appeared.
+
+## Challenging decisions
+
+When the user asks you to challenge their answers, argue in good faith against the answers you were given, and only those. Name what matters to the decision: hidden assumptions, counter-arguments, overlooked alternatives and evidence gaps. Do not manufacture objections when none matter, treat missing context as missing rather than as evidence against a choice, and cite only sources you actually read. What you return are hypotheses for the user to consider: never ask them to change an answer.

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { Store, publicMap } from '../skills/explore/scripts/store.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
+import { toolsDialog } from '../skills/explore/assets/tools-dialog.js';
 
 // A map with two answered questions on the root and one on a child, plus one still open.
 async function answered() {
@@ -144,4 +145,29 @@ test('the browser can preview a check without starting it', async () => {
     assert.equal((await get(`/maps/${map.id}/job-preview?type=nope`)).status, 400);
     assert.equal((await app.store.get(map.id)).jobs.filter(j => j.type).length, 0, 'previewing queues nothing');
   } finally { await app.close(); }
+});
+
+// Map tools' Check answers in the browser, with a small fake page.
+const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
+test('Map tools checks chosen answers, stops and reviews through the app, and redraws only while open', async () => {
+  const elements = {}, element = id => (elements[id] ??= { id, innerHTML: '', open: false, handlers: {}, addEventListener(type, fn) { (this.handlers[type] ??= []).push(fn); }, showModal() { this.open = true; }, close() { this.open = false; } });
+  const boxes = [{ dataset: { choiceNode: 'root', choiceQuestion: 'q-1' } }];
+  globalThis.document = { querySelector: selector => element(selector.replace(/^#/, '')), querySelectorAll: () => boxes };
+  const calls = [], routes = [], map = { id: 'map-1', revision: 2, rootId: 'root', nodes: [{ id: 'root', title: 'Root <a>', questions: [{ id: 'q-1', text: 'Who <edits>?', answer: 'The team.' }] }], jobs: [], proposals: [] }; let opened = 0;
+  try {
+    const tools = toolsDialog({ map: () => map, act: async (...args) => { calls.push(args); return true; }, api: async route => { routes.push(route); return { records: [], omittedRecords: [] }; }, esc, toast: () => {}, listening: () => false, onOpen: () => opened++ });
+    await tools.mapChanged();
+    assert.equal(routes.length, 0, 'nothing drawn while closed');
+    element('show-tools').handlers.click[0]();
+    assert.equal(element('tools-dialog').open, true); assert.equal(opened, 1);
+    assert.match(element('tools-choices').innerHTML, /<input type="checkbox" data-choice-node="root" data-choice-question="q-1"> Who &lt;edits&gt;\?/);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(routes, ['/maps/map-1/job-preview?type=check-answers']); assert.match(element('tools-body').innerHTML, /data-check-answers/);
+    const click = dataset => element('tools-dialog').handlers.click[0]({ target: { closest: () => ({ dataset, disabled: false }) } });
+    await click({ checkAnswers: '' });
+    assert.deepEqual(calls.at(-1), [null, 'request-map-job', { jobType: 'check-answers', selection: [{ nodeId: 'root', questionId: 'q-1' }] }]);
+    await click({ cancelJob: 'job-1' }); assert.deepEqual(calls.at(-1), [null, 'cancel-job', { jobId: 'job-1' }]);
+    await click({ reviewItem: 'item-1', proposal: 'proposal-1', decision: 'dismissed' }); assert.deepEqual(calls.at(-1), [null, 'review-proposal', { proposalId: 'proposal-1', itemId: 'item-1', decision: 'dismissed' }]);
+    await click({ select: 'root' }); assert.equal(element('tools-dialog').open, false, 'a reference closes it for the page to open that idea');
+  } finally { delete globalThis.document; }
 });
