@@ -40,6 +40,12 @@ export class Problem extends Error {
   constructor(message, status = 400, code, errors) { super(message); this.status = status; if (code) this.code = code; if (errors) this.errors = errors; }
 }
 function need(condition, message, status, code) { if (!condition) throw new Problem(message, status, code); }
+// A result's research guidance (C6): absent, or one of the profile keys.
+function validTopicProfile(value) {
+  if (value === undefined) return {};
+  need(topicProfileLabel(value), `topicProfile must be one of: ${Object.keys(topicProfiles).join(', ')}.`);
+  return { topicProfile: value };
+}
 const changedOutside = 'This map changed outside Explore, for example after a pull. Read the updated map, then try again; your text has been kept.';
 const fingerprintOf = bytes => createHash('sha256').update(bytes).digest('hex');
 // A claim key works only with this server's token, so shared map files keep just its one-way hash.
@@ -682,19 +688,13 @@ export class Store {
         return { title: text(s.title, 'Suggestion title', 100), body: text(s.body || s.summary, 'Suggestion detail', 4000), kind: nodeKinds.has(s.kind) ? s.kind : 'research' };
       }),
       sources: sourceList(result.sources, message => { throw new Problem(message); }),
-      ...this.validTopicProfile(result.topicProfile),
+      ...validTopicProfile(result.topicProfile),
       links: list(result.links, 'Links', 12).map(e => {
         object(e, 'Relationship');
         const exists = map.nodes.some(n => n.id === e.to);
         need(semanticRelations.has(e.type) && (exists || onceExisted(map, e.to)) && e.to !== node.id, 'Invalid relationship.');
         return exists ? { from: node.id, to: e.to, type: e.type } : null;
       }).filter(Boolean) };
-  }
-  // A result's research guidance (C6): absent, or one of the profile keys.
-  validTopicProfile(value) {
-    if (value === undefined) return {};
-    need(topicProfileLabel(value), `topicProfile must be one of: ${Object.keys(topicProfiles).join(', ')}.`);
-    return { topicProfile: value };
   }
   async complete(mapId, jobId, claimKey, result) { return (await this.deliver(mapId, jobId, claimKey, result)).map; }
   // Saves a result and resolves { map, warnings }. An investigation result is first checked against the
