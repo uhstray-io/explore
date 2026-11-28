@@ -1,4 +1,4 @@
-import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
+import { constellationLayout, connectionPath, presentation, overviewView, focusedView, branchComplete } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
@@ -13,8 +13,9 @@ import { usageDialog } from './usage-dialog.js';
 import { recoverDialog } from './recover-dialog.js';
 import { questionClick } from './question-clicks.js';
 import { sinceVisitPanel } from './since-visit.js';
-import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
+import { moreFiltersPanel } from './more-filters.js';
+import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
+import { mapOverview, overviewFilters, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
@@ -291,23 +292,27 @@ function renderOverview() {
   if (!state.visibleMap) return;
   const overview = mapOverview(state.visibleMap), focusedFilter = document.activeElement?.dataset.filter;
   const focusedIdea = $('#overview-list').contains(document.activeElement) ? document.activeElement.dataset.focusNode : null;
-  const html = overview.groups.map(group => `<button type="button" data-filter="${group.id}" aria-expanded="${state.filter === group.id}" aria-controls="overview-panel"><span>${group.label}</span><strong>${group.nodes.length}</strong></button>`).join('');
+  const html = overview.groups.filter(group => group.kind === 'progress').map(group => `<button type="button" data-filter="${group.id}" aria-expanded="${state.filter === group.id}" aria-controls="overview-panel"><span>${group.label}</span><strong>${group.nodes.length}</strong></button>`).join('');
   if ($('#overview-filters').innerHTML !== html) $('#overview-filters').innerHTML = html;
   if (focusedFilter) $(`[data-filter="${focusedFilter}"]`)?.focus({ preventScroll: true });
+  moreFilters.render(overview.groups.filter(group => group.kind !== 'progress'), state.filter);
   const group = overview.groups.find(item => item.id === state.filter);
   $('#overview-panel').hidden = !group;
   for (const card of document.querySelectorAll('.node')) card.classList.toggle('filter-muted', Boolean(group) && !group.nodes.some(node => node.id === card.dataset.node));
   if (!group) return;
   $('#overview-title').textContent = `${group.label} (${group.nodes.length})`;
   $('#overview-explanation').textContent = state.historyStep === null ? 'Choose an idea to inspect it. Opening this list never starts work.' : 'Today’s state of ideas visible at this growth step.';
-  const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${node.summary ? `<span>${esc(node.summary)}</span>` : ''}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
+  const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${group.lines(node).map(line => `<span>${esc(line.text)}</span>${line.detail ? `<span class="overview-detail">${esc(line.detail)}</span>` : ''}`).join('')}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
   // Flagged findings can be reviewed one at a time from here.
   const reviewAll = group.id === 'stale' && group.nodes.length && state.historyStep === null ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
   if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
-  if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $(`[data-filter="${state.filter}"]`))?.focus({ preventScroll: true });
+  if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
+// The control that opened a filter: its progress button, or More filters.
+const filterControl = filter => (overviewFilters.some(item => item.id === filter) ? $(`[data-filter="${filter}"]`) : $('#more-filters'));
 function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
 // Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
+const moreFilters = moreFiltersPanel({ esc, openFilter, focusList: () => $('#overview-list button')?.focus() });
 const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $('#overview-filters button')?.focus() });
 // Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else. The
 // render runs even when nothing changed, only to finish that summary.
@@ -323,9 +328,9 @@ $('#overview-filters').addEventListener('click', event => {
 $('#overview-filters').addEventListener('keydown', event => {
   if (event.key === 'ArrowDown' && state.filter) { event.preventDefault(); $('#overview-list button')?.focus(); }
 });
-$('#close-overview').addEventListener('click', () => { const filter = state.filter; closeOverview(); $(`[data-filter="${filter}"]`)?.focus(); });
+$('#close-overview').addEventListener('click', () => { const filter = state.filter; closeOverview(); filterControl(filter)?.focus(); });
 $('#overview-panel').addEventListener('keydown', event => {
-  if (event.key === 'Escape') { const filter = state.filter; closeOverview(); $(`[data-filter="${filter}"]`)?.focus(); }
+  if (event.key === 'Escape') { const filter = state.filter; closeOverview(); filterControl(filter)?.focus(); }
 });
 
 function renderHistory() {
@@ -625,7 +630,7 @@ function renderDetail(force = false) {
   detail.dataset.nodeId = state.selected || '';
   const n = state.visibleMap.nodes.find(n => n.id === state.selected);
   if (!n) { detail.innerHTML = `<div class="detail-empty"><span>◇</span>${historic ? 'Select an idea visible at this growth step to read today’s findings.' : 'Select an idea to look closer.'}</div>`; return; }
-  const completed = n.completed || n.status === 'explored';
+  const completed = branchComplete(n);
   const pending = ['suggested', 'queued', 'running', 'awaiting-answer', 'interrupted'].includes(n.status);
   const job = state.visibleMap.jobs.filter(j => j.nodeId === n.id && (!j.type || j.type === 'investigate')).at(-1);
   const nearby = state.visibleMap.nodes.filter(node => node.id === n.parentId || node.parentId === n.id);
@@ -658,7 +663,7 @@ function renderDetail(force = false) {
   const canRestore = q => live && n.status === 'awaiting-answer' && !q.replacedBy;
   const importance = q => importanceLabel(q.importance) ? `<small class="certainty-label">${importanceLabel(q.importance)}</small>` : '';
   const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${importance(q)}${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}${pinnedLabel(pins, { nodeId: n.id, questionId: q.id })}${(q.previousAnswers || []).map(p => `<small class="certainty-label">Earlier answer: ${esc(p.answer)}</small>`).join('')}${historic ? '' : q.supersededAt ? questionMenuHtml(q, { nodeId: n.id, kind: 'superseded', esc, items: pinItems(q) }) : questionMenuHtml(q, { nodeId: n.id, kind: 'answered', completed, esc, items: pinItems(q) }) + (completed ? '' : questionResearchHtml(agentWork(q))) + changeEditor(q)}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
-  const waiting = live ? questions.filter(q => isOpen(q) && q.deferredAt) : [];
+  const waiting = live ? questions.filter(isSavedForLater) : [];
   const listHtml = questions.filter(q => !waiting.includes(q) && !dismissed.includes(q)).map(q => live && q.replacedBy === 'pending' && !q.supersededAt ? pendingBox(q) : live && isBlocking(q) ? questionForm(q, false) : record(q)).join('');
   // One question at a time: a counter, the current question, earlier answers collapsed, and Show all.
   const sequence = live ? questionSequence({ questions }) : null;
