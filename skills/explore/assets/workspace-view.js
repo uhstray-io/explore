@@ -24,8 +24,9 @@ export function questionSequence(node) {
     answered: batch.filter(q => q.answer), remaining: batch.filter(isBlocking).length };
 }
 
-// Every filter: { id, kind, label, empty, matches(node), lines(node) as [{ text, detail? }] }. The progress filters
-// fill the bar; the others are More filters (Z9).
+// Every filter: { id, kind, label, empty, matches(node), lines(node) as [{ text, detail? }] }, and optionally note(node)
+// and context(matched): ideas the filter leaves out but keeps visible as quieter context, as IDs (impact, D4). The
+// progress filters fill the bar; the others are More filters (Z9).
 const summaryLine = node => (node.summary ? [{ text: node.summary }] : []);
 export const overviewFilters = [
   { id: 'answer', label: 'Needs your answer', empty: 'No questions are waiting for you.', matches: node => node.status === 'awaiting-answer',
@@ -67,14 +68,18 @@ export const questionFilters = [...stateFilters, ...importanceFilters];
 export const isInvestigationJob = job => !job.type || job.type === 'investigate';
 export const isEarlierResult = (job, node) => job.nodeId === node.id && isInvestigationJob(job) && !!job.result && (!!job.stale || job.result.summary !== node.summary || job.result.body !== node.body);
 
-export function mapOverview(map) {
+// `filters` adds filters a feature computes for this map, such as High impact, still open (D4) on the live map.
+export function mapOverview(map, { filters = [] } = {}) {
   const nodes = map?.nodes || [];
   return {
     total: nodes.length,
     explored: nodes.filter(node => node.status === 'explored').length,
     accepted: nodes.filter(node => node.reviewState === 'accepted' && !node.stale && node.status === 'explored').length,
     running: nodes.filter(node => node.status === 'running').length,
-    groups: [...overviewFilters, ...questionFilters].map(filter => ({ ...filter, nodes: nodes.filter(filter.matches) })),
+    groups: [...overviewFilters, ...questionFilters, ...filters].map(filter => {
+      const matched = nodes.filter(filter.matches);
+      return { ...filter, nodes: matched, ...(filter.context ? { context: filter.context(matched) } : {}) };
+    }),
   };
 }
 

@@ -170,7 +170,10 @@ test('a redraw skips unchanged rows, and keeps focus without scrolling; selectio
   p.state.visibleMap = structuredClone(p.state.visibleMap); p.state.visibleMap.nodes[0].title = 'Renamed';
   p.panel.render();
   assert.equal([...p.box.querySelectorAll()].filter(element => element.classList.contains('filter-muted')).length, 5, 'a redraw keeps the filter');
-  p.panel.dim(null); assert.equal([...p.box.querySelectorAll()].filter(element => element.classList.contains('filter-muted')).length, 0);
+  p.panel.dim(new Set(['b1']), new Set(['a']));
+  const marked = name => [...p.box.querySelectorAll()].filter(element => element.classList.contains(name)).map(element => element.dataset.outlineNode);
+  assert.deepEqual(marked('filter-context'), ['a'], 'a context row is quieter, not muted'); assert.equal(marked('filter-muted').length, 4);
+  p.panel.dim(null); assert.equal([...p.box.querySelectorAll()].filter(element => element.classList.contains('filter-muted')).length, 0); assert.deepEqual(marked('filter-context'), []);
 });
 
 // The app's side: the real selectNode and focusNode from app.js, against stubs for the page and the outline.

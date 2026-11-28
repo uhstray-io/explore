@@ -21,6 +21,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
+import { impactHtml, impactFilter } from './impact.js';
 import { goalInput, goalFieldsHtml, goalSectionHtml, goalEditorHtml, goalEdits, modeLabel } from './guidance.js';
 import { minimapPanel } from './minimap.js';
 import { outlinePanel } from './outline.js';
@@ -303,7 +304,7 @@ function closeOverview() {
 }
 function renderOverview() {
   if (!state.visibleMap) return;
-  const overview = mapOverview(state.visibleMap), focusedFilter = document.activeElement?.dataset.filter;
+  const overview = mapOverview(state.visibleMap, { filters: state.historyStep === null ? [impactFilter(state.visibleMap)] : [] }), focusedFilter = document.activeElement?.dataset.filter;
   const focusedIdea = $('#overview-list').contains(document.activeElement) ? document.activeElement.dataset.focusNode : null;
   const html = overview.groups.filter(group => group.kind === 'progress').map(group => `<button type="button" data-filter="${group.id}" data-command="filter" data-command-label="Show: ${group.label}" aria-expanded="${state.filter === group.id}" aria-controls="overview-panel"><span>${group.label}</span><strong>${group.nodes.length}</strong></button>`).join('');
   if ($('#overview-filters').innerHTML !== html) $('#overview-filters').innerHTML = html;
@@ -311,15 +312,17 @@ function renderOverview() {
   moreFilters.render(overview.groups.filter(group => group.kind !== 'progress'), state.filter);
   const group = overview.groups.find(item => item.id === state.filter);
   $('#overview-panel').hidden = !group;
-  for (const card of document.querySelectorAll('.node')) card.classList.toggle('filter-muted', Boolean(group) && !group.nodes.some(node => node.id === card.dataset.node));
-  outline.dim(group ? new Set(group.nodes.map(node => node.id)) : null);
+  const shown = group ? new Set(group.nodes.map(node => node.id)) : null, context = new Set(group?.context); // Kept visible, quieter (D4).
+  for (const card of document.querySelectorAll('.node')) { card.classList.toggle('filter-muted', !!shown && !shown.has(card.dataset.node) && !context.has(card.dataset.node)); card.classList.toggle('filter-context', context.has(card.dataset.node)); }
+  outline.dim(shown, context);
   if (!group) return;
   $('#overview-title').textContent = `${group.label} (${group.nodes.length})`;
   $('#overview-explanation').textContent = state.historyStep === null ? 'Choose an idea to inspect it. Opening this list never starts work.' : 'Today’s state of ideas visible at this growth step.';
   const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${group.lines(node).map(line => `<span>${esc(line.text)}</span>${line.detail ? `<span class="overview-detail">${esc(line.detail)}</span>` : ''}`).join('')}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
   // Live only: the suggested next question leads "Needs your answer", and flagged findings can be reviewed one at a time.
   const lead = state.historyStep !== null ? '' : group.id === 'answer' ? nextQuestion.html(state.map) : group.id === 'stale' && group.nodes.length ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
-  if (state.overviewList !== lead + list) $('#overview-list').innerHTML = state.overviewList = lead + list; // Never compare with innerHTML read back.
+  const quieter = context.size ? `<p class="form-note">Also shown, more faintly: ${context.size === 1 ? '1 idea' : `${context.size} ideas`} on dependency chains between these.</p>` : '';
+  if (state.overviewList !== lead + list + quieter) $('#overview-list').innerHTML = state.overviewList = lead + list + quieter; // Never compare with innerHTML read back.
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
 // The control that opened a filter: its progress button, or More filters.
@@ -663,6 +666,7 @@ function renderDetail(force = false) {
     ${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
     ${questionHtml}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
+    ${!historic ? impactHtml(state.visibleMap, n, { esc }) : ''}
     ${n.body && n.body !== n.summary ? `<h3 class="section-label">${n.status === 'suggested' ? 'What to explore' : 'Notes & findings'}</h3><div class="prose">${prose(n.body)}</div>` : ''}
     ${job?.stale && job.result ? `<h3 class="section-label">Result from the earlier premise</h3><div class="prose">${prose(job.result.body)}</div>` : ''}
     ${claimsHtml(n, { esc })}${n.sources.length ? `<h3 class="section-label">Sources & evidence</h3>${n.sources.map(s => `<a class="evidence-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} <span aria-hidden="true">↗</span><small>${esc(s.note)}</small></a>`).join('')}` : ''}
