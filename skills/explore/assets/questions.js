@@ -55,6 +55,9 @@ export function normalizeQuestion(value, fail) {
 }
 // A saved answer that still stands: not from an earlier premise and not set aside.
 export function hasCurrentAnswer(question) { return !!question.answer && !question.supersededAt && !question.dismissedAt; }
+// A current answer the user marked Assumption (K6): the only kind that takes a note on what would disprove it.
+export const isAssumption = question => hasCurrentAnswer(question) && effectiveAnswerState(question)?.state === 'assumption';
+export const disproveIfMax = 1000;
 // When the current answer was given: a changed answer counts from its change.
 export function answeredSince(question) { return question.changedAt ?? question.answeredAt ?? null; }
 // When a question was asked. Questions from before `askedAt` was recorded are dated by the run that asked them.
@@ -68,7 +71,9 @@ export function laterQuestions(map, node, question) {
 // Replaces an answer and keeps the old one in `previousAnswers`; `mark` says why, e.g. { wordingFix: true }.
 export function replaceAnswer(question, { answer, answerState, actor, at, mark = {} }) {
   const since = answeredSince(question);
-  question.previousAnswers = [...(question.previousAnswers || []), { answer: question.answer, ...(question.answerState ? { answerState: question.answerState } : {}), ...(since ? { answeredAt: since } : {}), replacedAt: at, ...mark }];
+  const note = !mark.wordingFix && question.disproveIf ? { disproveIf: question.disproveIf } : {};
+  question.previousAnswers = [...(question.previousAnswers || []), { answer: question.answer, ...(question.answerState ? { answerState: question.answerState } : {}), ...(since ? { answeredAt: since } : {}), ...note, replacedAt: at, ...mark }];
+  if (note.disproveIf) delete question.disproveIf; // It was about the old answer.
   Object.assign(question, { answer, changedAt: at }, answerState ? { answerState } : {}, actor?.name ? { answeredBy: { name: actor.name } } : {});
 }
 

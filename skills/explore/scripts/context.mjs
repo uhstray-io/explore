@@ -4,6 +4,8 @@ import { certaintyText, importanceName } from '../assets/questions.js';
 import { comparisonLines } from './options.mjs';
 import { limitationRecord } from './limitations.mjs';
 import { claimRecord } from './claims.mjs';
+import { assumptionRecord } from './assumptions.mjs';
+import { interpretationsOf } from '../assets/assumptions.js';
 import { stanceOf } from '../assets/stance.js';
 
 // Pages are tied to a map revision so a resumed read cannot silently mix versions.
@@ -26,9 +28,10 @@ export function contextExcerpt(map, nodeId, options = {}) {
     case 'sources': records = node.sources.map(s => `## ${s.title}\nURL: ${s.url}\nRetrieved: ${s.retrievedAt}\nStance: ${stanceOf(s) ?? 'not recorded'}\nEvidence: ${s.note}`); break;
     case 'options': records = node.options?.length ? [comparisonLines(node).join('\n')] : []; break;
     case 'limitations': records = (node.limitations || []).map(record => limitationRecord(node, record).join('\n')); break;
+    case 'assumptions': records = interpretationsOf(node).map(item => assumptionRecord(item).join('\n')); break;
     case 'claims': records = (node.claims || []).map(claim => claimRecord(node, claim).join('\n')); break;
     case 'relationships': records = map.edges.filter(e => e.from === node.id || e.to === node.id).map(e => `${e.from} ${e.type} ${e.to}`); break;
-    default: throw new Problem('Unknown section. Use summary, premise, findings, questions, options, limitations, claims, sources, or relationships.');
+    default: throw new Problem('Unknown section. Use summary, premise, findings, questions, options, limitations, claims, assumptions, sources, or relationships.');
   }
   if (options.question && section !== 'questions') throw new Problem('Question IDs require the questions section.');
   if (options.question && !node.questions.some(q => q.id === options.question)) throw new Problem('Question not found.', 404);

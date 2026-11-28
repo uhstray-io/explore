@@ -37,6 +37,7 @@ import { doneWhenActions } from './done-when.mjs';
 import { branchRestoreActions } from './branch-restore.mjs';
 import { libraryActions } from './library.mjs';
 import { linkActions } from './links.mjs';
+import { assumptionActions } from './assumptions.mjs';
 import { listenSetting } from '../assets/listening.js';
 import { researchModelSetting } from './research-model.mjs';
 
@@ -69,7 +70,7 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions, ...doneWhenActions, ...pinnedAnswerActions, ...glossaryActions, ...foldActions, ...goalActions, ...branchRestoreActions, ...linkActions, ...libraryActions } });
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions, ...doneWhenActions, ...pinnedAnswerActions, ...glossaryActions, ...foldActions, ...goalActions, ...branchRestoreActions, ...linkActions, ...libraryActions, ...assumptionActions } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }
