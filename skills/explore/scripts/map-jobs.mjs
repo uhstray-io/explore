@@ -167,10 +167,10 @@ export const mapJobTypes = {
 
 export const mapJobActions = {
   // Only the browser asks for a map job; agents never request one.
-  'request-map-job': { target: 'map', apply: ({ map, input, store }) => {
+  'request-map-job': { target: 'map', apply: async ({ map, input, store }) => {
     const definition = store.jobType(input.jobType);
     need(definition && definition.target === 'map' && typeof definition.prepare === 'function', 'This kind of review cannot be requested.');
-    store.enqueueJob(map, { type: input.jobType, reason: definition.reason, input: definition.prepare({ map, input }) });
+    store.enqueueJob(map, { type: input.jobType, reason: definition.reason, input: await definition.prepare({ map, input, store }) });
   } },
   // Keep or dismiss one point. Keeping never changes an answer or a finding's review state.
   'review-proposal': { target: 'map', apply: ({ map, input, store, actor }) => {

@@ -154,7 +154,7 @@ const versionWords = {
   'answer-changed': 'Answer changed', 'outcome-recorded': 'Outcome recorded', 'disprove-if-set': 'Assumption note changed', 'thought-added': 'Thought added to the inbox', 'thought-edited': 'Thought edited', 'thought-discarded': 'Thought discarded', 'thought-placed': 'Thought placed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
   'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported', 'glossary-added': 'Glossary term added', 'guidance-changed': 'Goal and mode changed', 'glossary-edited': 'Glossary term edited', 'glossary-removed': 'Glossary term removed', 'glossary-accepted': 'Glossary term accepted', 'glossary-dismissed': 'Proposed term dismissed', 'done-when-set': 'Stopping point set', 'map-recovered': 'Recovered from a version',
   'assignment-requested': 'Someone asked to look at a branch', 'assignment-taken': 'Request taken', 'assignment-passed': 'Request passed on', 'assignment-done': 'Request marked done',
-  commented: 'Comment added', 'discussion-resolved': 'Discussion resolved', 'discussion-reopened': 'Discussion reopened',
+  commented: 'Comment added', 'project-brief-edited': 'Project brief edited', 'project-brief-approved': 'Project brief approved', 'project-brief-discarded': 'Project brief draft discarded', 'project-brief-cleared': 'Project brief cleared', 'discussion-resolved': 'Discussion resolved', 'discussion-reopened': 'Discussion reopened',
 };
 export function versionLabel(version) {
   if (version.name) return version.name;
@@ -221,6 +221,7 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
     counts.thoughtsChanged && 'changes the inbox',
     counts.assignmentsChanged && 'changes who is asked to look at branches',
     counts.discussionsChanged && 'changes discussions',
+    counts.briefChanged && 'changes the project brief',
     counts.reviewsChanged && 'changes agents\' suggestions or your reviews of them',
     counts.guidanceChanged && 'changes the goal and mode',
   ].filter(Boolean);

@@ -41,7 +41,7 @@ const hash = value => createHash('sha256').update(JSON.stringify(value)).digest(
 export function contentHash(map) { const { revision, updatedAt, ...content } = snapshotOf(map); return hash(content); }
 // What a restore replaces. The event log and growth history only grow, and today's layout is kept. A map saved
 // before the glossary has an empty one.
-const restorableFields = ['title', 'originalIdea', 'mode', 'objective', 'successCriteria', 'rootId', 'nodes', 'edges', 'jobs', 'glossary', 'inbox', 'proposals', 'assignments', 'discussions'];
+const restorableFields = ['title', 'originalIdea', 'mode', 'objective', 'successCriteria', 'rootId', 'nodes', 'edges', 'jobs', 'glossary', 'inbox', 'proposals', 'assignments', 'discussions', 'projectBrief'];
 const listFields = new Set(['glossary', 'inbox', 'proposals']); // Absent in older maps: restored as empty.
 export const restorableContent = map => Object.fromEntries(restorableFields.map(key => [key, listFields.has(key) ? map[key] ?? [] : map[key]]));
 export function restorableHash(map) { return hash(restorableContent(snapshotOf(map))); }
@@ -187,6 +187,7 @@ export function compareVersion(current, snapshot, isCompleted) {
       termsChanged: entryDifference(current, snapshot, 'glossary'),
       thoughtsChanged: entryDifference(current, snapshot, 'inbox'), // The inbox (K8), the same way.
       assignmentsChanged: entryDifference(current.assignments ?? {}, snapshot.assignments ?? {}, 'items'), // Requests to look at a branch (H7).
+      briefChanged: JSON.stringify(current.projectBrief ?? null) !== JSON.stringify(snapshot.projectBrief ?? null), // The project brief (G2).
       discussionsChanged: entryDifference(current.discussions ?? {}, snapshot.discussions ?? {}, 'threads'), // Comment threads (H6).
       reviewsChanged: entryDifference(current, snapshot, 'proposals'), // Agents' suggestions and the user's reviews of them.
       guidanceChanged: ['mode', 'objective', 'successCriteria'].some(field => (current[field] ?? null) !== (snapshot[field] ?? null)),

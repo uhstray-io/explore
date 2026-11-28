@@ -14,6 +14,7 @@ import { branchComplete } from '../skills/explore/assets/graph.js';
 import { notesHtml } from '../skills/explore/assets/inbox.js';
 import { assignmentCardHtml, assignFormHtml, assignmentRequest, assignmentClick } from '../skills/explore/assets/assignments.js';
 import { discussionHtml, discussionRequest, discussionClick } from '../skills/explore/assets/discussions.js';
+import { promptedByHtml } from '../skills/explore/assets/project-brief.js';
 import { criteriaEntryHtml, reconsideredHtml } from '../skills/explore/assets/criteria.js';
 import { hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload } from '../skills/explore/assets/hypothesis.js';
 import { readOnlyNote } from '../skills/explore/assets/history.js';
@@ -73,7 +74,7 @@ function harness({ question = false, hypothesis = false, formAs = null } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, notesHtml, assignmentCardHtml, assignFormHtml, assignmentRequest, discussionHtml, discussionRequest, criteriaEntryHtml, reconsideredHtml, hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload, readOnlyNote, isInvestigationJob, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, foldMenuItems, goalSectionHtml, goalEditorHtml, goalEdits, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, notesHtml, promptedByHtml, projectBrief: { status: () => null }, assignmentCardHtml, assignFormHtml, assignmentRequest, discussionHtml, discussionRequest, criteriaEntryHtml, reconsideredHtml, hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload, readOnlyNote, isInvestigationJob, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, foldMenuItems, goalSectionHtml, goalEditorHtml, goalEdits, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: (...args) => { actCalls.push(args); return pending; }, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }

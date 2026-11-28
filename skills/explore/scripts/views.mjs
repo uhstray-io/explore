@@ -19,6 +19,7 @@ import { glossaryLines } from './glossary.mjs';
 import { linkSuffix } from './links.mjs';
 import { peopleLines } from './people.mjs';
 import { generatedFrom } from './map-validation.mjs';
+import { projectBriefLines } from './project-brief.mjs';
 
 // Contributor names come from Git; in generated Markdown they stay literal text, never markup.
 const literal = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -73,6 +74,6 @@ export function renderViews(map, { resultIsStale }) {
     }
     nodes.set(n.id, lines.join('\n') + '\n');
   }
-  overview.push(...glossaryLines(map));
+  overview.push(...glossaryLines(map), ...projectBriefLines(map));
   return { readme: overview.join('\n') + '\n', nodes };
 }

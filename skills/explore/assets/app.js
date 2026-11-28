@@ -14,6 +14,8 @@ import { challengeDialog } from './challenge-dialog.js';
 import { toolsDialog } from './tools-dialog.js';
 import { adrDialog } from './adr-dialog.js';
 import { handoffDialog } from './handoff-dialog.js';
+import { projectBriefDialog } from './project-brief-dialog.js';
+import { promptedByHtml } from './project-brief.js';
 import { criteriaEntryHtml, reconsideredHtml } from './criteria.js';
 import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
@@ -70,7 +72,7 @@ function toast(message) {
   $('#toast').textContent = message; $('#toast').classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('visible'), 6500); }
 async function api(route, body) {
   const response = await fetch(`/api${route}`, { method: body ? 'POST' : 'GET', headers: { Authorization: `Bearer ${state.token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const data = await response.json(); if (!response.ok) throw new Error(data.error || 'The request could not be saved.'); return data;
+  const data = await response.json(); if (!response.ok) throw Object.assign(new Error(data.error || 'The request could not be saved.'), { errors: data.errors }); return data;
 }
 function prose(value) {
   return String(value || '').split(/\n\s*\n/).map(block => {
@@ -159,7 +161,7 @@ function renderMap(fit = false, preserveView = false) {
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
-  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); inbox.mapChanged(); adr.mapChanged(); challenge.mapChanged(); handoff.mapChanged();
+  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); inbox.mapChanged(); adr.mapChanged(); challenge.mapChanged(); handoff.mapChanged(); projectBrief.mapChanged();
   const topologyChanged = state.layoutMap !== state.map.id || state.layoutCount !== state.map.nodes.length;
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
@@ -601,7 +603,7 @@ function renderDetail(force = false) {
   const agentWork = q => ({ question: q, jobs: state.visibleMap?.jobs || [], listening: agentListening(), seen: state.helpSeen, esc });
   // Options with a suggested answer can start the user's draft; nothing is saved until they press Save.
   const suggestions = q => { const drafts = (n.options || []).filter(option => option.suggestedAnswer); return drafts.length ? `<div class="suggested-answers"><span>Start from a suggested answer:</span>${drafts.map(option => `<button type="button" class="text-button" data-suggest-answer="${esc(option.id)}" data-question-id="${q.id}">${esc(option.title)}</button>`).join('')}</div>` : ''; };
-  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${questionMenuHtml(q, { nodeId: n.id, kind: waiting ? 'waiting' : 'open', lastBlocking: !waiting && blockingCount === 1, esc })}${questionHelpHtml(agentWork(q))}${questionResearchHtml(agentWork(q))}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-command="answer" data-command-label="Answer" data-node-id="${n.id}" data-question-id="${q.id}" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${questionTidyHtml({ ...agentWork(q), draft: state.drafts[q.id], restorable: state.tidyRestore?.[q.id] !== undefined })}${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
+  const questionForm = (q, waiting) => `<form class="question-box" data-question="${q.id}" data-node-id="${n.id}"><div class="question-label">${waiting ? 'Saved for later' : 'A question for you'}</div><p id="question-label-${q.id}">${esc(q.text)}</p>${importanceHtml(q, { esc })}${promptedByHtml(q, { esc, status: projectBrief.status() })}${questionMenuHtml(q, { nodeId: n.id, kind: waiting ? 'waiting' : 'open', lastBlocking: !waiting && blockingCount === 1, esc })}${questionHelpHtml(agentWork(q))}${questionResearchHtml(agentWork(q))}<textarea name="answer" aria-labelledby="question-label-${q.id}" placeholder="What do you think?" maxlength="12000" data-command="answer" data-command-label="Answer" data-node-id="${n.id}" data-question-id="${q.id}" data-draft="${q.id}" required>${esc(state.drafts[q.id] ?? '')}</textarea>${questionTidyHtml({ ...agentWork(q), draft: state.drafts[q.id], restorable: state.tidyRestore?.[q.id] !== undefined })}${suggestions(q)}<div class="question-actions"><button type="submit" class="primary">Save</button></div></form>`;
   // An answer being saved already counts as answered here, so the next question shows at once.
   const questions = state.pendingAnswers ? n.questions.map(q => !q.answer && state.pendingAnswers[q.id] !== undefined ? { ...q, answer: state.pendingAnswers[q.id], answerState: 'tentative' } : q) : n.questions;
   const live = !completed && !historic, blockingCount = questions.filter(isBlocking).length, pins = pinsOf(state.map);
@@ -693,7 +695,7 @@ function act(nodeId, type, extra = {}, { onError = toast, route = 'action' } = {
       if (state.map?.id === mapId) { state.map = result; renderMap(); checkGitStatus(); }
       return true;
     } catch (error) {
-      onError(error.message);
+      onError(error.message, error);
       // Reload acknowledged coordinates after a conflict instead of displaying an unsaved move.
       try {
         const current = await api(`/maps/${mapId}`);
@@ -745,6 +747,7 @@ const challenge = challengeDialog({ map: () => state.visibleMap, act, api, esc, 
   exploreAsDirection });
 const tools = toolsDialog({ map: () => state.map, act, api, esc, toast, listening: agentListening, onOpen: () => exporter.render() }); // Map tools: Check answers (F1).
 const adr = adrDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Decision records (F5).
+const projectBrief = projectBriefDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Project brief (G2).
 const handoff = handoffDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening, download }); // Implementation handoff (F4).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).

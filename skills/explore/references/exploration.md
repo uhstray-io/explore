@@ -107,6 +107,10 @@ When a prior premise changes, check relevant dependency links and stale findings
 
 When you cite a source, say whether it `supports` the finding, `challenges` it or gives `context`, in its `stance`. Record a challenge honestly: a source cited against the finding is evidence too, and the user's source library flags sources that back findings contradicting each other.
 
+## Use the project brief
+
+A packet's `project` is the user's reviewed summary of their project. Its facts quote the user's files, its statements are the user's own words, and its inferences are an earlier reading, never facts. A fact from a file listed in `changedFiles` (or marked `fileChanged`) is unverified until the user refreshes the brief: do not build on it as settled. When a fact or statement is what makes a question worth asking, name it in the question's `factIds`, so the user sees what prompted it.
+
 ## Use the map's words
 
 Use the packet's `glossary` terms as the user defined them, in questions, findings and suggestions. Propose a term in the result's `glossary` only when the exploration has settled on a meaning worth keeping, not for every noun; the user decides whether it counts.

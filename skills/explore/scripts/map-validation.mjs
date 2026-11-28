@@ -78,6 +78,7 @@ const messages = {
   'invalid-growth': 'Growth history is malformed.',
   'invalid-assignments': 'Assignments must be version 1 with a list of items; a newer Explore may have written them.',
   'duplicate-open-assignment': 'Someone else is already asked to look at this idea.',
+  'invalid-brief': 'The project brief is malformed: the README reads its facts, inferences and statements as text.',
   'invalid-discussions': 'Discussions must be version 1 with a list of threads; a newer Explore may have written them.',
   'invalid-position': 'A saved position must be a pair of numbers.',
   'contains-parent': "A containment link disagrees with the idea's parent.",
@@ -86,6 +87,12 @@ const messages = {
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isText = value => typeof value === 'string';
 const httpUrl = value => { try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; } };
+// The project brief (G2): what the README reads must be text, so a malformed one makes the map unreadable.
+const textOf = (value, keys) => isRecord(value) && keys.every(key => isText(value[key]));
+const isBriefVersion = value => value == null || (isRecord(value) && Array.isArray(value.files) && value.files.every(file => textOf(file, ['path', 'sha256']) && Number.isSafeInteger(file.bytes))
+  && Array.isArray(value.facts) && value.facts.every(fact => textOf(fact, ['id', 'section', 'text', 'file', 'quote'])) && Array.isArray(value.inferences) && value.inferences.every(item => textOf(item, ['id', 'section', 'text']) && Array.isArray(item.basedOn))
+  && Array.isArray(value.unknowns) && value.unknowns.every(item => textOf(item, ['section', 'text'])));
+const isBrief = value => isRecord(value) && isBriefVersion(value.draft) && isBriefVersion(value.approved) && (value.statements === undefined || (Array.isArray(value.statements) && value.statements.every(item => textOf(item, ['id', 'text']))));
 // A block a newer Explore wrote: reported as that, so the map waits for it rather than being repaired or recovered.
 const newer = value => Number.isSafeInteger(value?.version) && value.version > 1;
 const isGrowth = value => isRecord(value) && value.version === 1 && Array.isArray(value.batches);
@@ -102,6 +109,7 @@ const shapes = {
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
     history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), inbox: list({ optional: true }), assignments: rule(value => isRecord(value) && (newer(value) || (value.version === 1 && Array.isArray(value.items))), { code: 'invalid-assignments', optional: true, unreadable: true }),
+    projectBrief: rule(isBrief, { code: 'invalid-brief', optional: true, unreadable: true }),
     discussions: rule(value => isRecord(value) && (newer(value) || (value.version === 1 && Array.isArray(value.threads))), { code: 'invalid-discussions', optional: true, unreadable: true }),
     mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: rule(value => isText(value) && value.length <= goalMax, { optional: true }), successCriteria: rule(value => isText(value) && value.length <= goalMax, { optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.

@@ -22,6 +22,7 @@ import { listedMaps } from '../assets/rail.js';
 import { createStorage } from './storage.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
+import { briefWithStatus } from './project-brief.mjs';
 
 const assets = fileURLToPath(new URL('../assets/', import.meta.url));
 export async function startServer({ workspace = process.cwd(), port = 4317, dataDirectory, registry } = {}) {
@@ -42,7 +43,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
   const connectionPath = path.join(runtime, 'connection.json');
   const token = randomBytes(32).toString('hex');
   const listeners = createListeners();
-  const store = new Store(dataDirectory || path.join(workspace, 'ideas'), { ...(registry ? { registry } : {}), onSaved: map => listeners.noteActivity(map.id) });
+  const store = new Store(dataDirectory || path.join(workspace, 'ideas'), { workspace, ...(registry ? { registry } : {}), onSaved: map => listeners.noteActivity(map.id) });
   const contributor = gitContributor(workspace), version = await packageVersion();
   let address, worker = '', closing = false;
   const storage = createStorage(store, { runtime });
@@ -83,6 +84,8 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           return send(res, 200, await store.previewMapJob(previewRoute[1], url.searchParams.get('type'), selection, options));
         }
         // An accepted ADR's file (F5): what Save file would write, read only. Saving is the POST below.
+        const projectBriefRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/project-brief$/); // G2: the brief and how its files stand now; reads only.
+        if (req.method === 'GET' && projectBriefRoute) return send(res, 200, await briefWithStatus(workspace, await store.get(projectBriefRoute[1])));
         const adrRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/adr-file$/);
         if (req.method === 'GET' && adrRoute) { const q = url.searchParams; return send(res, 200, await adrFilePreview(store, workspace, adrRoute[1], { proposalId: q.get('proposal'), itemId: q.get('item'), ...(q.get('path') ? { path: q.get('path') } : {}) })); }
         // Asking again for help nothing has changed since (Z4): read only, checked when the user asks.
@@ -169,13 +172,13 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = {'/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/glossary-dialog.js': 'glossary-dialog.js', '/glossary.js': 'glossary.js', '/challenge.js': 'challenge.js', '/challenge-dialog.js': 'challenge-dialog.js', '/tools-dialog.js': 'tools-dialog.js', '/handoff.js': 'handoff.js', '/handoff-dialog.js': 'handoff-dialog.js', '/record-drafts.js': 'record-drafts.js', '/record-draft-dialog.js': 'record-draft-dialog.js', '/assignments.js': 'assignments.js', '/discussions.js': 'discussions.js', '/adr.js': 'adr.js', '/adr-dialog.js': 'adr-dialog.js', '/inbox.js': 'inbox.js', '/inbox-dialog.js': 'inbox-dialog.js', '/dialog-focus.js': 'dialog-focus.js', '/criteria.js': 'criteria.js', '/criteria-dialog.js': 'criteria-dialog.js', '/hypothesis.js': 'hypothesis.js', '/answer-file.js': 'answer-file.js', '/answers-dialog.js': 'answers-dialog.js', '/assumptions.js': 'assumptions.js', '/assumptions-dialog.js': 'assumptions-dialog.js', '/sources.js': 'sources.js', '/stance.js': 'stance.js', '/sources-dialog.js': 'sources-dialog.js', '/brief-dialog.js': 'brief-dialog.js', '/import-dialog.js': 'import-dialog.js', '/done-when.js': 'done-when.js', '/limitations.js': 'limitations.js', '/claims.js': 'claims.js', '/pinned-answers.js': 'pinned-answers.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/recover-dialog.js': 'recover-dialog.js', '/usage-dialog.js': 'usage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/more-filters.js': 'more-filters.js', '/next-question.js': 'next-question.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg', '/command-palette.js': 'command-palette.js', '/impact.js': 'impact.js', '/minimap.js': 'minimap.js', '/outline.js': 'outline.js', '/folds.js': 'folds.js', '/guidance.js': 'guidance.js'};
+      const names = {'/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/glossary-dialog.js': 'glossary-dialog.js', '/glossary.js': 'glossary.js', '/challenge.js': 'challenge.js', '/challenge-dialog.js': 'challenge-dialog.js', '/tools-dialog.js': 'tools-dialog.js', '/handoff.js': 'handoff.js', '/handoff-dialog.js': 'handoff-dialog.js', '/record-drafts.js': 'record-drafts.js', '/record-draft-dialog.js': 'record-draft-dialog.js', '/assignments.js': 'assignments.js', '/discussions.js': 'discussions.js', '/project-brief.js': 'project-brief.js', '/project-brief-dialog.js': 'project-brief-dialog.js', '/adr.js': 'adr.js', '/adr-dialog.js': 'adr-dialog.js', '/inbox.js': 'inbox.js', '/inbox-dialog.js': 'inbox-dialog.js', '/dialog-focus.js': 'dialog-focus.js', '/criteria.js': 'criteria.js', '/criteria-dialog.js': 'criteria-dialog.js', '/hypothesis.js': 'hypothesis.js', '/answer-file.js': 'answer-file.js', '/answers-dialog.js': 'answers-dialog.js', '/assumptions.js': 'assumptions.js', '/assumptions-dialog.js': 'assumptions-dialog.js', '/sources.js': 'sources.js', '/stance.js': 'stance.js', '/sources-dialog.js': 'sources-dialog.js', '/brief-dialog.js': 'brief-dialog.js', '/import-dialog.js': 'import-dialog.js', '/done-when.js': 'done-when.js', '/limitations.js': 'limitations.js', '/claims.js': 'claims.js', '/pinned-answers.js': 'pinned-answers.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/recover-dialog.js': 'recover-dialog.js', '/usage-dialog.js': 'usage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/more-filters.js': 'more-filters.js', '/next-question.js': 'next-question.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg', '/command-palette.js': 'command-palette.js', '/impact.js': 'impact.js', '/minimap.js': 'minimap.js', '/outline.js': 'outline.js', '/folds.js': 'folds.js', '/guidance.js': 'guidance.js'};
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
       res.writeHead(200, { 'Content-Type': `${types[file.split('.').pop()]}; charset=utf-8`, 'Cache-Control': 'no-cache' });
       res.end(await readFile(path.join(assets, file)));
-    } catch (error) { send(res, error.status || 500, { error: error.message, ...(error instanceof Problem ? { code: error.code, errors: error.errors } : {}) }); }
+    } catch (error) { send(res, error.status || 500, { error: error.message, ...(error instanceof Problem ? { code: error.code, errors: error.errors } : Array.isArray(error.errors) ? { errors: error.errors } : {}) }); }
   });
   try {
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve); });
