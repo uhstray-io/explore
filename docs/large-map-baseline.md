@@ -98,12 +98,25 @@ Browser verification on the existing 500-node QA map:
 
 Issue 09 is resolved on the basis of these checks and the owner's review. A long owner-led real-idea conversation and host token/context usage remain unmeasured; [issue 11](../.scratch/explore/issues/11-context-growth.md) explicitly retains those tasks. The review is not substituted for those measurements.
 
-## Impact on a 500-idea map (D4)
+## Impact on large maps (D4)
 
-Measured 2026-11-28 with Node v24.22.1, on a synthetic map built in memory: 500 ideas in a four-child tree plus 500 `depends_on` links between pseudo-random pairs (a fixed seed, so every run sees the same map). Nothing was read from or written to `ideas/`.
+Measured 2026-11-28 with Node v24.22.1 on synthetic maps built in memory. Each map is a four-child tree plus `depends_on` links between pseudo-random pairs, using a fixed seed so every run sees the same map. Two shapes were measured:
+- **acyclic:** a later idea depends on an earlier one, as the Store's loop check allows;
+- **any direction:** links in either direction, which a Git merge could leave behind.
 
-- `impactIndex` for the whole map took 22.7–25.4 ms across five runs, once per map revision; the result is cached per map object, so a second `mapOverview` on the same map took about 1 ms.
-- 219 ideas landed in the high band and 281 in the low band; none in medium, because the random links spread far once they reach the tree.
-- The inspector's twelve paths (`impactPath`) for the starting idea took about 1.3 ms together.
+Nothing was read from or written to `ideas/`.
+
+| Ideas / dependency links | `impactIndex`, 5 runs (acyclic) | `impactIndex`, 5 runs (any direction) | One idea in full (`impactOf`) | High band (any direction) |
+| --- | --- | --- | --- | --- |
+| 500 / 500 | 1.0–2.4 ms | 0.9–2.6 ms | about 2 ms | 303 |
+| 1,000 / 1,000 | 1.3–2.3 ms | 1.6–2.6 ms | about 2 ms | 581 |
+| 2,000 / 2,000 | 2.7–4.4 ms | 3.0–4.8 ms | about 3 ms | 1,137 |
+| 4,000 / 4,000 | 5.3–7.8 ms | 6.4–9.4 ms | 6–7 ms | 2,331 |
+| 8,000 / 800 | 6.4–9.2 ms | 6.8–9.7 ms | about 11 ms | 878 |
+
+- **Per map revision:** the index is computed once and cached per map object. Each idea's walk stops once its band is certain to be high, so the dense maps cost about what the sparse one does.
+- **Memory:** the index added under 1 MB of heap. The first version kept every idea's full list; it took 2.8 s and 203 MB at 4,000 ideas (measured in review).
+- **The overview:** with the High impact, still open filter and its context, it took 1–3 ms on every map above. Its rows come from the index.
+- **Why the rows don't show the full sentence:** the full sentence for every listed idea took 7 s at 2,000 ideas and 50 s at 4,000 (any direction). So the rows give the reason, and the sentence stays in the inspector.
 
 These are single local timings, recorded rather than asserted, as the issue asks.
