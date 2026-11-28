@@ -3,12 +3,13 @@ import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { changesDialog } from './changes-dialog.js';
+import { exportPanel } from './export-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
 import { questionClick } from './question-clicks.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, downloadName, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml } from './workspace-view.js';
+import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
@@ -433,7 +434,7 @@ function showTools() {
   $('#tools-choose').open = false;
   state.toolsOpen = true; state.toolsPreview = null; state.toolsPreviewRevision = null;
   $('#tools-dialog').showModal();
-  renderTools();
+  exporter.render(); renderTools();
 }
 async function renderTools() {
   if (!state.toolsOpen || !state.map) return;
@@ -456,10 +457,6 @@ $('#tools-dialog').addEventListener('click', async event => {
   } else if (button.dataset.cancelJob) { if (await act(null, 'cancel-job', { jobId: button.dataset.cancelJob })) toast('Check stopped.'); renderTools(); }
   else if (button.dataset.reviewItem) { if (await act(null, 'review-proposal', { proposalId: button.dataset.proposal, itemId: button.dataset.reviewItem, decision: button.dataset.decision })) renderTools(); }
   else if (button.dataset.select) $('#tools-dialog').close(); // The page's own handler then focuses that idea.
-  else if ('exportMap' in button.dataset) {
-    try { download(JSON.stringify(await api(`/maps/${state.map.id}/export`), null, 2) + '\n', 'application/json', downloadName(state.map.title, '-map.json')); toast('Map exported as JSON.'); }
-    catch (error) { toast(error.message); }
-  }
 });
 // Loads the restart preview, or its next page of ideas to delete. If the branch changed meanwhile, the
 // preview starts again from the first page so it always matches what would be deleted.
@@ -751,6 +748,7 @@ for (const button of document.querySelectorAll('.close-dialog')) button.addEvent
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
+const exporter = exportPanel({ api, map: () => state.map, selected: () => state.selected, download });
 $('#changes-open').addEventListener('click', () => { $('#tools-dialog').close(); changes.show(); });
 // The rail (I1): Pin and Archive act on any map through the action queue; the open map uses its own revision.
 const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference,

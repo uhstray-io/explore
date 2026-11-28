@@ -67,6 +67,8 @@ Machine-local connection tokens, process locks, result drafts, and claim-deliver
 
 ## Export and import
 
+Diagram exports (Mermaid, JSON Canvas, SVG and the printable page, made by `assets/export-formats.js` in the browser and the CLI) are one-way views of the live map or one branch: they are never imported.
+
 An export is `{ format: "explore-map", version: 1, exportedAt, map }`, where `map` is the saved map without claim data (`claimKey`, `claimHash`, `inputSignature`). Everything else travels, including history, growth, positions and settings that live in the map. Nothing from `.explore/` is read.
 
 An import accepts an export or a bare format-1 `map.json`. It is untrusted data and must pass the validator (`scripts/map-validation.mjs`) with no errors, or nothing is written. Then one of four things happens:
