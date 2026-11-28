@@ -1,23 +1,17 @@
 import { certaintyText } from './questions.js';
 
 // Pinned reference answers (Z11): up to three saved answers kept in view while working elsewhere on the map.
-// Pins are shared map view state, like positions: never a version, an outside change, a brief or agent context.
+// Pins are shared map view state in view.pinnedAnswers: saving them records no version, a pin that arrives by pull
+// is not reported as an outside change, and they never reach a brief or agent context.
 export const maxPins = 3;
-const same = (a, b) => a.nodeId === b.nodeId && a.questionId === b.questionId;
 const isPin = pin => !!pin && typeof pin === 'object' && typeof pin.nodeId === 'string' && typeof pin.questionId === 'string';
 // The saved pins that are well formed, in pin order.
 export const pinsOf = map => (Array.isArray(map?.view?.pinnedAnswers) ? map.view.pinnedAnswers.filter(isPin) : []);
-
-// The pins after toggling `ref`: removed when pinned, otherwise added last; null when it would be one too many.
-export function togglePin(pins, ref, max = maxPins) {
-  const list = pins.filter(isPin);
-  if (list.some(pin => same(pin, ref))) return list.filter(pin => !same(pin, ref));
-  if (list.length >= max) return null;
-  return [...list, { nodeId: ref.nodeId, questionId: ref.questionId }];
-}
+export const isPinned = (pins, { nodeId, questionId }) => pins.some(pin => pin.nodeId === nodeId && pin.questionId === questionId);
+export const canAddPin = pins => pins.length < maxPins;
 
 // Each pin as a row: its idea's title, question and answer in `map`, or unavailable when that idea or answer is not
-// there (a growth step from before it, or an idea removed since).
+// there (a growth step or saved version from before it, or an idea removed since).
 export function resolvePins(map, pins) {
   return pins.map(pin => {
     const node = map.nodes.find(entry => entry.id === pin.nodeId), question = node?.questions.find(entry => entry.id === pin.questionId);
@@ -26,34 +20,45 @@ export function resolvePins(map, pins) {
 }
 
 const excerptLength = 300;
-// The section above the open questions. The selected idea's own answers are already on screen, so they are left out.
-export function pinnedAnswersHtml(rows, { esc, selectedId, open, historic = false }) {
-  const shown = rows.filter(row => row.nodeId !== selectedId);
+// The section above the open questions, for the map on screen (`map`, which may be history) and today's pins. The
+// selected idea's own answers are already on screen, so they are left out. `open` is the default: open while the
+// idea has an open question. The user's choice is kept per default, so questions arriving still open it. Only the
+// live map can unpin.
+export function pinnedAnswersHtml(map, pins, { esc, selectedId, open, live }) {
+  const shown = resolvePins(map, pins).filter(row => row.nodeId !== selectedId);
   if (!shown.length) return '';
-  const unpin = row => `<button type="button" class="text-button" data-pin-unpin="${esc(row.nodeId)}" data-question-id="${esc(row.questionId)}">Unpin</button>`;
-  const row = item => item.available
-    ? `<div class="pinned-answer"><small>${esc(item.title)}</small><strong>${esc(item.question)}</strong>${item.superseded ? '<em>Answer from an earlier premise.</em>' : ''}`
-      + (item.answer.length > excerptLength ? `<p>${esc(item.answer.slice(0, excerptLength))}…</p><details><summary>Show full answer</summary><p>${esc(item.answer)}</p></details>` : `<p>${esc(item.answer)}</p>`)
-      + `${item.certainty ? `<small class="certainty-label">${esc(item.certainty)}</small>` : ''}<div class="pinned-actions"><button type="button" class="text-button" data-pin-go="${esc(item.nodeId)}">Go to idea</button>${unpin(item)}</div></div>`
-    : `<div class="pinned-answer unavailable"><p>${historic ? 'Not present at this growth step.' : 'This answer is no longer on the map.'}</p><div class="pinned-actions">${unpin(item)}</div></div>`;
-  return `<details class="pinned-answers" data-editor="pins"${open ? ' open' : ''}><summary>Pinned answers (${shown.length})</summary>${shown.map(row).join('')}</details>`;
+  const ref = row => `data-node-id="${esc(row.nodeId)}" data-question-id="${esc(row.questionId)}"`;
+  const unpin = row => (live ? `<button type="button" class="text-button" data-pin-unpin="${esc(row.nodeId)}" ${ref(row)}>Unpin</button>` : '');
+  const answer = row => (row.answer.length > excerptLength
+    ? `<p class="pin-excerpt">${esc(row.answer.slice(0, excerptLength))}…</p><details data-editor="pin-full-${esc(row.nodeId)}-${esc(row.questionId)}"><summary>Show full answer</summary><p>${esc(row.answer)}</p></details>`
+    : `<p>${esc(row.answer)}</p>`);
+  const row = item => (item.available
+    ? `<div class="pinned-answer"><small>${esc(item.title)}</small><strong>${esc(item.question)}</strong>${item.superseded ? '<em>Answer from an earlier premise.</em>' : ''}${answer(item)}`
+      + `${item.certainty ? `<small class="certainty-label">${esc(item.certainty)}</small>` : ''}<div class="pinned-actions"><button type="button" class="text-button" data-pin-go="${esc(item.nodeId)}" ${ref(item)}>Go to idea</button>${unpin(item)}</div></div>`
+    : `<div class="pinned-answer unavailable"><p>${live ? 'This answer is no longer on the map.' : 'Not in this view of the map.'}</p>${live ? `<div class="pinned-actions">${unpin(item)}</div>` : ''}</div>`);
+  return `<details class="pinned-answers" data-editor="pins-${open ? 'open' : 'closed'}"${open ? ' open' : ''}><summary>Pinned answers (${shown.length})</summary>${shown.map(row).join('')}</details>`;
 }
 
-// The Pin toggle on an answered question. With three pinned, another cannot be added, and the reason is shown.
-export function pinToggleHtml({ nodeId, questionId, pins, esc }) {
-  const pinned = pins.some(pin => same(pin, { nodeId, questionId })), full = !pinned && pins.length >= maxPins;
-  return `<span class="pin-answer"><button type="button" class="text-button" data-pin-answer="${esc(nodeId)}" data-question-id="${esc(questionId)}" aria-pressed="${pinned}"${full ? ' disabled' : ''}>${pinned ? 'Pinned' : 'Pin answer'}</button>${full ? '<small class="pin-note">Unpin one to add another.</small>' : ''}</span>`;
+// The answered question's ⋯ menu item. With three pinned it stays in the menu and says why it cannot be used.
+export function pinMenuItem({ nodeId, questionId, pins, esc }) {
+  const attributes = `type="button" role="menuitem" tabindex="-1" data-node-id="${esc(nodeId)}" data-question-id="${esc(questionId)}"`;
+  if (isPinned(pins, { nodeId, questionId })) return `<button ${attributes} data-pin-answer="unpin">Unpin answer</button>`;
+  return canAddPin(pins) ? `<button ${attributes} data-pin-answer="pin">Pin answer</button>` : `<button ${attributes} data-pin-full aria-disabled="true">Pin answer · Unpin one to add another</button>`;
 }
+// Beside a pinned answer, so its state shows without opening the menu.
+export const pinnedLabel = (pins, ref) => (isPinned(pins, ref) ? '<small class="pin-label">Pinned</small>' : '');
 
-// Pin, Unpin and Go to idea in the inspector. Returns true when it handled the click.
-export async function pinClick(event, { act, focusNode, toast }) {
+// Pin and Unpin (menu items or the section's Unpin) and Go to idea. Returns true when it handled the click.
+export async function pinClick(event, { act, focusNode, toast, closeMenus }) {
   const go = event.target.closest('[data-pin-go]');
   if (go) { focusNode(go.dataset.pinGo); return true; }
+  if (event.target.closest('[data-pin-full]')) return true; // It explains itself and does nothing.
   const button = event.target.closest('[data-pin-answer], [data-pin-unpin]');
   if (!button) return false;
-  const pinned = button.dataset.pinAnswer ? button.getAttribute('aria-pressed') !== 'true' : false;
+  const pinned = button.dataset.pinAnswer === 'pin', { nodeId, questionId } = button.dataset;
+  if (button.dataset.pinAnswer) closeMenus(true); // Focus goes back to the question's ⋯ button.
   button.disabled = true;
-  if (await act(null, 'pin-answer', { nodeId: button.dataset.pinAnswer || button.dataset.pinUnpin, questionId: button.dataset.questionId, pinned })) toast(pinned ? 'Answer pinned.' : 'Answer unpinned.');
+  if (await act(null, 'pin-answer', { nodeId, questionId, pinned })) toast(pinned ? 'Answer pinned.' : 'Answer unpinned.');
   button.disabled = false;
   return true;
 }

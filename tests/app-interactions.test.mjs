@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { pinsOf, resolvePins, pinnedAnswersHtml, pinToggleHtml } from '../skills/explore/assets/pinned-answers.js';
+import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel } from '../skills/explore/assets/pinned-answers.js';
 import { doneWhenSection, doneWhenMenuItem, canExplore } from '../skills/explore/assets/done-when.js';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
 import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, tidyArrived, runNoteHtml } from '../skills/explore/assets/workspace-view.js';
@@ -58,7 +58,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, resolvePins, pinnedAnswersHtml, pinToggleHtml, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -192,14 +192,25 @@ test('refresh restores keyboard focus to the same detail action, submit button, 
   }
 });
 
-test('refresh restores focus to the same pin control, even when another names the same answer', () => {
-  const specs = [
-    { tagName: 'BUTTON', dataset: { pinAnswer: 'node-a', questionId: 'question-a' } },
-    { tagName: 'BUTTON', dataset: { pinUnpin: 'node-a', questionId: 'question-a' } },
-    { tagName: 'BUTTON', dataset: { pinUnpin: 'node-b', questionId: 'question-b' } },
-    { tagName: 'BUTTON', dataset: { pinGo: 'node-b' } },
-    { tagName: 'SUMMARY', editor: { dataset: { editor: 'pins' } } },
-  ];
+// The controls in real Pinned answers markup, as focus specs: each button's data attributes and the details it sits in.
+function pinSpecs(html) {
+  const specs = [], open = [];
+  const camel = name => name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+  for (const [tag] of html.matchAll(/<\/?details[^>]*>|<summary>|<button[^>]*>/g)) {
+    if (tag.startsWith('</details')) { open.pop(); continue; }
+    if (tag.startsWith('<details')) { open.push(tag.match(/data-editor="([^"]+)"/)?.[1] ?? null); continue; }
+    const editor = open.at(-1) ? { dataset: { editor: open.at(-1) } } : undefined;
+    if (tag === '<summary>') { specs.push({ tagName: 'SUMMARY', editor }); continue; }
+    const dataset = Object.fromEntries([...tag.matchAll(/data-([a-z-]+)="([^"]*)"/g)].map(([, name, value]) => [camel(name), value]));
+    specs.push({ tagName: 'BUTTON', dataset, editor });
+  }
+  return specs;
+}
+
+test('refresh restores focus to the same pin control, even when two pins come from one idea', () => {
+  const map = { nodes: [{ id: 'node-b', title: 'Budget', questions: [{ id: 'q-1', text: 'How much?', answer: 'x'.repeat(400) }, { id: 'q-2', text: 'Who for?', answer: 'Rangers.' }] }] };
+  const specs = pinSpecs(pinnedAnswersHtml(map, [{ nodeId: 'node-b', questionId: 'q-1' }, { nodeId: 'node-b', questionId: 'q-2' }], { esc: String, selectedId: 'node-a', open: true, live: true }));
+  assert.equal(specs.filter(spec => spec.tagName === 'BUTTON').length, 4); assert.equal(specs.filter(spec => spec.tagName === 'SUMMARY').length, 2);
   for (const target of specs) {
     const h = harness(); h.render();
     for (const spec of specs.filter(spec => spec !== target)) h.focusControl(spec);
@@ -208,6 +219,7 @@ test('refresh restores focus to the same pin control, even when another names th
     assert.notEqual(h.document.activeElement, before, 'The refreshed DOM uses a new control.');
     assert.equal(h.document.activeElement?.tagName, target.tagName);
     assert.deepEqual(h.document.activeElement?.dataset, target.dataset || {});
+    assert.equal(h.document.activeElement?.editor?.dataset.editor, target.editor?.dataset.editor);
   }
 });
 

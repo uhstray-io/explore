@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
-import { togglePin, resolvePins, pinnedAnswersHtml, pinToggleHtml, maxPins } from '../skills/explore/assets/pinned-answers.js';
+import { isPinned, canAddPin, resolvePins, pinnedAnswersHtml, pinMenuItem, pinnedLabel, maxPins } from '../skills/explore/assets/pinned-answers.js';
 
 // Pin reference answers (Z11, #69). Illustrative maps under .test-output, never ideas/.
 const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
@@ -21,12 +21,12 @@ async function workspace() {
   return { store, map, act, root: map.rootId, questions: [q1, q2, q3, q4, q5] };
 }
 
-test('toggling adds in pin order, removes, and never goes past three', () => {
-  const a = { nodeId: 'n', questionId: 'a' }, b = { nodeId: 'n', questionId: 'b' }, c = { nodeId: 'n', questionId: 'c' }, d = { nodeId: 'n', questionId: 'd' };
+test('a pin matches on idea and question, and three is the limit', () => {
+  const a = { nodeId: 'n', questionId: 'a' }, b = { nodeId: 'n', questionId: 'b' }, c = { nodeId: 'm', questionId: 'a' };
   assert.equal(maxPins, 3);
-  assert.deepEqual(togglePin([a, b], c), [a, b, c]);
-  assert.deepEqual(togglePin([a, b, c], b), [a, c]);
-  assert.equal(togglePin([a, b, c], d), null, 'a fourth is refused');
+  assert.equal(isPinned([a, b], { nodeId: 'n', questionId: 'b' }), true);
+  assert.equal(isPinned([a, b], c), false, 'the same question id on another idea is another answer');
+  assert.equal(canAddPin([a, b]), true); assert.equal(canAddPin([a, b, c]), false);
 });
 
 test('pins are saved in the map without a version or an outside-change notice, and never reach a brief or a packet', async () => {
@@ -64,19 +64,31 @@ test('a pin whose idea is missing can still be unpinned', async () => {
 
 test('the inspector shows pins from other ideas above the open questions, with Go to idea, Unpin and unavailable rows', async () => {
   const { map, root, questions: [q1, q2] } = await workspace();
-  const pins = [{ nodeId: root, questionId: q1.id }, { nodeId: 'node-elsewhere', questionId: 'q-x' }];
+  const pins = [{ nodeId: root, questionId: q1.id }, { nodeId: root, questionId: q2.id }, { nodeId: 'node-elsewhere', questionId: 'q-x' }];
   map.nodes[0].questions[0].answer = 'Under 500. '.repeat(60);
-  const rows = resolvePins(map, pins);
-  assert.deepEqual(rows.map(row => row.available), [true, false]);
-  const html = pinnedAnswersHtml(rows, { esc, selectedId: "node-other", open: true, historic: true });
-  assert.match(html, /<details class="pinned-answers" data-editor="pins" open>/);
-  assert.match(html, /data-pin-go="[^"]+"/); assert.match(html, /data-pin-unpin=/); assert.match(html, /Show full answer/);
-  assert.match(html, /Not present at this growth step/);
-  assert.doesNotMatch(pinnedAnswersHtml(rows, { esc, selectedId: root, open: false }), /What is the budget/, 'the selected idea’s own answers are not repeated');
-  assert.equal(pinnedAnswersHtml([], { esc, selectedId: root, open: true }), '');
-  // The toggle on an answered question.
-  const pinned = pinToggleHtml({ nodeId: root, questionId: q1.id, pins, esc });
-  assert.match(pinned, /aria-pressed="true"[^>]*>Pinned</);
-  const full = pinToggleHtml({ nodeId: root, questionId: q2.id, pins: [...pins, { nodeId: 'n', questionId: 'z' }], esc });
-  assert.match(full, /disabled/); assert.match(full, /Unpin one to add another/);
+  assert.deepEqual(resolvePins(map, pins).map(row => row.available), [true, true, false]);
+  const html = pinnedAnswersHtml(map, pins, { esc, selectedId: 'node-other', open: true, live: true });
+  assert.match(html, /<details class="pinned-answers" data-editor="pins-open" open>/);
+  // Two answers from one idea: each control names its question, so focus can come back to the right one.
+  assert.equal([...html.matchAll(/data-pin-go="[^"]+" data-node-id="[^"]+" data-question-id="([^"]+)"/g)].map(match => match[1]).join(), [q1.id, q2.id].join());
+  assert.equal((html.match(/data-pin-unpin=/g) || []).length, 3);
+  assert.match(html, /<details data-editor="pin-full-[^"]+"><summary>Show full answer/, 'its open state is kept across renders');
+  assert.match(html, /This answer is no longer on the map\./);
+  // History and saved versions show pins but cannot unpin.
+  const historic = pinnedAnswersHtml(map, pins, { esc, selectedId: 'node-other', open: false, live: false });
+  assert.match(historic, /data-editor="pins-closed"/); assert.doesNotMatch(historic, /data-pin-unpin/); assert.match(historic, /Not in this view of the map\./);
+  assert.match(historic, /data-pin-go=/);
+  assert.doesNotMatch(pinnedAnswersHtml(map, pins.slice(0, 2), { esc, selectedId: root, open: false, live: true }), /What is the budget/, 'the selected idea’s own answers are not repeated');
+  assert.equal(pinnedAnswersHtml(map, [], { esc, selectedId: root, open: true, live: true }), '');
+});
+
+test('Pin answer is a ⋯ menu item that unpins once pinned, and explains itself at the limit', async () => {
+  const { root, questions: [q1, q2] } = await workspace();
+  const pins = [{ nodeId: root, questionId: q1.id }];
+  assert.match(pinMenuItem({ nodeId: root, questionId: q2.id, pins, esc }), /role="menuitem"[^>]*data-pin-answer="pin">Pin answer</);
+  assert.match(pinMenuItem({ nodeId: root, questionId: q1.id, pins, esc }), /data-pin-answer="unpin">Unpin answer</);
+  const full = pinMenuItem({ nodeId: root, questionId: q2.id, pins: [...pins, { nodeId: 'n', questionId: 'y' }, { nodeId: 'n', questionId: 'z' }], esc });
+  assert.match(full, /aria-disabled="true">Pin answer · Unpin one to add another</); assert.doesNotMatch(full, /data-pin-answer/);
+  assert.match(pinnedLabel(pins, { nodeId: root, questionId: q1.id }), />Pinned</);
+  assert.equal(pinnedLabel(pins, { nodeId: root, questionId: q2.id }), '');
 });
