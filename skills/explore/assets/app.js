@@ -14,6 +14,7 @@ import { recoverDialog } from './recover-dialog.js';
 import { questionClick } from './question-clicks.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
+import { suggestNextQuestion, nextQuestionHtml, nextQuestionDismiss } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, overviewFilters, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
@@ -304,8 +305,9 @@ function renderOverview() {
   $('#overview-explanation').textContent = state.historyStep === null ? 'Choose an idea to inspect it. Opening this list never starts work.' : 'Today’s state of ideas visible at this growth step.';
   const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${group.lines(node).map(line => `<span>${esc(line.text)}</span>${line.detail ? `<span class="overview-detail">${esc(line.detail)}</span>` : ''}`).join('')}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
   // Flagged findings can be reviewed one at a time from here.
+  const suggestion = group.id === 'answer' && state.historyStep === null ? nextQuestionHtml(suggestNextQuestion(state.map, { dismissed: state.nextDismissed }), esc) : '';
   const reviewAll = group.id === 'stale' && group.nodes.length && state.historyStep === null ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
-  if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
+  if ($('#overview-list').innerHTML !== suggestion + reviewAll + list) $('#overview-list').innerHTML = suggestion + reviewAll + list;
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
 // The control that opened a filter: its progress button, or More filters.
@@ -817,6 +819,8 @@ document.addEventListener('click', async event => {
   const map = event.target.closest('[data-map]'); if (map) return openMap(map.dataset.map);
   if (!event.target.closest('#node-finder')) $('#node-results').hidden = true;
   const focus = event.target.closest('[data-focus-node]'); if (focus) return focusNode(focus.dataset.focusNode);
+  // "Not now" sets one suggestion aside in browser memory and shows the next.
+  if (event.target.closest('[data-next-dismiss]')) { state.nextDismissed = nextQuestionDismiss(state.nextDismissed ?? new Map(), suggestNextQuestion(state.map, { dismissed: state.nextDismissed })); renderOverview(); return $('#overview-list button')?.focus(); }
   const reference = event.target.closest('[data-open-reference]');
   if (reference) { const [mapId, nodeId] = reference.dataset.openReference.split('/'); $('#find-node').value = ''; $('#node-results').hidden = true; return openReference({ mapId, nodeId }); }
   const select = event.target.closest('[data-select]'); if (select) return focusNode(select.dataset.select);
