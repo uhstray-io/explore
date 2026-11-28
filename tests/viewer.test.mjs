@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import vm from 'node:vm';
-import { viewerFile, viewerData } from '../skills/explore/scripts/viewer.mjs';
+import { viewerFile, viewerData, viewerParts } from '../skills/explore/scripts/viewer.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { packageFiles } from '../skills/explore/scripts/doctor.mjs';
 import { previewCurrent, selectionKey } from '../skills/explore/assets/viewer-picker.js';
@@ -39,7 +39,8 @@ test('only the selected ideas and the chosen fields go in; an unselected parent 
   assert.deepEqual(data.nodes.map(entry => entry.id), ['sync', 'power', 'later']);
   assert.deepEqual(data.nodes.map(entry => entry.parentId), [null, 'sync', null], 'a parent link only to a selected parent');
   assert.doesNotMatch(html, /Field notebook|Photos|Sync matters/, 'unselected ideas and the map title (the root’s) appear nowhere');
-  assert.deepEqual(Object.keys(byId.get('power')).sort(), ['findings', 'id', 'kind', 'parentId', 'position', 'premise', 'researched', 'review', 'sources', 'stale', 'state', 'summary', 'title']);
+  assert.deepEqual(Object.keys(byId.get('power')).sort(), ['findings', 'id', 'kind', 'labels', 'parentId', 'position', 'premise', 'review', 'sources', 'summary', 'title']);
+  assert.deepEqual([byId.get('sync').labels, byId.get('power').labels, byId.get('later').labels], [['Explored', 'accepted'], ['Explored', 'needs review'], ['Explored', 'not accepted']]);
   assert.equal(byId.get('later').findings, undefined); assert.equal(byId.get('later').summary, undefined);
   assert.deepEqual(byId.get('later').questions, [{ text: 'How much storage?', answer: null, certainty: null, status: 'later' }]);
   assert.deepEqual(byId.get('sync').questions.map(question => question.text), ['Who edits?', 'Which phones?'], 'answers set aside stay out');
@@ -84,8 +85,7 @@ test('search and navigation work from the file alone', () => {
   assert.deepEqual([...model.search('storage')], ['later'], 'questions');
   const around = model.neighbours('power');
   assert.deepEqual([around.parent, [...around.children], around.previous, around.next], ['sync', [], 'sync', 'later']);
-  assert.deepEqual([...model.badges(model.node('sync'))], ['accepted']); assert.deepEqual([...model.badges(model.node('power'))], ['needs review']);
-  assert.deepEqual([...model.badges(model.node('later'))], ['not accepted']);
+
 });
 
 test('a stale revision, a bad selection and an oversized one are refused, never cut short', () => {
@@ -109,26 +109,78 @@ test('the server builds the file for the signed-in page only, checks the revisio
     const nodes = [{ id: map.nodes[1].id, answers: true, findings: true }];
     assert.equal((await post({ expectedRevision: map.revision, nodes }, {})).status, 401);
     assert.equal((await post({ expectedRevision: map.revision - 1, nodes })).status, 409);
+    assert.equal((await post({ nodes })).status, 400, 'the preview names its revision');
     const reply = await (await post({ expectedRevision: map.revision, nodes })).json();
-    assert.equal(reply.filename, `${map.title}-viewer.html`); assert.equal(reply.revision, map.revision); assert.equal(reply.data.nodes.length, 1);
+    assert.equal(reply.filename, 'Selected ideas-viewer.html', 'the root was not chosen, so its title is not in the name either'); assert.equal(reply.revision, map.revision); assert.equal(reply.data.nodes.length, 1);
     assert.ok(!reply.html.includes(token)); assert.match(reply.html, /^<!doctype html>/);
     assert.ok(packageFiles.includes('scripts/viewer.mjs') && packageFiles.includes('assets/viewer-page.js') && packageFiles.includes('assets/viewer.css') && packageFiles.includes('assets/viewer-picker.js'));
     assert.equal((await fetch(`${app.address}/viewer-picker.js`)).status, 200);
+    assert.equal((await fetch(`${app.address}/viewer-page.js`)).status, 404, 'the file’s own script is never served to the app');
   } finally { await app.close(); }
 });
 
 test('Download needs a current preview: a new selection or a new revision clears it', () => {
   const picked = { sync: { answers: true, findings: true }, power: { answers: false, findings: true } };
-  const preview = { revision: 4, key: selectionKey(picked) };
-  assert.equal(previewCurrent(preview, { revision: 4, picked }), true);
-  assert.equal(previewCurrent(null, { revision: 4, picked }), false);
-  assert.equal(previewCurrent(preview, { revision: 5, picked }), false, 'the map changed');
-  assert.equal(previewCurrent(preview, { revision: 4, picked: { ...picked, power: { answers: true, findings: true } } }), false, 'a field changed');
-  assert.equal(previewCurrent(preview, { revision: 4, picked: { sync: picked.sync } }), false, 'an idea was dropped');
+  const preview = { mapId: 'map-a', revision: 4, key: selectionKey(picked) };
+  assert.equal(previewCurrent(preview, { mapId: 'map-a', revision: 4, picked }), true);
+  assert.equal(previewCurrent(null, { mapId: 'map-a', revision: 4, picked }), false);
+  assert.equal(previewCurrent(preview, { mapId: 'map-a', revision: 5, picked }), false, 'the map changed');
+  assert.equal(previewCurrent(preview, { mapId: 'map-b', revision: 4, picked }), false, 'another map at the same revision');
+  assert.equal(previewCurrent(preview, { mapId: 'map-a', revision: 4, picked: { ...picked, power: { answers: true, findings: true } } }), false, 'a field changed');
+  assert.equal(previewCurrent(preview, { mapId: 'map-a', revision: 4, picked: { sync: picked.sync } }), false, 'an idea was dropped');
 });
 
 test('the viewer’s own assets never reach the browser app, but the picker does', async () => {
   const source = await readFile(path.resolve('skills/explore/assets/viewer-page.js'), 'utf8');
   assert.doesNotMatch(source, /<\/script|<\/style/i, 'safe to inline');
   assert.doesNotMatch(await readFile(path.resolve('skills/explore/assets/viewer.css'), 'utf8'), /<\/style|url\(|@import/i);
+});
+
+test('a Windows checkout’s CRLF assets still match their hashes, because the browser hashes LF text', () => {
+  const crlf = viewerParts(name => viewerParts()[name === 'viewer-page.js' ? 'script' : 'style'].replace(/\n/g, '\r\n'));
+  const { html } = viewerFile(fixture(), { expectedRevision: 4, nodes: selection }, { parts: crlf });
+  assert.ok(!html.includes('\r'), 'the inline code is LF only');
+  const policy = html.match(/content="(default-src[^"]+)"/)[1], hash = text => `'sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}'`;
+  assert.ok(policy.includes(hash(viewerScript(html))));
+});
+
+test('ideas come in tree order, and findings that were researched stay labelled even when work is queued again', () => {
+  const map = fixture();
+  map.nodes.push(node('late', 'sync', { title: 'Late child' })); // Added last, but belongs under Syncing.
+  Object.assign(map.nodes[3], { status: 'queued' }); // Photos keeps its findings while queued again.
+  const data = viewerData(map, map.nodes.map(entry => ({ id: entry.id, answers: true, findings: true })));
+  assert.deepEqual(data.nodes.map(entry => entry.id), ['root', 'sync', 'power', 'late', 'photos', 'later']);
+  const photos = data.nodes.find(entry => entry.id === 'photos');
+  assert.deepEqual(photos.labels, ['Queued', 'not accepted']); assert.equal(photos.findings, 'Compress them.');
+  assert.equal(data.heading, 'Field notebook', 'the map title appears once the root is chosen');
+});
+
+test('the page runs in a browser-like document: one idea shows no stray text, and Next and search work', () => {
+  const run = selection => {
+    const { html } = viewerFile(fixture(), { expectedRevision: 4, nodes: selection });
+    const made = [], listeners = new Map();
+    const element = tag => {
+      const item = { tag, children: [], attributes: {}, textContent: '', value: '', hidden: false, className: '', classList: { toggle() {} },
+        append(...nodes) { for (const child of nodes) { if (child === null || child === undefined || typeof child !== 'object') throw new Error(`appended ${child}`); this.children.push(child); } },
+        replaceChildren(...nodes) { this.children = []; this.append(...nodes); }, setAttribute(name, value) { this.attributes[name] = String(value); },
+        getAttribute(name) { return this.attributes[name] ?? null; }, removeAttribute(name) { delete this.attributes[name]; },
+        addEventListener(type, handler) { listeners.set(item, { ...(listeners.get(item) || {}), [type]: handler }); }, focus() {} };
+      made.push(item); return item;
+    };
+    const root = element('div'), data = { textContent: scripts(html).find(script => script.attributes.includes('application/json')).text };
+    const document = { getElementById: id => (id === 'viewer' ? root : id === 'viewer-data' ? data : null), createElement: element, createElementNS: (ns, tag) => element(tag),
+      createTextNode: text => ({ tag: '#text', textContent: text }), querySelectorAll: () => [] };
+    const context = vm.createContext({ document, history: { replaceState() {} }, location: { hash: '' }, window: { addEventListener() {} } });
+    vm.runInContext(viewerScript(html), context);
+    const text = item => item.textContent + (item.children || []).map(text).join('');
+    const click = label => listeners.get(made.find(item => item.tag === 'button' && text(item) === label)).click();
+    const heading = () => text(made.filter(item => item.tag === 'h2').at(-1));
+    return { root, made, listeners, text, click, heading };
+  };
+  const one = run([selection[0]]);
+  assert.equal(one.root.children.length, 2, 'header and main, with no overview for one idea');
+  const page = run(selection);
+  assert.equal(page.heading(), 'Syncing'); page.click('Next'); assert.equal(page.heading(), 'Power');
+  const search = page.made.find(item => item.tag === 'input'); search.value = 'storage'; page.listeners.get(search).input();
+  assert.deepEqual(page.made.filter(item => item.tag === 'li' && item.attributes['data-id']).map(item => item.hidden), [true, true, false]);
 });
