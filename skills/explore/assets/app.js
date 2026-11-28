@@ -751,7 +751,7 @@ const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
 // Restore one branch (E2) from a previewed version's inspector.
-const branchRestore = branchRestorePanel({ api, act, esc, mapId: () => state.map?.id, version: () => state.versionPreview?.version, returnLive, toast, rerender: () => renderDetail(),
+const branchRestore = branchRestorePanel({ api, act, esc, mapId: () => state.map?.id, version: () => state.versionPreview?.version, returnLive, reopen: id => previewVersion(id), toast, rerender: () => renderDetail(true),
   afterRestore: () => { state.versions = null; loadVersions(); } });
 // Exports use the live map; the page's layout is reused unless it shows a version or growth history.
 const exporter = exportPanel({ api, map: () => state.map, selected: () => state.selected, positions: () => (state.historySource ? null : state.positions), download });

@@ -4,7 +4,8 @@ import { mkdtemp, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
-import { branchRestoration, previewBranchRestore, rulesOf } from '../skills/explore/scripts/branch-restore.mjs';
+import { branchRestoration, previewBranchRestore } from '../skills/explore/scripts/branch-restore.mjs';
+import { restorableHash } from '../skills/explore/scripts/versions.mjs';
 import { branchRestoreHtml } from '../skills/explore/assets/branch-restore.js';
 
 // Restore one branch from a saved version (E2, #21). Illustrative maps under .test-output, never ideas/.
@@ -13,7 +14,8 @@ async function workspace() {
   const dir = await mkdtemp(path.join(root, 'branch-restore-'));
   return { dir, store: new Store(path.join(dir, 'ideas')) };
 }
-const rules = rulesOf(new Store(path.resolve('.test-output', 'branch-restore-rules')));
+// The Store's read-only rules (isComplete, hasConclusions, affectedBy); nothing is written.
+const rules = new Store(path.resolve('.test-output', 'branch-restore-rules'));
 const n = (id, parentId, extra = {}) => ({ id, parentId, title: `Idea ${id}`, kind: parentId ? 'research' : 'idea', prompt: `Premise ${id}.`, body: `Premise ${id}.`, summary: `Premise ${id}.`,
   status: 'suggested', reviewState: 'unreviewed', stale: false, contentRevision: 1, questions: [], sources: [], ...extra });
 const explored = (id, parentId, extra = {}) => n(id, parentId, { status: 'explored', completedAt: '2026-01-01T00:00:00.000Z', summary: `Found ${id}.`, body: `Findings ${id}.`, ...extra });
@@ -66,12 +68,19 @@ test('restored findings are flagged when an ancestor or an outside prerequisite 
   assert.deepEqual(branchRestoration(same, then, 'a', rules).flagInside, [], 'nothing it relied on changed');
   const ancestor = structuredClone(same); ancestor.nodes[0].contentRevision = 2;
   assert.deepEqual(branchRestoration(ancestor, then, 'a', rules).flagInside, ['a'], 'the root changed: only the restored idea with findings');
+  const untouched = structuredClone(ancestor); untouched.nodes.push(explored('a2', 'a')); untouched.edges.push({ from: 'a', to: 'a2', type: 'contains' });
+  const thenWith = structuredClone(then); thenWith.nodes.push(explored('a2', 'a')); thenWith.edges.push({ from: 'a', to: 'a2', type: 'contains' });
+  assert.deepEqual(branchRestoration(untouched, thenWith, 'a', rules).flagInside, ['a'], 'an idea that comes back the same is not flagged');
+  const deleted = structuredClone(same); deleted.nodes = deleted.nodes.filter(entry => entry.id !== 'b'); deleted.edges = deleted.edges.filter(edge => edge.from !== 'b' && edge.to !== 'b');
+  assert.deepEqual(branchRestoration(deleted, then, 'a', rules).flagInside, ['a'], 'a prerequisite deleted since counts as changed');
   const prerequisite = structuredClone(same); prerequisite.nodes[3].contentRevision = 4;
   assert.deepEqual(branchRestoration(prerequisite, then, 'a', rules).flagInside, ['a']);
   // Outside ideas that depend on the branch go through the existing traversal.
   const dependent = mapOf([...structuredClone(same.nodes), explored('c', 'root'), n('c1', 'c')], [...same.edges.filter(edge => edge.type !== 'contains'), { from: 'c', to: 'a1', type: 'depends_on' }]);
   const plan = branchRestoration(dependent, then, 'a', rules);
   assert.deepEqual(plan.outsideAffected.sort(), ['c', 'c1']); assert.deepEqual(plan.flagOutside, ['c']);
+  const asking = structuredClone(dependent); asking.nodes.find(entry => entry.id === 'c1').questions = [{ id: 'q9', text: 'Who decides?', answer: null }];
+  assert.equal(branchRestoration(asking, then, 'a', rules).setAside, 1, 'the preview can say which questions are set aside');
 });
 
 test('the root, an idea missing from the version, a missing parent, a moved ID, active work and no change are refused', () => {
@@ -187,4 +196,39 @@ test('the server previews in pages, and the browser’s preview disables Confirm
     const blocked = branchRestoreHtml({ ...first, conflicts: [{ code: 'active-work', message: 'Wait for the work.', nodes: [] }] }, { esc: String });
     assert.match(blocked, /data-branch-confirm[^>]*disabled/); assert.match(blocked, /Wait for the work\./);
   } finally { await app.close(); }
+});
+
+test('the hash names the map it starts from, and a finished branch that comes back unfinished is listed', () => {
+  const then = mapOf([n('root', null), n('a', 'root'), n('a1', 'a')]);
+  const one = mapOf([n('root', null), explored('a', 'root'), n('a1', 'a', { summary: 'One edit.' })]), two = structuredClone(one);
+  two.nodes[2].summary = 'Another edit.';
+  assert.notEqual(branchRestoration(one, then, 'a', rules).hash, branchRestoration(two, then, 'a', rules).hash, 'same result, different starting point');
+  assert.deepEqual(branchRestoration(one, then, 'a', rules).reopened, ['a']);
+});
+
+test('a branch that already matches the version is refused, even after its work was claimed', async () => {
+  const { store, map, sync } = await scenario();
+  const [latest] = (await store.versions.list(map.id)).versions;
+  const preview = await previewBranchRestore(store, map.id, latest.id, { nodeId: sync.id });
+  assert.deepEqual(preview.conflicts.map(conflict => conflict.code), ['unchanged']);
+});
+
+test('a restore keeps the event log and growth append-only, and Undo brings back everything it replaced', async () => {
+  const { store, act, map, version, sync } = await scenario();
+  const preview = await previewBranchRestore(store, map.id, version.id, { nodeId: sync.id });
+  const restored = await act(map, { type: 'restore-branch', nodeId: sync.id, version: version.id, previewHash: preview.hash });
+  assert.deepEqual(restored.history.slice(0, map.history.length), map.history, 'nothing in the log is rewritten');
+  assert.deepEqual(restored.growth, map.growth, 'growth is unchanged; brought-back ideas keep their entries');
+  const [, before] = (await store.versions.list(map.id)).versions;
+  const undone = await act(restored, { type: 'restore-version', version: before.id, undo: true });
+  assert.equal(restorableHash(undone), restorableHash(map)); assert.deepEqual(undone.view.positions, map.view.positions);
+});
+
+test('the preview says how many more it leaves out of each list', () => {
+  const idea = i => ({ id: `n${i}`, title: `Idea ${i}` });
+  const preview = { node: idea(0), counts: { changed: 0, readded: 0, removed: 0, linksAdded: 0, linksRemoved: 0, reopened: 60, flaggedInside: 0, affected: 70, flagged: 3, questionsSetAside: 4 },
+    nodes: [], nextOffset: null, reopened: Array.from({ length: 50 }, (_, i) => idea(i)), flaggedInside: [], affected: Array.from({ length: 50 }, (_, i) => idea(i)), conflicts: [] };
+  const html = branchRestoreHtml(preview, { esc: String });
+  assert.match(html, /and 10 more\./); assert.match(html, /and 20 more\. 3 findings will be flagged for review, and 4 open questions set aside/);
+  assert.doesNotMatch(html, /role="alert"/); assert.match(html, /<section class="branch-restore" tabindex="-1" role="group"/);
 });
