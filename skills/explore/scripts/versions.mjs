@@ -41,7 +41,7 @@ const hash = value => createHash('sha256').update(JSON.stringify(value)).digest(
 export function contentHash(map) { const { revision, updatedAt, ...content } = snapshotOf(map); return hash(content); }
 // What a restore replaces. The event log and growth history only grow, and today's layout is kept. A map saved
 // before the glossary has an empty one.
-const restorableFields = ['title', 'originalIdea', 'rootId', 'nodes', 'edges', 'jobs', 'glossary'];
+const restorableFields = ['title', 'originalIdea', 'mode', 'objective', 'successCriteria', 'rootId', 'nodes', 'edges', 'jobs', 'glossary'];
 export const restorableContent = map => Object.fromEntries(restorableFields.map(key => [key, key === 'glossary' ? map.glossary ?? [] : map[key]]));
 export function restorableHash(map) { return hash(restorableContent(snapshotOf(map))); }
 export function shouldRecord(labels) { return labels.some(label => !bookkeeping.has(label)); }
@@ -184,6 +184,7 @@ export function compareVersion(current, snapshot, isCompleted) {
       linksAdded: [...thenEdges].filter(key => !nowEdges.has(key)).length,
       linksRemoved: [...nowEdges].filter(key => !thenEdges.has(key)).length,
       termsChanged: glossaryDifference(current, snapshot),
+      guidanceChanged: ['mode', 'objective', 'successCriteria'].some(field => (current[field] ?? null) !== (snapshot[field] ?? null)),
     },
     reopened: [...then.keys()].filter(id => now.has(id) && isCompleted(current, now.get(id)) && !isCompleted(snapshot, then.get(id))),
   };

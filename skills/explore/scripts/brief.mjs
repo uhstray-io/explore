@@ -8,6 +8,8 @@ import { branchIds } from '../assets/graph.js';
 import { limitationLabel } from '../assets/limitations.js';
 import { findingsBasis, unsupportedClaimCount, basisNote } from '../assets/claims.js';
 import { agreedTerms, proposedTerms } from '../assets/glossary.js';
+import { goalOf } from '../assets/guidance.js';
+import { goalLines } from './guidance.mjs';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
@@ -58,6 +60,7 @@ export function mapBrief(map, nodeId = null) {
   const brief = {
     mapId: map.id, title: clip(map.title, 100), revision: map.revision, scope: { nodeId },
     originalIdea: clip(map.originalIdea || map.nodes.find(n => n.id === map.rootId)?.prompt, 1600),
+    goal: goalOf(map), // Mode, objective and success criteria (A1), or null. `guidance` below is how to read the brief.
     counts: { nodes: nodes.length, explored: count(n => n.status === 'explored'), accepted: count(n => n.reviewState === 'accepted' && !n.stale && n.status === 'explored'),
       stale: count(n => n.stale), awaitingAnswer: count(n => n.status === 'awaiting-answer'), queued: count(n => n.status === 'queued'),
       running: count(n => n.status === 'running'), suggested: count(n => n.status === 'suggested'), interrupted: count(n => n.status === 'interrupted') },
@@ -68,7 +71,7 @@ export function mapBrief(map, nodeId = null) {
   };
   const render = () => {
     const lines = [`# ${line(brief.title)} — exploration brief`, '', `Map: ${map.id} | Revision: ${map.revision}${nodeId ? ` | Branch: ${nodeId}` : ''}`, '', brief.guidance,
-      '', '## Original idea (excerpt)', '', ...brief.originalIdea.split('\n').map(text => `> ${line(text)}`), '', '## Progress', '',
+      '', '## Original idea (excerpt)', '', ...brief.originalIdea.split('\n').map(text => `> ${line(text)}`), ...(brief.goal ? ['', ...goalLines(map)] : []), '', '## Progress', '',
       `${brief.counts.nodes} ideas; ${brief.counts.explored} explored; ${brief.counts.accepted} accepted and current; ${brief.counts.stale} need review; ${brief.counts.awaitingAnswer} awaiting answers.`,
       '', 'Sections may overlap. This is a bounded index, not an exhaustive specification.'];
     for (const section of brief.sections) {

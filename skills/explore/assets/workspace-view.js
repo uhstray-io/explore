@@ -136,7 +136,7 @@ const versionWords = {
   'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'branch-restored': 'Restored one branch', 'change-undone': 'Undid a change', linked: 'Connection added', unlinked: 'Connection removed', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
   'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
-  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported', 'glossary-added': 'Glossary term added', 'glossary-edited': 'Glossary term edited', 'glossary-removed': 'Glossary term removed', 'glossary-accepted': 'Glossary term accepted', 'glossary-dismissed': 'Proposed term dismissed', 'done-when-set': 'Stopping point set', 'map-recovered': 'Recovered from a version',
+  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported', 'glossary-added': 'Glossary term added', 'guidance-changed': 'Goal and mode changed', 'glossary-edited': 'Glossary term edited', 'glossary-removed': 'Glossary term removed', 'glossary-accepted': 'Glossary term accepted', 'glossary-dismissed': 'Proposed term dismissed', 'done-when-set': 'Stopping point set', 'map-recovered': 'Recovered from a version',
 };
 export function versionLabel(version) {
   if (version.name) return version.name;
@@ -197,6 +197,7 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
     counts.linksRemoved && `removes ${count(counts.linksRemoved, 'connection')}`,
     counts.linksAdded && `brings back ${count(counts.linksAdded, 'connection')}`,
     counts.termsChanged && `changes the glossary`,
+    counts.guidanceChanged && 'changes the goal and mode',
   ].filter(Boolean);
   const changes = parts.length ? `${verb} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}.` : `${verb} changes no ideas or connections.`;
   const reopens = reopened.length ? ` It reopens ${count(reopened.length, 'finished branch', 'finished branches')}.` : '';
