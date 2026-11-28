@@ -165,6 +165,7 @@ export const questionJobTypes = {
     },
   },
   [RESEARCH]: {
+    reusable: true, // Z4: the earlier result is offered again while nothing it read has changed.
     label: 'Research a question', target: 'node',
     // The question (with its current answer, if any), its idea with findings and the user's other answers there,
     // and the same nearby ideas an investigation reads, nearest first; the farthest are left out first when the
@@ -182,7 +183,9 @@ export const questionJobTypes = {
       };
       // 800 characters stay free for the fields every packet carries.
       const limit = budget - 800, size = () => JSON.stringify(packet).length;
-      while (size() > limit && packet.context.length) { packet.context.pop(); packet.omittedContext++; }
+      const sizes = packet.context.map(item => JSON.stringify(item).length + 1);
+      for (let total = size(); total > limit && packet.context.length;) { total -= sizes.pop(); packet.context.pop(); packet.omittedContext++; }
+      while (size() > limit && packet.context.length) { packet.context.pop(); packet.omittedContext++; } // The count's own digits.
       if (size() > limit) packet.node.findings = clip(findings, 1500);
       while (size() > limit && packet.node.answers.length) packet.node.answers.shift(); // The oldest answers are dropped first.
       return packet;
@@ -198,6 +201,7 @@ export const questionJobTypes = {
     recheck: true, // Checked again whenever the map is shown, so research reads as earlier as soon as its context changes.
   },
   [EXPLAIN]: {
+    reusable: true, // Z4: the earlier result is offered again while nothing it read has changed.
     label: 'Explain a question', target: 'node',
     // The question, its idea and the path up to the root; nothing from other branches, drafts or research.
     packet: ({ map, job, node, budget }) => {
