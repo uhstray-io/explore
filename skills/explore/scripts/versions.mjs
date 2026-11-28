@@ -23,7 +23,7 @@ export function presentationOnly(before, after) {
   try {
     const strip = bytes => {
       const { library, revision, updatedAt, view, ...rest } = JSON.parse(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : bytes);
-      const { pinnedAnswers, ...layout } = view ?? {}; // Pinned answers (Z11) are presentation too.
+      const { pinnedAnswers, collapsed, ...layout } = view ?? {}; // Pinned answers (Z11) and folds (Z6) are presentation too.
       return JSON.stringify({ ...rest, view: layout });
     };
     return strip(before) === strip(after);

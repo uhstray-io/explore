@@ -201,6 +201,7 @@ If someone pulled or switched branches since you last read the map, an action fa
 - `restore-version`, `restore-branch`, `name-version`, `unname-version`: user-only, no `nodeId`. Version history belongs to the user; an agent never restores or names a version, even when asked indirectly. Work packets, briefs and `read` always use the current map, not a version.
 - `cancel`: stops queued work or rejects subsequent results from the claimed run. The agent should also stop its actual investigation; this API cannot kill host-owned subagents.
 - `position`: `x`, `y`. Presentation only.
+- `fold`: `collapsed` (true or false). Hides or shows the idea's directions on everyone's map; an idea without directions cannot be folded. `reveal`: unfolds every folded idea above this one. User-only presentation: they change no idea, and an agent never folds.
 - `cancel-job`: `jobId`, no `nodeId`. Stops queued or running work that is not a branch investigation. Use `cancel` for a branch.
 
 ## Shared settings

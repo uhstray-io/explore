@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { outlineRows, outlineMove, outlineHtml, outlinePanel } from '../skills/explore/assets/outline.js';
 import { mapAtGrowthStep } from '../skills/explore/assets/history.js';
+import { shownNodes } from '../skills/explore/assets/workspace-view.js';
 
 // The outline (Z7, #65): every idea as an indented list in reading order. Illustrative fixtures only.
 const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
@@ -75,9 +76,9 @@ test('indentation stops at eight levels, and deeper rows say their level', () =>
 });
 
 // A fake page: the outline box (its rows parsed from what was written), the view buttons and #workspace.
-function page({ stored = null, map = fixture(), selected = 'root' } = {}) {
-  const storage = new Map(stored ? [['explore-view', stored]] : []), state = { visibleMap: map, selected };
-  const io = { writes: 0, patches: 0, focused: null, focusOptions: null, scrolled: [], selections: [], shown: 0, html: '' };
+function page({ stored = null, map = fixture(), selected = 'root', view = undefined, fold = () => false } = {}) {
+  const storage = new Map(stored ? [['explore-view', stored]] : []), state = { visibleMap: map, selected, ...(view ? { view } : {}) };
+  const io = { folds: [], writes: 0, patches: 0, focused: null, focusOptions: null, scrolled: [], selections: [], shown: 0, html: '' };
   let elements = new Map();
   const parse = html => new Map([...html.matchAll(/<div role="treeitem"([^>]*)>/g)].map(([, text]) => {
     const attributes = Object.fromEntries([...text.matchAll(/([\w-]+)="([^"]*)"/g)].map(match => [match[1], match[2]]));
@@ -95,7 +96,7 @@ function page({ stored = null, map = fixture(), selected = 'root' } = {}) {
   globalThis.document = { activeElement: null };
   const $ = selector => (selector === '#outline' ? box : selector === '#workspace' ? workspace : selector.startsWith('[data-outline-node="') ? elements.get(selector.slice(20, -2)) ?? null : null);
   const $$ = selector => (selector === '[data-view]' ? buttons : []);
-  const panel = outlinePanel({ $, $$, esc, glyphs, state, select: id => { state.selected = id; io.selections.push(id); panel.showSelection(); }, showMap: ({ refocus }) => { io.shown++; io.refocus = refocus; } });
+  const panel = outlinePanel({ $, $$, esc, glyphs, state, select: id => { state.selected = id; io.selections.push(id); panel.showSelection(); }, showMap: ({ refocus }) => { io.shown++; io.refocus = refocus; }, fold: (id, collapsed) => { io.folds.push([id, collapsed]); return fold(id, collapsed); } });
   const row = id => elements.get(id);
   const key = (id, name, extra = {}) => box.listeners.keydown({ key: name, target: row(id), preventDefault() {}, ...extra });
   return { panel, io, state, box, classes, buttons, storage, row, key, view: name => buttons.find(button => button.dataset.view === name) };
@@ -176,7 +177,7 @@ test('a redraw skips unchanged rows, and keeps focus without scrolling; selectio
 const app = await readFile(new URL('../skills/explore/assets/app.js', import.meta.url), 'utf8');
 const between = (start, end) => { const from = app.indexOf(start), to = app.indexOf(end, from); assert.ok(from >= 0 && to > from, `${start} is still in app.js`); return app.slice(from, to); };
 function appFunctions({ outlineMode }) {
-  const calls = [], state = { visibleMap: { nodes: [{ id: 'node-1' }, { id: 'node-2' }] }, positions: { 'node-1': {}, 'node-2': {} }, selected: 'node-1' };
+  const calls = [], state = { visibleMap: { nodes: [{ id: 'node-1' }, { id: 'node-2' }] }, positions: { 'node-1': {}, 'node-2': {} }, selected: 'node-1', view: { shown: new Set(['node-1', 'node-2']) } };
   const element = { hidden: false, disabled: false, focus: () => calls.push('canvas focus') };
   const context = vm.createContext({ state, document: { querySelectorAll: () => [] }, $: () => element, visibleSelection: (map, id) => id, showAddress() {}, renderDetail() {},
     centerSelected: () => calls.push('centre'), closeOverview() {},
@@ -200,4 +201,24 @@ test('the page has the outline tree and the switch, and outline mode hides the c
   assert.match(html, /<div id="outline" class="outline" role="tree" aria-label="Outline of ideas" hidden><\/div>/);
   assert.match(html, /<div class="view-switch" role="group" aria-label="View"><button type="button" data-view="map"[^>]*>Map<\/button><button type="button" data-view="outline"[^>]*>Outline<\/button><\/div>/);
   assert.match(css, /\.outline-mode #canvas,\.outline-mode \.canvas-toolbar,\.outline-mode #canvas-instruction,\.outline-mode #focus-selected\{display:none\}/);
+});
+
+// Collapse and focus branches (Z6, #64): the outline shows what the canvas shows.
+test('folds and branch focus decide the rows; a parent says whether it is open; Left and Right fold and unfold', () => {
+  const map = fixture(), view = shownNodes(map, { folded: ['b'] });
+  const rows = outlineRows(map, view);
+  assert.deepEqual(rows.map(row => row.id), ['root', 'b', 'a', 'lost', 'lost1']);
+  assert.equal(rows.find(row => row.id === 'b').expanded, false); assert.equal(rows.find(row => row.id === 'root').expanded, true); assert.equal(rows.find(row => row.id === 'a').expanded, undefined);
+  const html = outlineHtml(rows, { esc, glyphs });
+  assert.match(html, /data-outline-node="b" aria-label="Idea b, Unexplored, 1 hidden direction, 1 needs review" aria-expanded="false"/);
+  assert.match(html, /data-outline-node="root"[^>]*aria-expanded="true"/); assert.doesNotMatch(html, /data-outline-node="a"[^>]*aria-expanded/);
+  assert.match(html, /data-outline-node="b"[\s\S]*?<span class="outline-state">Unexplored · \+1 hidden<\/span>/);
+  assert.deepEqual(outlineRows(map, shownNodes(map, { focus: 'b1' })).map(row => row.id), ['root', 'b', 'b1'], 'branch focus: the path and the subtree');
+  let p = page({ stored: 'outline', view, fold: () => true });
+  p.row('root').focus(); p.key('root', 'ArrowDown'); assert.equal(p.io.focused, 'b');
+  p.key('b', 'ArrowRight'); assert.deepEqual(p.io.folds, [['b', false]], 'Right opens a folded idea');
+  p.key('b', 'ArrowLeft'); assert.equal(p.io.focused, 'root', 'Left on a folded idea goes to its parent');
+  p.key('root', 'ArrowLeft'); assert.deepEqual(p.io.folds.at(-1), ['root', true], 'Left folds an open one');
+  p = page({ stored: 'outline', view, fold: () => false }); // Growth history: folds are read-only.
+  p.row('root').focus(); p.key('root', 'ArrowRight'); assert.equal(p.io.focused, 'b', 'without folding, Right moves to the first child');
 });
