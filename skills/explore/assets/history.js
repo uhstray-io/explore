@@ -80,3 +80,11 @@ export function mapAtGrowthStep(map, step) {
   snapshot.edges = (snapshot.edges || []).filter(edge => visible.has(edge.from) && visible.has(edge.to) && edgeSteps.get(edgeKey(edge)) <= index);
   return snapshot;
 }
+
+// The read-only note for growth history or a saved version, '' on the live map: the inspector and the source library
+// (K10) both show it, so they always say the same.
+export function readOnlyNote({ historyStep, versionPreview }) {
+  if (historyStep === null || historyStep === undefined) return '';
+  return versionPreview ? `A saved version from ${new Date(versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}, read-only. These are the findings and status as they were then.`
+    : 'Read-only growth history. These are today’s findings and status, not a past version of the research.';
+}

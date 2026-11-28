@@ -1,6 +1,8 @@
 // Field checks shared by the validators of agent results. Each takes `fail(message)`, which throws the
 // caller's own error, so the Store, options and job types report problems the same way.
 
+import { stanceOf } from '../assets/sources.js';
+
 // Trimmed text of at most `max` characters. An optional field that is undefined, null or '' is absent.
 export function textField(value, field, max, fail, { optional = false } = {}) {
   if (optional && (value === undefined || value === null || value === '')) return undefined;
@@ -31,14 +33,16 @@ export function safeUrl(value, fail) {
   return url;
 }
 // Up to 20 sources the agent read, each with the claim it supports or challenges. An optional `stance` (K10) says
-// whether the source supports the finding, challenges it or gives context; none given is stored as nothing.
-const stances = new Set(['supports', 'challenges', 'context']);
-export function sourceList(value, fail, at = new Date().toISOString()) {
+// whether the source supports the finding, challenges it or gives context (stanceWords). Left out, null or empty is
+// none, stored as nothing, as for other optional fields; any other value rejects the result. `stance` false ignores
+// it: Help me answer research has no finding for a source to support.
+export function sourceList(value, fail, at = new Date().toISOString(), { stance: keepStance = true } = {}) {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 20) fail('Sources must be an array of at most 20 items.');
   return value.map(s => {
     if (!s || typeof s !== 'object' || Array.isArray(s)) fail('Source must be an object.');
-    if (s.stance !== undefined && s.stance !== null && !stances.has(s.stance)) fail('A source stance must be supports, challenges or context.');
-    return { title: textField(s.title, 'Source title', 200, fail), url: safeUrl(s.url, fail), note: textField(s.note, 'Evidence note', 1500, fail), ...(s.stance ? { stance: s.stance } : {}), retrievedAt: at };
+    const given = keepStance && s.stance !== undefined && s.stance !== null && s.stance !== '';
+    if (given && !stanceOf(s)) fail('A source stance must be supports, challenges or context.');
+    return { title: textField(s.title, 'Source title', 200, fail), url: safeUrl(s.url, fail), note: textField(s.note, 'Evidence note', 1500, fail), ...(given ? { stance: s.stance } : {}), retrievedAt: at };
   });
 }
