@@ -1,3 +1,4 @@
+import { packetBudget } from './guidance.mjs';
 import { isOpen, effectiveAnswerState, certaintyText } from '../assets/questions.js';
 
 // Map jobs (F1) read across many saved answers instead of one branch. The first is "Check answers":
@@ -115,7 +116,7 @@ export const mapJobTypes = {
     reason: 'The user asked to check the saved answers for tensions, unresolved choices and untested assumptions.',
     prepare: ({ map, input }) => {
       const selection = normalizeSelection(map, input.selection);
-      checkPacket({ map, job: { input: { selection } } }); // Refuses a selection that cannot fit, before anything is queued.
+      checkPacket({ map, job: { input: { selection } }, budget: packetBudget(map) }); // Refuses a selection that cannot fit, before anything is queued.
       return { selection };
     },
     packet: checkPacket,

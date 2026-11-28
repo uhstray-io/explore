@@ -137,7 +137,7 @@ const tidyInstruction = 'Tidy the user\'s draft answer: fix punctuation, spellin
 
 export const questionJobTypes = {
   [TIDY]: {
-    label: 'Tidy an answer', target: 'node', glossary: false, // It keeps the user's own words.
+    label: 'Tidy an answer', target: 'node', glossary: false, goal: false, // It keeps the user's own words.
     // The question and the draft only: no nearby ideas, findings or file paths.
     packet: ({ job, node }) => ({ question: { id: job.subjectId, text: clip(subjectOf(job, node)?.text ?? '', 1600) }, draft: job.input?.text ?? '', instruction: tidyInstruction }),
     validate: result => {
