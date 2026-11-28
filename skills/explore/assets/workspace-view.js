@@ -102,15 +102,28 @@ export function openMapChange(listed, shown) {
 // The research guidance a result says it followed (C6), by its `topicProfile`.
 export const topicProfiles = { general: 'General', 'software-versions': 'Software and versions', 'products-services': 'Products and services', 'concepts-tradeoffs': 'Concepts and design trade-offs' };
 export const topicProfileLabel = value => (typeof value === 'string' && Object.hasOwn(topicProfiles, value) ? topicProfiles[value] : null);
-// Under an idea's findings: how much map context its last investigation used, and which guidance it followed.
-export function runNoteHtml(job) {
+// Why context was left out of a packet (C13), in words.
+const leftOutWords = { budget: 'no room left in the packet', limit: 'past the most ideas one packet carries' };
+// What the last investigation was sent (C13): each idea with why, and what was left out, so not read. Each idea selects
+// itself; one no longer on the map says so. Jobs saved before this record only the size note.
+function contextSentHtml(sent, map) {
+  const idea = id => { const node = map?.nodes.find(n => n.id === id); return node ? `<button type="button" class="text-button" data-select="${escapeHtml(id)}">${escapeHtml(node.title)}</button>` : 'A removed idea'; };
+  const included = (sent.included ?? []).map(item => `<li>${idea(item.id)} <span class="form-note">${escapeHtml((item.reasons ?? []).join('; '))}</span></li>`).join('');
+  const omitted = (sent.omitted ?? []).map(item => `<li>${idea(item.id)} <span class="form-note">${escapeHtml(leftOutWords[item.reason] ?? 'left out')}</span></li>`).join('');
+  const more = (sent.omittedTotal ?? 0) - (sent.omitted ?? []).length;
+  return `<details class="context-sent" data-editor="context-sent"><summary>Context sent with the last run</summary>${included ? `<ul>${included}</ul>` : '<p class="form-note">Nothing else from the map: no other idea was linked or had answers.</p>'}`
+    + `${sent.omittedTotal ? `<p class="form-note">Left out, so your agent did not read them:</p><ul>${omitted}</ul>${more > 0 ? `<p class="form-note">And ${more} more.</p>` : ''}` : ''}</details>`;
+}
+// Under an idea's findings: how much map context its last investigation used, which guidance it followed, and what
+// context it was sent.
+export function runNoteHtml(job, map) {
   if (!job) return '';
   // Numbers, fixed labels and the agent's escaped report: nothing from the file reaches the page as markup.
   const characters = Number.isFinite(job.contextCharacters) ? job.contextCharacters : 0, guidance = topicProfileLabel(job.result?.topicProfile);
   const parts = [characters ? `Last investigation used ${characters.toLocaleString()} characters of map context. Only relevant context is sent.` : '', guidance ? `Guidance: ${guidance}.` : '',
     // The agent's own report of how it ran, shown only when it has the expected shape.
     typeof job.execution?.model === 'string' && typeof job.execution.delegated === 'boolean' ? `Your agent reported: ${escapeHtml(job.execution.model)}, ${job.execution.delegated ? 'delegated' : 'not delegated'}.` : ''].filter(Boolean);
-  return parts.length ? `<p class="run-note">${parts.join(' ')}</p>` : '';
+  return `${parts.length ? `<p class="run-note">${parts.join(' ')}</p>` : ''}${job.contextSelection && typeof job.contextSelection === 'object' ? contextSentHtml(job.contextSelection, map) : ''}`;
 }
 
 // Plain words for a map Explore cannot open. They never quote the file.

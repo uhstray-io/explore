@@ -91,9 +91,13 @@ test('nearby ideas come nearest first, keep their review state and certainty, an
   assert.equal(packet.omittedContext, chain.length - 1 - (ids.length - 1));
   assert.equal(packet.context[0].reviewState, 'unreviewed'); assert.equal(packet.context[0].stale, false);
   assert.ok(packet.context[0].answers.every(a => a.answerState), 'answers keep how sure they are');
-  // An investigation packet orders its context the same way.
+  // An investigation packet keeps the path in order (C13): the root, then down to the direct parent. When even
+  // shortened it does not fit, the ideas farthest from this one are left out and listed, never the root.
   const investigation = store.packet(await store.get(map.id), { id: 'job-x', nodeId: parent, reason: 'r' }, { claimKey: 'k' });
-  assert.equal(investigation.context[0].id, map.rootId); assert.equal(investigation.context[1].id, chain.at(-2));
+  assert.equal(investigation.context[0].id, map.rootId); assert.equal(investigation.context.at(-1).id, chain.at(-2));
+  const kept = investigation.context.slice(1).map(n => chain.indexOf(n.id));
+  assert.deepEqual(kept, [...kept].sort((a, b) => a - b), 'in path order'); assert.ok(!investigation.context.some(n => n.id === chain[0]), 'the farthest are left out');
+  assert.ok(investigation.omittedTotal > 0 && investigation.omitted.every(o => o.reason === 'budget')); assert.ok(investigation.contextCharacters < 16000);
 });
 
 test('research is checked like options and stays on the job, never as an answer', async () => {

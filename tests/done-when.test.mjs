@@ -122,7 +122,7 @@ test('a full stopping point stays in the packet under budget pressure', async ()
   const saved = await store.get(map.id), job = saved.jobs.find(entry => entry.nodeId === branch.id && entry.status === 'queued');
   // A small budget forces every trimming step; the user's stopping point is never one of them.
   const packet = store.packet(saved, job, { claimKey: 'probe', budget: 1500 });
-  assert.equal(packet.selected.doneWhen.length, 400); assert.ok(packet.omittedContext > 0, 'context was trimmed first');
+  assert.equal(packet.selected.doneWhen.length, 400); assert.equal(packet.context[0].id, map.rootId, 'the path is shortened, never dropped (C13)');
 });
 
 test('Explore sends the field only once opened; Save of an unchanged value just closes; Enter saves', async () => {
