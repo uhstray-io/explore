@@ -8,6 +8,16 @@ export function presentation(node) {
   const work = workLabels[node.status] || node.status;
   return { label: [work, reviewWord(node)].filter(Boolean).join(' · '), lit: node.status === 'explored' && !node.stale };
 }
+// Ideas in reading order: depth-first from the root with children in map order, then any not under the root.
+// Each comes with its depth (0 for the root, and for an idea outside its tree).
+export function treeOrder(map) {
+  const children = new Map(), out = [], seen = new Set();
+  for (const node of map.nodes) { if (!children.has(node.parentId)) children.set(node.parentId, []); children.get(node.parentId).push(node); }
+  const visit = (node, depth) => { if (seen.has(node.id)) return; seen.add(node.id); out.push({ node, depth }); for (const child of children.get(node.id) ?? []) visit(child, depth + 1); };
+  for (const node of map.nodes) if (node.id === map.rootId) visit(node, 0);
+  for (const node of map.nodes) visit(node, 0);
+  return out;
+}
 // An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.
 export function branchIds(map, nodeId) {
   const children = new Map();

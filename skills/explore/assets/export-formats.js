@@ -26,12 +26,13 @@ export function exportScope(map, nodeId = null) {
     links: (map.edges || []).filter(edge => Object.hasOwn(outgoing, edge.type) && ids.has(edge.from) && ids.has(edge.to)).map(edge => ({ from: edge.from, to: edge.to, relation: outgoing[edge.type].toLowerCase() })) };
 }
 
-const premiseOf = node => String(node.prompt || node.body || '');
+export const premiseOf = node => String(node.prompt || node.body || '');
 // The summary and findings appear only once research wrote them; before that they repeat the premise.
-const summaryOf = node => node.summary && !premiseOf(node).startsWith(node.summary) ? node.summary : null;
-const findingsOf = node => node.body && node.body !== premiseOf(node) ? node.body : null;
+export const summaryOf = node => node.summary && !premiseOf(node).startsWith(node.summary) ? node.summary : null;
+export const findingsOf = node => node.body && node.body !== premiseOf(node) ? node.body : null;
+export const hasWrittenFindings = node => !!(summaryOf(node) || findingsOf(node));
 // Written findings nobody has reviewed, whatever the idea's work state: a run queued again keeps the last round's.
-const provisional = node => node.stale || (!reviewWord(node) && !!(summaryOf(node) || findingsOf(node)));
+const provisional = node => node.stale || (!reviewWord(node) && hasWrittenFindings(node));
 // Work and review state in words, as the app shows them, plus "unreviewed" for findings nobody has reviewed.
 export function stateLabel(node) {
   const { label } = presentation(node);
@@ -87,7 +88,7 @@ function canvas(map, { nodes, tree, links }, positions) {
 }
 
 // SVG: plain shapes and text only, all text XML-escaped. XML 1.0 forbids most control characters, so they become spaces.
-const xml = value => String(value ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, ' ').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+export const xml = value => String(value ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, ' ').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 function wrap(text, width = 26, lines = 3) {
   const words = String(text ?? '').replace(/\s+/g, ' ').trim().split(' ').flatMap(word => word.match(new RegExp(`.{1,${width}}`, 'gu')) ?? []);
   const out = [];

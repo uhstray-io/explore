@@ -1,4 +1,4 @@
-import { presentation } from './graph.js';
+import { presentation, treeOrder } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY } from './questions.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
@@ -364,13 +364,7 @@ export function menuFocusIndex(index, key, count) {
 
 // Review flagged findings (D3): flagged ideas in tree order from the root, then any outside the tree.
 export function reviewQueue(map) {
-  const children = new Map(map.nodes.map(node => [node.id, []]));
-  for (const node of map.nodes) children.get(node.parentId)?.push(node);
-  const ordered = [], seen = new Set();
-  const visit = node => { if (seen.has(node.id)) return; seen.add(node.id); ordered.push(node); for (const child of children.get(node.id)) visit(child); };
-  for (const node of map.nodes.filter(node => node.id === map.rootId)) visit(node);
-  for (const node of map.nodes) visit(node);
-  return ordered.filter(node => node.stale).map(node => node.id);
+  return treeOrder(map).filter(({ node }) => node.stale).map(({ node }) => node.id);
 }
 const shortDate = at => at ? new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
 // One step of the review: what changed upstream, then Still holds, Re-explore or No longer relevant.
