@@ -67,11 +67,14 @@ export function minimapPanel({ $, esc, state, positions, viewport, moveView }) {
   });
   panel.addEventListener('wheel', event => { event.stopPropagation(); event.preventDefault(); }, { passive: false });
   panel.addEventListener('click', event => event.stopPropagation());
+  // The keys it handles stay with it (Escape would also close the page's panels); Ctrl+K and / still reach the page.
   panel.addEventListener('keydown', event => {
-    event.stopPropagation();
-    if (pans[event.key]) { event.preventDefault(); const [dx, dy] = pans[event.key]; moveView({ scale: state.scale, x: state.x + dx, y: state.y + dy }); }
-    else if (event.key === 'Enter') { event.preventDefault(); const point = state.positions[state.selected]; if (point) moveView(centredView(point, viewport(), state.scale)); }
-    else if (event.key === 'Escape') { event.preventDefault(); show(false); toggle.focus(); }
+    const handled = pans[event.key] || event.key === 'Enter' || event.key === 'Escape';
+    if (!handled || event.ctrlKey || event.metaKey || event.altKey) return;
+    event.preventDefault(); event.stopPropagation();
+    if (pans[event.key]) { const [dx, dy] = pans[event.key]; moveView({ scale: state.scale, x: state.x + dx, y: state.y + dy }); }
+    else if (event.key === 'Enter') { const point = state.positions[state.selected]; if (point) moveView(centredView(point, viewport(), state.scale)); }
+    else { show(false); toggle.focus(); }
   });
   // The canvas changes size without a window resize too (the Versions panel, growth history): keep the rectangle true.
   if (typeof ResizeObserver === 'function') new ResizeObserver(() => view()).observe($('#canvas'));

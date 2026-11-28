@@ -112,8 +112,12 @@ test('arrow keys pan by a step, Enter centres the selected idea, Escape hides it
   key('ArrowLeft'); key('ArrowUp'); assert.deepEqual(p.io.moves.at(-1), { scale: 1, x: 100, y: 60 });
   p.state.scale = 2; key('Enter');
   assert.deepEqual(p.io.moves.at(-1), centredView(p.state.positions.a, viewport, 2));
+  assert.deepEqual(p.io.canvasSaw, [], 'the keys it handles stay with it');
+  p.fire('keydown', { key: 'k', ctrlKey: true }); p.fire('keydown', { key: '/' });
+  assert.deepEqual(p.io.canvasSaw, ['keydown', 'keydown'], 'Ctrl+K and / still reach the page');
   key('Escape');
   assert.equal(p.panel.hidden, true); assert.equal(p.io.focused, 'toggle'); assert.equal(p.storage.get('explore-minimap'), 'off');
+  assert.equal(p.io.canvasSaw.length, 2, 'Escape closes the minimap only, not the page panels too');
   assert.equal(p.state.selected, 'a');
 });
 
