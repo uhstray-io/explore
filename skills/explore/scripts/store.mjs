@@ -268,8 +268,10 @@ export class Store {
   }
   // Stops open work without running anything. An investigation leaves its idea interrupted; other kinds
   // release what they held, so a pending regeneration gives its question back. Returns the stopped jobs.
-  deactivateOpenWork(map, { error, at, runningOnly = false } = {}) {
-    const stopped = map.jobs.filter(job => runningOnly ? job.status === 'running' : isOpenJob(job));
+  // `within`, a Set of idea IDs, limits this to the work and ideas of one branch (E2).
+  deactivateOpenWork(map, { error, at, runningOnly = false, within = null } = {}) {
+    const inScope = id => !within || within.has(id);
+    const stopped = map.jobs.filter(job => (runningOnly ? job.status === 'running' : isOpenJob(job)) && inScope(job.nodeId));
     for (const job of stopped) {
       Object.assign(job, { status: 'interrupted' }, at ? { finishedAt: at } : {}, error ? { error } : {});
       if (!isInvestigation(job)) { this.jobType(jobTypeOf(job))?.release?.({ map, job }); continue; }
@@ -277,7 +279,7 @@ export class Store {
       if (node) node.status = 'interrupted';
     }
     // Once all open work has stopped, no idea can still be waiting or running.
-    if (!runningOnly) for (const node of map.nodes) if (['queued', 'running'].includes(node.status)) node.status = 'interrupted';
+    if (!runningOnly) for (const node of map.nodes) if (inScope(node.id) && ['queued', 'running'].includes(node.status)) node.status = 'interrupted';
     return stopped;
   }
   event(map, type, nodeId, detail = '') { map.history.push({ at: now(), type, nodeId, detail }); }
@@ -306,19 +308,13 @@ export class Store {
     Object.assign(node, { prompt: premise, body: premise, summary: premise.slice(0, 600), sources: [], reviewState: 'unreviewed', stale: false });
     for (const key of ['completedAt', 'options', 'optionsLimit', 'recommendation', 'reviewCauses', 'earlierCauses', 'reaffirmedAt', 'clearedAt', 'replacedBy', 'resolvedBy', 'acceptedAt', 'acceptedBy']) delete node[key];
   }
-  invalidatePremises(map, nodeId, kind = 'premise-revised') {
-    const affected = new Set([nodeId]);
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const edge of map.edges) {
-        const next = edge.type === 'contains' && affected.has(edge.from) ? edge.to : edge.type === 'depends_on' && affected.has(edge.to) ? edge.from : null;
-        if (next && !affected.has(next)) { affected.add(next); changed = true; }
-      }
-    }
+  invalidatePremises(map, nodeId, kind = 'premise-revised') { this.invalidate(map, this.affectedBy(map, nodeId), { sourceId: nodeId, kind }); }
+  // Ideas whose basis changed: findings are flagged, questions asked on the old basis are set aside, and waiting
+  // for an answer ends.
+  invalidate(map, ids, { sourceId, kind }) {
     const at = now();
-    for (const node of map.nodes) if (affected.has(node.id)) {
-      if (this.hasConclusions(map, node)) this.flagForReview(node, { sourceId: nodeId, kind });
+    for (const node of map.nodes) if (ids.has(node.id)) {
+      if (this.hasConclusions(map, node)) this.flagForReview(node, { sourceId, kind });
       node.contentRevision++;
       for (const question of node.questions) if (!question.supersededAt) question.supersededAt = at;
       if (node.status === 'awaiting-answer') node.status = 'interrupted';
