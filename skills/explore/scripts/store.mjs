@@ -14,6 +14,7 @@ import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { normalizeLimitations, limitationLines } from './limitations.mjs';
 import { normalizeClaims, claimLines } from './claims.mjs';
+import { findingsBasis, reasoningLabel } from '../assets/claims.js';
 import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryRoom, glossaryLines } from './glossary.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
@@ -74,7 +75,7 @@ function object(value, field) {
   need(value && typeof value === 'object' && !Array.isArray(value), `${field} must be an object.`);
   return value;
 }
-// What an investigation result sets on its idea beside the findings: options (C1) and limitations (C3).
+// What an investigation result sets on its idea beside the findings: options (C1), limitations (C3) and claims (C2).
 const resultOwnedFields = ['options', 'optionsLimit', 'recommendation', 'limitations', 'claims'];
 function text(value, field, max = 12000, optional = false) {
   if (optional && value === undefined) return '';
@@ -259,10 +260,11 @@ export class Store {
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
         `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, ...(n.doneWhen ? ['', `Done when: ${literal(normalizeDoneWhen(n.doneWhen))}`] : []), '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
       const guidance = topicProfileLabel(map.jobs.filter(j => currentRun(n, j)).at(-1)?.result?.topicProfile);
+      if (findingsBasis(n, hasFindings(map, n)) === 'reasoning') lines.push('', `_${reasoningLabel}._`);
       if (guidance && hasFindings(map, n)) lines.push('', `_Guidance: ${guidance}_`);
       if (n.options?.length) lines.push('', ...comparisonLines(n));
       if (n.limitations?.length) lines.push('', ...limitationLines(n));
-      lines.push(...claimLines(n, { findings: hasFindings(map, n) }));
+      if (n.claims?.length) lines.push('', ...claimLines(n));
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
       else if (n.reaffirmedAt) lines.push('', `_Reaffirmed ${n.reaffirmedAt.slice(0, 10)}: the user re-checked it against the change; it was not re-researched._`);
@@ -688,11 +690,11 @@ export class Store {
       return null;
     });
   }
-  // A result may also compare options and recommend one (C1), and record conflicts and evidence gaps (C3); that stays
-  // the agent's judgement.
+  // A result may also compare options and recommend one (C1), record conflicts and evidence gaps (C3), and link its key
+  // claims to passages of its sources (C2); that stays the agent's judgement.
   validateResult(result, map, node) {
     object(result, 'Result');
-    need(JSON.stringify(result).length <= 150000, 'This result is too large. Shorten the findings, the options or the limitations.');
+    need(JSON.stringify(result).length <= 150000, 'This result is too large. Shorten the findings, the options, the limitations or the claims.');
     const fail = message => { throw new Problem(message); };
     const checked = { ...this.validateResultFields(result, map, node), ...normalizeComparison(result, fail), ...normalizeGlossaryProposals(result, fail) };
     return { ...checked, ...normalizeLimitations(result, checked, fail), ...normalizeClaims(result, checked, fail) };

@@ -381,6 +381,8 @@ export function nodeMenuHtml(node, { esc, live = false, items = [] }) {
 // Text compared the way people read it: case, repeated whitespace and trailing punctuation ignored.
 export const comparableText = value => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[\s?.!,;:…]+$/, '');
 // Text that reads as itself in Markdown, on one line.
+// The title of one of an idea's sources by its URL, or the URL itself when the idea no longer lists it.
+export const sourceTitle = (node, url) => node.sources?.find(source => source.url === url)?.title ?? url;
 export const markdownText = value => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}\[\]<>#|]/g, '\\$&');
 // A portable reference to one idea (H2): its map and node IDs first, so a title can never redirect it, then
 // the title and the repo path of its view for people reading it elsewhere. It never carries answers,

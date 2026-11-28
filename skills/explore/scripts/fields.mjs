@@ -8,6 +8,20 @@ export function textField(value, field, max, fail, { optional = false } = {}) {
   if (value.length > max) fail(`${field} must be at most ${max} characters.`);
   return value.trim();
 }
+// A record's identifier, unique among `seen`: a letter, then letters, digits, _ or -, at most 32 in all.
+const idPattern = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
+export function recordId(value, label, kind, seen, fail) {
+  if (typeof value !== 'string' || !idPattern.test(value)) fail(`${label} needs an identifier that starts with a letter (letters, digits, _ or -, at most 32).`);
+  if (seen.has(value)) fail(`${kind} identifiers must be unique.`);
+  seen.add(value);
+  return value;
+}
+// A source a record cites, compared and kept as the result saved it (trimmed). `urls` is a Set of saved URLs.
+export function citedSource(value, urls, label, fail) {
+  const url = typeof value === 'string' ? value.trim() : null;
+  if (!urls.has(url)) fail(`${label} cites a source that is not in this result's sources.`);
+  return url;
+}
 export function safeUrl(value, fail) {
   const url = textField(value, 'Source URL', 2000, fail);
   let protocol = null;
