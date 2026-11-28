@@ -10,6 +10,7 @@ import { topicProfiles, topicProfileLabel } from '../assets/workspace-view.js';
 import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
+import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { normalizeLimitations, limitationLines } from './limitations.mjs';
 import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryLines } from './glossary.mjs';
@@ -311,18 +312,7 @@ export class Store {
     return stopped;
   }
   event(map, type, nodeId, detail = '') { map.history.push({ at: now(), type, nodeId, detail }); }
-  affectedBy(map, nodeIds) {
-    const affected = new Set([].concat(nodeIds));
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const edge of map.edges) {
-        const next = edge.type === 'contains' && affected.has(edge.from) ? edge.to : edge.type === 'depends_on' && affected.has(edge.to) ? edge.from : null;
-        if (next && !affected.has(next)) { affected.add(next); changed = true; }
-      }
-    }
-    return affected;
-  }
+  affectedBy(map, nodeIds) { return downstreamOf(map, nodeIds); }
   flagForReview(node, { sourceId, kind }) {
     node.stale = true;
     const causes = [...(node.reviewCauses || []), { sourceId, kind, at: now() }];

@@ -16,6 +16,7 @@ import { questionClick } from './question-clicks.js';
 import { limitationsHtml, optionLimitationNotes, limitationClick } from './limitations.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
+import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, overviewFilters, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
@@ -305,15 +306,16 @@ function renderOverview() {
   $('#overview-title').textContent = `${group.label} (${group.nodes.length})`;
   $('#overview-explanation').textContent = state.historyStep === null ? 'Choose an idea to inspect it. Opening this list never starts work.' : 'Today’s state of ideas visible at this growth step.';
   const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${group.lines(node).map(line => `<span>${esc(line.text)}</span>${line.detail ? `<span class="overview-detail">${esc(line.detail)}</span>` : ''}`).join('')}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
-  // Flagged findings can be reviewed one at a time from here.
-  const reviewAll = group.id === 'stale' && group.nodes.length && state.historyStep === null ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
-  if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
+  // Live only: the suggested next question leads "Needs your answer", and flagged findings can be reviewed one at a time.
+  const lead = state.historyStep !== null ? '' : group.id === 'answer' ? nextQuestion.html(state.map) : group.id === 'stale' && group.nodes.length ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
+  if (state.overviewList !== lead + list) $('#overview-list').innerHTML = state.overviewList = lead + list; // Never compare with innerHTML read back.
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
 // The control that opened a filter: its progress button, or More filters.
 const filterControl = filter => (overviewFilters.some(item => item.id === filter) ? $(`[data-filter="${filter}"]`) : $('#more-filters'));
 function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
 // Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
+const nextQuestion = nextQuestionPanel({ esc, focusNode, rerender: () => { renderOverview(); $('#overview-list button')?.focus(); } });
 const moreFilters = moreFiltersPanel({ esc, openFilter, focusList: () => $('#overview-list button')?.focus() });
 const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $('#overview-filters button')?.focus() });
 // Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else. The
@@ -819,6 +821,7 @@ document.addEventListener('click', async event => {
   if (suppressClick) { suppressClick = false; return; }
   const map = event.target.closest('[data-map]'); if (map) return openMap(map.dataset.map);
   if (!event.target.closest('#node-finder')) $('#node-results').hidden = true;
+  if (nextQuestion.click(event)) return;
   const focus = event.target.closest('[data-focus-node]'); if (focus) return focusNode(focus.dataset.focusNode);
   const reference = event.target.closest('[data-open-reference]');
   if (reference) { const [mapId, nodeId] = reference.dataset.openReference.split('/'); $('#find-node').value = ''; $('#node-results').hidden = true; return openReference({ mapId, nodeId }); }

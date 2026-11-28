@@ -28,6 +28,20 @@ export function treeOrder(map) {
   for (const node of map.nodes) walk(node);
   return out;
 }
+// What builds on these ideas: their `contains` descendants and, transitively, ideas linked as depending on them.
+// Includes the ideas themselves.
+export function downstreamOf(map, nodeIds) {
+  const affected = new Set([].concat(nodeIds));
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const edge of map.edges) {
+      const next = edge.type === 'contains' && affected.has(edge.from) ? edge.to : edge.type === 'depends_on' && affected.has(edge.to) ? edge.from : null;
+      if (next && !affected.has(next)) { affected.add(next); changed = true; }
+    }
+  }
+  return affected;
+}
 // An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.
 export function branchIds(map, nodeId) {
   const children = new Map();
