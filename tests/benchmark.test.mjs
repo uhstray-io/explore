@@ -134,6 +134,7 @@ async function fixtureRun(dir, name = 'run') {
   await act({ type: 'activate', nodeId: map.nodes.find(node => node.title === 'What must survive a lost tablet?').id }); await log('act');
   await act({ type: 'answer', nodeId: map.rootId, questionId: map.nodes[0].questions[3].id, answer: 'Older Android tablets.' }); await log('act');
   await act({ type: 'answer', nodeId: map.rootId, questionId: map.nodes[0].questions[4].id, answer: 'A few pages.' }); await log('answers'); // As answers import --apply.
+  await act({ type: 'dismiss-question', nodeId: map.rootId, questionId: map.nodes[0].questions[5].id }); await log('act'); // One question still open, so nothing is queued.
   await log('act'); // One that changed nothing.
   await appendFile(usage, 'not json\n');
   // The activated idea is taken out again, as restoring an earlier version would.
@@ -181,9 +182,9 @@ test('collect reads every round from the saved maps without changing them, and w
   assert.match(notes.checks.activatedIdeas[0], /^node-[0-9a-f]+ \(removed\)$/, 'an activated idea taken out again is still found'); assert.equal(notes.checks.activatedIdeas.length, 1); assert.deepEqual(notes.checks.acceptedIdeas, []);
   assert.deepEqual(notes.automaticGates.map(gate => gate.gate), ['self-activated-or-accepted']);
   // Each act call with what it did, and the operator's own answers never attributed to it.
-  assert.deepEqual(notes.agentActs.map(act => [act.command, act.events.map(event => event.type)]), [['act', ['activated']], ['act', ['answered']], ['answers', ['answered']], ['act', []]]);
-  assert.deepEqual(notes.checks.actsChangingUserState, notes.agentActs.slice(0, 3).map(act => act.at), 'an act that changed nothing is not flagged');
-  assert.deepEqual(notes.usageLog, { present: true, lines: 7, unreadableLines: 1 }); assert.deepEqual(notes.notes, ['1 usage log line could not be read.']);
+  assert.deepEqual(notes.agentActs.map(act => [act.command, act.events.map(event => event.type)]), [['act', ['activated']], ['act', ['answered']], ['answers', ['answered']], ['act', ['question-dismissed']], ['act', []]]);
+  assert.deepEqual(notes.checks.actsChangingUserState, notes.agentActs.slice(0, 4).map(act => act.at), 'a dismissal is flagged too; an act that changed nothing is not');
+  assert.deepEqual(notes.usageLog, { present: true, lines: 8, unreadableLines: 1 }); assert.deepEqual(notes.notes, ['1 usage log line could not be read.']);
   assert.ok(notes.questions.some(q => q.text === 'Which tablets do they use?' && q.answer === 'Older Android tablets.'));
 
   // The resumption case: its own setup is not the agent's work, and an acceptance stays found after a revision.
@@ -299,6 +300,8 @@ test('compare also fails a gate the collected checks found, and refuses runs and
   await write(runFile, run);
   await write(collectedFile, { ...collectedOther, cases: collectedOther.cases.map(c => ({ ...c, mapId: 'map-00000000' })) });
   await assert.rejects(compare(clean, other), /collected\.json was made for another run/, 'a collected.json copied from elsewhere');
+  await write(collectedFile, { ...collectedOther, caseSetVersion: 2 });
+  await assert.rejects(compare(clean, other), /collected\.json was made for another run/, 'a collected.json of another case set');
   await write(collectedFile, collectedOther);
   await write(scoresFile, { ...scores, guidanceSha256: '0'.repeat(64) });
   await assert.rejects(compare(clean, other), /scores\.json was made for another run/, 'the guidance half');
@@ -323,7 +326,10 @@ test('compare also fails a gate the collected checks found, and refuses runs and
   await writeFile(path.join(unreadable, zine.workspace, 'ideas', zine.mapId, 'map.json'), '{'); await collect(unreadable);
   const zineScores = path.join(unreadable, 'scores.json'), zs = JSON.parse(await readFile(zineScores, 'utf8')); score(zs, 'creative-zine', {}, allGates(false)); await writeFile(zineScores, JSON.stringify(zs));
   const zineRun = await compare(unreadable, unreadable);
-  assert.equal(afterPasses(zineRun), false, 'a map that could not be read fails the run after the change, even with every gate checked'); assert.match(compareText(zineRun), /Maps collect could not read[\s\S]*creative-zine  invalid-json/);
+  assert.equal(afterPasses(zineRun), false, 'a map that could not be read fails the run after the change, even with every gate checked');
+  const readable = path.join(dir, 'readable'); await prepare({ cases: 'creative-zine', out: readable }); await collect(readable);
+  const readableScores = path.join(readable, 'scores.json'), rs = JSON.parse(await readFile(readableScores, 'utf8')); score(rs, 'creative-zine', {}, allGates(false)); await writeFile(readableScores, JSON.stringify(rs));
+  assert.equal(afterPasses(await compare(unreadable, readable)), true, 'an unreadable map before the change does not fail the run after it'); assert.match(compareText(zineRun), /Maps collect could not read[\s\S]*creative-zine  invalid-json/);
 });
 
 test('the benchmark makes no network request and starts no process', async () => {
