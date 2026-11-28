@@ -31,18 +31,33 @@ export function treeOrder(map) {
   for (const node of map.nodes) walk(node);
   return out;
 }
+// The links along which a change spreads, by the idea it starts from: to its `contains` children, and from a
+// prerequisite to each idea linked as depending on it. Each is { to, dependency }, sorted by `to`.
+export function changeLinks(map) {
+  const links = new Map(), add = (from, to, dependency) => { if (!links.has(from)) links.set(from, []); links.get(from).push({ to, dependency }); };
+  for (const edge of map.edges ?? []) { if (edge.type === 'contains') add(edge.from, edge.to, false); else if (edge.type === 'depends_on') add(edge.to, edge.from, true); }
+  for (const list of links.values()) list.sort((a, b) => (a.to < b.to ? -1 : a.to > b.to ? 1 : 0));
+  return links;
+}
+// The one walk a change takes from `starts`: breadth-first along changeLinks, nearest first with ties by ID, each idea
+// once and never a start. Yields [id, { from, dependency }], the link the idea was first reached by. It passes through
+// IDs missing from the map, which a Git merge or a hand edit can leave behind, so callers that show ideas drop those.
+// `dependencies` false keeps to `contains` links. The Store's review flags and impact (D4) both walk this, so they agree.
+export function* changeWalk(map, starts, { links = changeLinks(map), dependencies = true } = {}) {
+  const queue = [...new Set(starts)], seen = new Set(queue);
+  for (let at = 0; at < queue.length; at++) {
+    for (const link of links.get(queue[at]) ?? []) {
+      if (seen.has(link.to) || (link.dependency && !dependencies)) continue;
+      seen.add(link.to); queue.push(link.to);
+      yield [link.to, { from: queue[at], dependency: link.dependency }];
+    }
+  }
+}
 // What builds on these ideas: their `contains` descendants and, transitively, ideas linked as depending on them.
 // Includes the ideas themselves.
 export function downstreamOf(map, nodeIds) {
-  const affected = new Set([].concat(nodeIds));
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const edge of map.edges) {
-      const next = edge.type === 'contains' && affected.has(edge.from) ? edge.to : edge.type === 'depends_on' && affected.has(edge.to) ? edge.from : null;
-      if (next && !affected.has(next)) { affected.add(next); changed = true; }
-    }
-  }
+  const starts = [].concat(nodeIds), affected = new Set(starts);
+  for (const [id] of changeWalk(map, starts)) affected.add(id);
   return affected;
 }
 // An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.

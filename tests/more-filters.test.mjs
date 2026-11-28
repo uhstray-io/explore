@@ -64,6 +64,9 @@ test('the panel shows both groups with counts and marks the active choice', () =
   assert.match(html, /How settled answers are/); assert.match(html, /Importance of open questions/);
   assert.match(html, /data-more-filter="state:assumption" aria-pressed="true"><span>Assumption<\/span><strong>1<\/strong>/);
   assert.match(html, /data-more-filter="importance:unranked" aria-pressed="false"><span>Unranked<\/span><strong>1<\/strong>/);
+  assert.doesNotMatch(html, /Impact/, 'a section only for the kinds the overview has');
+  const impact = moreFiltersHtml([...groups, { id: 'impact:high-open', kind: 'impact', short: 'High impact, still open', nodes: [] }], { esc, active: null });
+  assert.match(impact, /aria-label="Impact"><h3>Impact<\/h3><button type="button" data-more-filter="impact:high-open"/);
 });
 
 // A small fake DOM: the wrapper, button, Clear filter and panel, whose chips come from its markup.

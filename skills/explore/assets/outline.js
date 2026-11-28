@@ -58,14 +58,14 @@ export function outlineHtml(rows, { esc, glyphs }) {
 //   render()         redraws the rows when the map changed (focus stays on its row, without scrolling)
 //   showSelection()  marks the selected idea's row, after the selection changed
 //   focusRow(id)     makes an idea's row the tab stop, brings it into view and focuses it (Find an idea, links)
-//   dim(ids)         dims the rows a filter leaves out; null shows them all
+//   dim(ids, context) dims the rows a filter leaves out, and marks `context` rows as quieter context; null shows them all
 //   active()         whether the outline is the view on screen
 // `select(id)` opens an idea in the inspector; `showMap({ refocus })` runs when the user returns to the map, with
 // `refocus` true when focus was in the outline and needs a new place. The rows follow `state.view` (shownNodes), and
 // `fold(id, collapsed)` saves a fold, returning false where folds cannot change (growth history).
 export function outlinePanel({ $, $$, esc, glyphs, state, select, showMap, fold = () => false }) {
   const box = $('#outline');
-  let view = 'map', rows = [], drawnFrom = null, drawnView = null, written = '', current = null, muted = null;
+  let view = 'map', rows = [], drawnFrom = null, drawnView = null, written = '', current = null, muted = null, quiet = null;
   try { if (localStorage.getItem('explore-view') === 'outline') view = 'outline'; } catch {}
   const rowOf = id => (id ? $(`[data-outline-node="${CSS.escape(id)}"]`) : null);
   const set = (element, name, value) => { if (element.getAttribute(name) !== value) element.setAttribute(name, value); };
@@ -76,7 +76,7 @@ export function outlinePanel({ $, $$, esc, glyphs, state, select, showMap, fold 
       const id = element.dataset.outlineNode;
       set(element, 'tabindex', id === current ? '0' : '-1');
       set(element, 'aria-selected', String(id === state.selected));
-      element.classList.toggle('filter-muted', !!muted && !muted.has(id));
+      element.classList.toggle('filter-muted', !!muted && !muted.has(id) && !quiet?.has(id)); element.classList.toggle('filter-context', !!quiet?.has(id));
     }
   }
   function render() {
@@ -131,6 +131,6 @@ export function outlinePanel({ $, $$, esc, glyphs, state, select, showMap, fold 
   return {
     render, active: () => view === 'outline', focusRow: id => { if (view === 'outline') moveTo(id); },
     showSelection: () => { if (view === 'outline') mark(); },
-    dim(ids) { muted = ids; if (view === 'outline') mark(); },
+    dim(ids, context = null) { muted = ids; quiet = context; if (view === 'outline') mark(); },
   };
 }
