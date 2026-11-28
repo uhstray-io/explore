@@ -216,18 +216,21 @@ function menuHtml(id, label, items) {
 }
 // The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
 // Help me answer, Explain this question, Tidy my wording (a later issue), Answer later, Regenerate,
-// Dismiss, Good question / Bad question. `kind` is 'open', 'waiting' (saved for later) or 'answered';
-// `completed` says the branch is finished, where nothing but the rating and Change answer applies. A question
+// Dismiss, Change answer, extra `items` (Pin answer), Good question / Bad question. `kind` is 'open', 'waiting' (saved
+// for later), 'answered' or 'superseded' (an answer from an earlier premise: only the extra items);
+// `completed` says the branch is finished, where nothing but the rating, Change answer and the extra items apply. A question
 // saved for later offers only what leaves a queued or running branch alone: research, an explanation, a rating.
 // Tidy my wording is marked data-needs-draft: opening the menu shows it only while the answer box has text.
-export function questionMenuHtml(question, { nodeId, kind, completed = false, lastBlocking = false, esc }) {
+export function questionMenuHtml(question, { nodeId, kind, completed = false, lastBlocking = false, esc, items: extra = [] }) {
   const id = esc(question.id), node = esc(nodeId);
+  if (kind === 'superseded') return extra.length ? menuHtml(id, 'More for this answer', extra) : ''; // Only Pin answer applies.
   const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes} data-question-id="${id}" data-node-id="${node}">${label}</button>`;
   const items = [
     ...(canResearch(question, { completed }) ? [item('Help me answer', 'data-q-research')] : []),
     ...(kind === 'answered' ? [] : [item('Explain this question', 'data-q-help'), item('Tidy my wording', 'data-q-tidy data-needs-draft hidden')]),
     ...(kind === 'open' ? [item('Answer later', `data-answer-later="${id}"`), item('Regenerate', 'data-q-reason="regenerate"'), item(lastBlocking ? 'Dismiss and continue' : 'Dismiss', 'data-q-dismiss')] : []),
     ...(kind === 'answered' ? [item('Change answer', 'data-q-change')] : []),
+    ...extra,
     item('Good question', 'data-q-rate="good"'), item('Bad question', 'data-q-reason="bad"'),
   ];
   const rated = question.rating ? `<p class="question-rated">You rated this ${question.rating === 'good' ? 'a good question' : 'a bad question'}${question.ratingReason ? `: ${esc(question.ratingReason)}` : ''} · <button type="button" class="text-button" data-q-rate="" data-question-id="${id}" data-node-id="${node}">Undo</button></p>` : '';

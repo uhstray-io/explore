@@ -21,7 +21,11 @@ const need = (condition, message, status) => { if (!condition) throw new Version
 // state (I1). Two saved forms that differ only in these are the same map to everyone reading it.
 export function presentationOnly(before, after) {
   try {
-    const strip = bytes => { const { library, revision, updatedAt, ...rest } = JSON.parse(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : bytes); return JSON.stringify(rest); };
+    const strip = bytes => {
+      const { library, revision, updatedAt, view, ...rest } = JSON.parse(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : bytes);
+      const { pinnedAnswers, ...layout } = view ?? {}; // Pinned answers (Z11) are presentation too.
+      return JSON.stringify({ ...rest, view: layout });
+    };
     return strip(before) === strip(after);
   } catch { return false; }
 }
