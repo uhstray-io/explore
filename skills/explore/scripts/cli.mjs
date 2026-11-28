@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
 import { atomicJson } from './store.mjs';
 import { runDoctor, readConnection } from './doctor.mjs';
 import { runtimePath } from './server-lock.mjs';
@@ -62,8 +61,8 @@ try {
       case 'status': case 'maps': {
         // --content searches every map's text instead of titles and IDs (I1).
         if (command === 'maps' && args.includes('--content')) {
-          const query = new URLSearchParams({ query: required('query'), offset: option('offset', '0'), limit: option('limit', '10') });
-          if (option('revision') !== undefined) query.set('revision', option('revision'));
+          const query = new URLSearchParams({ query: required('query'), offset: option('offset', '0') });
+          for (const name of ['limit', 'revision']) if (option(name) !== undefined) query.set(name, option(name));
           output = await api(`/api/search?${query}`); break;
         }
         const value = await api(`/api/maps?archived=${encodeURIComponent(option('archived', 'exclude'))}`);

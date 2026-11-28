@@ -34,14 +34,16 @@ export async function searchMaps(store, { query, offset = 0, limit = 20, revisio
   if (offset > 0) need(revision !== undefined && revision !== null, 'Pass the returned revision when continuing a search.', 409);
   if (revision !== undefined && revision !== null) need(String(revision) === current, 'The maps changed. Search again from the start.', 409);
   const hits = [], errors = [];
-  for (const { id, map, problem } of all) {
-    if (!map) { errors.push({ mapId: id, problem }); continue; }
-    // The same sentence can be a new idea's premise, summary and original idea: each idea's text counts once.
+  for (const { id, map, error } of all) {
+    if (!map) { errors.push({ mapId: id, problem: error.code || 'unreadable' }); continue; }
+    // The same sentence can be a new idea's premise, summary and original idea: what each idea shows counts once.
     const seen = new Set(), matches = [];
     for (const { nodeId, field, text } of texts(map)) {
-      const value = String(text ?? ''), at = value.toLowerCase().indexOf(needle), key = `${nodeId} ${value.replace(/\s+/g, ' ').trim().toLowerCase()}`;
-      if (at < 0 || seen.has(key)) continue;
-      seen.add(key); matches.push({ nodeId, field, excerpt: excerpt(value, at) });
+      const value = String(text ?? ''), at = value.toLowerCase().indexOf(needle);
+      if (at < 0) continue;
+      const shown = excerpt(value, at), key = `${nodeId} ${shown.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key); matches.push({ nodeId, field, excerpt: shown });
     }
     if (matches.length) hits.push({ mapId: map.id, mapTitle: map.title, ...(map.library?.archived ? { archived: true } : {}), matches: matches.slice(0, perMap), more: Math.max(0, matches.length - perMap) });
   }

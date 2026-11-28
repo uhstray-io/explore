@@ -16,7 +16,6 @@ const bookkeeping = new Set(['started', 'interrupted']);
 class VersionProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new VersionProblem(message, status); };
 
-// The map as saved, minus claim data that only works with one machine's running server.
 // Fields that change without changing a map's content: the counters every save changes, and pin and archive
 // state (I1). Two saved forms that differ only in these are the same map to everyone reading it.
 export function presentationOnly(before, after) {
@@ -25,6 +24,7 @@ export function presentationOnly(before, after) {
     return strip(before) === strip(after);
   } catch { return false; }
 }
+// The map as saved, minus claim data that only works with one machine's running server.
 export function snapshotOf(map) {
   const copy = structuredClone(map);
   // A transient job's texts (a draft being tidied) stay in map.json only: never in versions or exports.

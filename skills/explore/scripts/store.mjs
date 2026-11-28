@@ -160,20 +160,15 @@ export class Store {
     const out = [];
     for (const entry of (await readdir(this.directory, { withFileTypes: true })).filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
       try { out.push({ id: entry.name, map: await this.get(entry.name) }); }
-      catch (error) { if (!(error instanceof Problem && error.code === 'not-found')) out.push({ id: entry.name, problem: error.code || 'unreadable' }); }
+      catch (error) { if (!(error instanceof Problem && error.code === 'not-found')) out.push({ id: entry.name, error }); } // A folder left behind by a branch switch is not a map.
     }
     return out;
   }
   async list() {
-    await mkdir(this.directory, { recursive: true });
-    const entries = await readdir(this.directory, { withFileTypes: true });
     const maps = [], readable = [];
-    for (const entry of entries.filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
-      let m;
-      try { m = await this.get(entry.name); }
-      catch (error) {
-        if (error instanceof Problem && error.code === 'not-found') continue; // A folder left behind by a branch switch is not a map.
-        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; }
+    for (const { id, map: m, error } of await this.eachMap()) {
+      if (error) {
+        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id, unreadable: true, problem: error.code }); continue; }
         throw error;
       }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
@@ -416,13 +411,11 @@ export class Store {
       // An edit made from an outdated view never overwrites a map changed outside Explore, even
       // when the revision numbers happen to match. The browser names the version it shows.
       // Whatever is on disk is adopted first, so a version replaced by a reset or pull is kept.
-      const known = this.adopted.get(mapId)?.fingerprint, knownBytes = this.adopted.get(mapId)?.bytes;
-      const current = await this.withMapLock(mapId, async () => { const read = await this.read(mapId); await this.adopt(mapId, read); return read; });
-      const { map, fingerprint } = current;
+      const known = this.adopted.get(mapId)?.fingerprint;
+      const { map, fingerprint } = await this.withMapLock(mapId, async () => { const current = await this.read(mapId); await this.adopt(mapId, current); return current; });
       // A view behind Explore's own save is simply stale; only a different file is an outside change.
       need(input.expectedRevision === map.revision, 'This map changed. Refresh and try again; your text has been kept.', 409);
-      const viewed = input.expectedFingerprint ?? known ?? fingerprint, before = this.adopted.get(mapId);
-      need(viewed === fingerprint || (viewed === known && before && presentationOnly(knownBytes ?? before.bytes, current.bytes)), changedOutside, 409, 'changed-outside');
+      need((input.expectedFingerprint ?? known ?? fingerprint) === fingerprint, changedOutside, 409, 'changed-outside');
       const declared = Object.hasOwn(this.registry.actions, input.type) ? this.registry.actions[input.type] : null;
       const mapLevel = mapLevelActions.has(input.type) || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);

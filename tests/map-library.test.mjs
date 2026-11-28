@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { searchMaps } from '../skills/explore/scripts/search.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
-import { railHtml } from '../skills/explore/assets/rail.js';
+import { railHtml, railPanel } from '../skills/explore/assets/rail.js';
 
 // Pin, archive and search all maps (I1, #39). Illustrative fixtures under .test-output, never ideas/.
 async function workspace() {
@@ -133,4 +133,42 @@ test('unpinning or archiving never moves a map up, and a change that changes not
   await act(older, { type: 'pin', pinned: false });
   assert.deepEqual((await store.list()).map(m => m.id), [newer.id, older.id]);
   await assert.rejects(act(older, { type: 'pin', pinned: false }), error => error.status === 409);
+});
+
+test('a long idea whose summary is cut short still counts its sentence once', async () => {
+  const { store, act } = await workspace();
+  const map = await store.create({ title: 'Field notebook', idea: `Whether mesh radio works in the valley. ${'Detail about the terrain. '.repeat(27)}` });
+  await act(map, { type: 'suggest', nodeId: map.rootId, title: 'Power', body: 'A mesh radio needs batteries.' });
+  const hit = (await searchMaps(store, { query: 'mesh radio' })).hits[0];
+  assert.deepEqual(hit.matches.map(match => match.nodeId), [map.rootId, hit.matches[1].nodeId], 'the root once, then the Power idea');
+  assert.notEqual(hit.matches[1].nodeId, map.rootId);
+});
+
+test('a search page holds 20 maps unless a limit is given, from the server and the CLI', async () => {
+  const { dir, store } = await workspace();
+  for (let i = 0; i < 21; i++) await store.create({ title: `Map ${i}`, idea: 'Shared allotment notes.' });
+  const app = await startServer({ workspace: dir, port: 0 });
+  try {
+    const { token } = await (await fetch(`${app.address}/api/session`)).json();
+    const page = await (await fetch(`${app.address}/api/search?query=allotment`, { headers: { Authorization: `Bearer ${token}` } })).json();
+    assert.equal(page.hits.length, 20); assert.equal(page.nextOffset, 20);
+    const cli = JSON.parse((await promisify(execFile)(process.execPath, [path.resolve('skills/explore/scripts/cli.mjs'), 'maps', '--query', 'allotment', '--content', '--workspace', dir])).stdout);
+    assert.equal(cli.hits.length, 20);
+  } finally { await app.close(); }
+});
+
+test('a poll that changes nothing leaves the rail alone, so keyboard focus and menus survive', t => {
+  t.after(() => { delete globalThis.document; });
+  // Like a browser, reading innerHTML back gives the serialised form: a bare hidden attribute becomes hidden="".
+  let stored = '', writes = 0;
+  const element = () => ({ addEventListener() {}, querySelector: () => null, hidden: true });
+  const list = { ...element(), get innerHTML() { return stored.replaceAll(' hidden>', ' hidden="">'); }, set innerHTML(value) { stored = value; writes++; } };
+  const elements = { '#map-list': list, '#map-search-results': element(), '#map-search': element(), '#archived-toggle': element() };
+  globalThis.document = { querySelector: selector => elements[selector] };
+  const maps = [{ id: 'map-a', title: 'Garden plan', count: 2 }];
+  const rail = railPanel({ esc: String, maps: () => maps, currentId: () => 'map-a', unreadableLabel: String, act: async () => true, api: async () => ({}), openReference() {} });
+  rail.render(); rail.render(); rail.render();
+  assert.equal(writes, 1);
+  maps[0].count = 3; rail.render();
+  assert.equal(writes, 2, 'a real change still redraws');
 });

@@ -30,18 +30,22 @@ export function searchResultsHtml(result, { esc }) {
 // map through the app's own queue and resolves true when it saved.
 export function railPanel({ esc, maps, currentId, unreadableLabel, act, api, openReference }) {
   const $ = selector => document.querySelector(selector), list = $('#map-list'), box = $('#map-search-results'), search = $('#map-search');
-  let showArchived = false, timer = null;
+  let showArchived = false, timer = null, shown = null;
   function render() {
     if (list.querySelector('.item-menu:not([hidden])')) return; // A poll never closes a menu the user has open.
     const html = railHtml(maps(), { esc, currentId: currentId(), showArchived, unreadableLabel });
-    if (list.innerHTML !== html) list.innerHTML = html;
+    // Compared with what was last written, not innerHTML: the browser reads a bare hidden attribute back as hidden="".
+    if (html !== shown) { list.innerHTML = html; shown = html; }
   }
   $('#archived-toggle').addEventListener('click', event => { showArchived = !showArchived; event.currentTarget.setAttribute('aria-pressed', String(showArchived)); render(); });
   list.addEventListener('click', async event => {
     const button = event.target.closest('[data-map-pin], [data-map-archive]'); if (!button) return;
     event.stopPropagation(); button.closest('.item-menu').hidden = true;
-    await act(button.dataset.mapPin || button.dataset.mapArchive, button.dataset.mapPin ? { type: 'pin', pinned: button.dataset.pinned === 'true' } : { type: 'archive', archived: button.dataset.archived === 'true' });
+    const mapId = button.dataset.mapPin || button.dataset.mapArchive;
+    await act(mapId, button.dataset.mapPin ? { type: 'pin', pinned: button.dataset.pinned === 'true' } : { type: 'archive', archived: button.dataset.archived === 'true' });
     render();
+    // The list was redrawn: keep focus on this map's ⋯ button, or on the list when the map left it.
+    (list.querySelector(`[data-menu="rail-${CSS.escape(mapId)}"]`) ?? search).focus();
   });
   const close = () => { box.hidden = true; box.innerHTML = ''; };
   search.addEventListener('input', () => {

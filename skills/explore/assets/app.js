@@ -749,10 +749,15 @@ for (const button of document.querySelectorAll('.close-dialog')) button.addEvent
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
 // The rail (I1): Pin and Archive act on any map through the action queue; the open map uses its own revision.
 const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference,
+  // The open map goes through the action queue, except while growth history shows (act() refuses then);
+  // either way the rail is refreshed at once, so its labels and order are never a poll behind.
   act: async (mapId, input) => {
-    if (state.map?.id === mapId) return act(null, input.type, input);
-    const listed = state.maps.find(map => map.id === mapId); if (!listed) return false;
-    try { await api(`/maps/${mapId}/action`, { ...input, expectedRevision: listed.revision }); await refresh(); return true; } catch (error) { toast(error.message); return false; }
+    if (state.map?.id === mapId && state.historyStep === null) { if (!await act(null, input.type, input)) return false; }
+    else {
+      const listed = state.maps.find(map => map.id === mapId); if (!listed) return false;
+      try { await api(`/maps/${mapId}/action`, { ...input, expectedRevision: listed.revision }); } catch (error) { toast(error.message); return false; }
+    }
+    await refresh(); return true;
   } });
 const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);

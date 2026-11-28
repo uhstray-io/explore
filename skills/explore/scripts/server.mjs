@@ -64,7 +64,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const maps = listedMaps(await store.list(), archived);
           return send(res, 200, { maps, bridge: bridgeStatus() });
         }
-        if (req.method === 'GET' && url.pathname === '/api/search') { const q = url.searchParams; return send(res, 200, await searchMaps(store, { query: q.get('query'), offset: q.get('offset') ?? 0, limit: q.get('limit') ?? 10, revision: q.get('revision') ?? undefined })); }
+        if (req.method === 'GET' && url.pathname === '/api/search') { const q = url.searchParams; return send(res, 200, await searchMaps(store, { query: q.get('query'), offset: q.get('offset') ?? 0, limit: q.get('limit') ?? undefined, revision: q.get('revision') ?? undefined })); }
         if (req.method === 'GET' && url.pathname === '/api/storage') return send(res, 200, await storage.inventory());
         if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, await store.getSettings());
         if (req.method === 'GET' && url.pathname === '/api/contributor') { const actor = await contributor(); return send(res, 200, actor ? { name: actor.name, source: 'git' } : { name: null }); }
