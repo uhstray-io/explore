@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import { isOpenJob, readProblem } from './map-validation.mjs';
 import { snapshotOf } from './versions.mjs';
 import { branchIds } from '../assets/graph.js';
-import { assignmentsOf } from '../assets/assignments.js';
-import { openRequestsOn, dropRequestsOn } from './assignments.mjs';
+import { openOnIdeas, peopleOnIdeas, dropOnIdeas } from './people.mjs';
 
 // Restore one branch from a saved version (E2): an idea and everything below it come back as they were, and the
 // rest of the map stays as it is now. The user previews exactly what changes; the action recomputes the same plan,
@@ -103,13 +102,13 @@ export function branchRestoration(current, historical, nodeId, rules) {
   const nowById = new Map(current.nodes.map(node => [node.id, node]));
   const reopened = merged.restored.filter(node => nowById.has(node.id) && rules.isComplete(current, nowById.get(node.id)) && !rules.isComplete(after, node)).map(node => node.id);
   const state = id => [id, nowById.get(id)?.contentRevision ?? null, nowById.get(id)?.status ?? null];
-  const removed = new Set(changes.removed.map(node => node.id)); // Requests to look at these go with them (H7).
+  const removed = new Set(changes.removed.map(node => node.id)); // Requests (H7) and discussions (H6) on these go with them.
   const hash = createHash('sha256').update(canonical({ nodeId,
-    from: { branch: current.nodes.filter(node => was.has(node.id)), requests: assignmentsOf(current).filter(item => removed.has(item.nodeId)).map(item => [item.id, item.status]), jobs: savedJobs(current.jobs.filter(job => merged.touched.has(job.nodeId))), reliedOn: [...flags.reliedOn].sort().map(state), outside: flags.outsideAffected.map(state) },
+    from: { branch: current.nodes.filter(node => was.has(node.id)), people: peopleOnIdeas(current, removed), jobs: savedJobs(current.jobs.filter(job => merged.touched.has(job.nodeId))), reliedOn: [...flags.reliedOn].sort().map(state), outside: flags.outsideAffected.map(state) },
     to: { branch: merged.restored, links: merged.edges.map(canonical).sort(), jobs: savedJobs(merged.jobs.filter(job => merged.touched.has(job.nodeId))) } })).digest('hex');
   return { conflicts, branch: then, nodes: merged.nodes, edges: merged.edges, jobs: merged.jobs, positions: merged.positions,
     changes: { changed: changes.changed, readded: changes.readded, removed: changes.removed, unchanged: changes.unchanged }, links: changes.links,
-    flagInside: flags.flagInside, flagSource: flags.changedSince[0] ?? null, outsideAffected: flags.outsideAffected, flagOutside: flags.flagOutside, setAside: flags.setAside, reopened, removed, requestsRemoved: openRequestsOn(current, removed), hash };
+    flagInside: flags.flagInside, flagSource: flags.changedSince[0] ?? null, outsideAffected: flags.outsideAffected, flagOutside: flags.flagOutside, setAside: flags.setAside, reopened, removed, ...openOnIdeas(current, removed), hash };
 }
 
 const plainVersion = ({ id, at, name }) => ({ id, at, ...(name ? { name } : {}) });
@@ -127,7 +126,7 @@ export async function previewBranchRestore(store, mapId, versionId, { nodeId, of
   return { mapId, revision: current.revision, version: plainVersion(version), node: idea(nodeId), hash: plan.hash,
     counts: { changed: plan.changes.changed.length, readded: plan.changes.readded.length, removed: plan.changes.removed.length, unchanged: plan.changes.unchanged,
       linksAdded: plan.links.added.length, linksRemoved: plan.links.removed.length, affected: plan.outsideAffected.length, flagged: plan.flagOutside.length,
-      questionsSetAside: plan.setAside, flaggedInside: plan.flagInside.length, reopened: plan.reopened.length, requestsRemoved: plan.requestsRemoved },
+      questionsSetAside: plan.setAside, flaggedInside: plan.flagInside.length, reopened: plan.reopened.length, requestsRemoved: plan.requestsRemoved, discussionsRemoved: plan.discussionsRemoved },
     nodes: items, offset: from, nextOffset,
     linksAdded: first(plan.links.added).map(link), linksRemoved: first(plan.links.removed).map(link),
     affected: first(plan.outsideAffected).map(idea), flagged: first(plan.flagOutside).map(idea), flaggedInside: first(plan.flagInside).map(idea), reopened: first(plan.reopened).map(idea),
@@ -143,7 +142,7 @@ export const branchRestoreActions = {
     need(!plan.conflicts.length, plan.conflicts[0]?.message, 409);
     need(input.previewHash === plan.hash, 'This branch or its version changed since the preview. Preview the restore again.', 409);
     Object.assign(map, { nodes: plan.nodes, edges: plan.edges, jobs: plan.jobs });
-    dropRequestsOn(map, plan.removed);
+    dropOnIdeas(map, plan.removed);
     map.view = { ...map.view, positions: plan.positions };
     // Work that was active in the version comes back interrupted, as in a whole-map restore; work elsewhere is untouched.
     store.deactivateOpenWork(map, { at: new Date().toISOString(), error: 'Interrupted by restoring an earlier version of this branch. Retry to continue.', within: plan.branch });

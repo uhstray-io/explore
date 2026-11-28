@@ -142,3 +142,7 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 /* Assign a branch to someone (H7): the request above the questions, its menu, and its history, collapsed. */
 .assignment-card{margin:10px 0;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:8px;background:var(--paper)}.assignment-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.assignment-head p{margin:0;font-size:13px;overflow-wrap:anywhere}
 .assignment-note{margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}.assignment-history{margin:6px 0 0;font-size:12px;color:var(--muted)}.assignment-history summary{cursor:pointer}.assignment-history ol{margin:4px 0;padding-left:18px}
+
+/* Comment threads (H6): below the questions; messages keep their line breaks; resolved threads collapsed. */
+.discussion{margin:12px 0}.discussion-thread{margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.discussion-thread.resolved{opacity:.85}
+.discussion-messages{margin:0;padding:0;list-style:none}.discussion-messages li+li{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line)}.discussion-meta{margin:0;font-size:11px;color:var(--muted)}.discussion-text{margin:2px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}.discussion-reply{margin-top:8px}.discussion-resolved summary{cursor:pointer;font-size:12px;color:var(--muted)}

@@ -78,6 +78,7 @@ const messages = {
   'invalid-growth': 'Growth history is malformed.',
   'invalid-assignments': 'Assignments must be version 1 with a list of items; a newer Explore may have written them.',
   'duplicate-open-assignment': 'Someone else is already asked to look at this idea.',
+  'invalid-discussions': 'Discussions must be version 1 with a list of threads; a newer Explore may have written them.',
   'invalid-position': 'A saved position must be a pair of numbers.',
   'contains-parent': "A containment link disagrees with the idea's parent.",
 };
@@ -99,6 +100,7 @@ const shapes = {
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
     history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), inbox: list({ optional: true }), assignments: rule(value => isRecord(value) && value.version === 1 && Array.isArray(value.items), { code: 'invalid-assignments', optional: true, unreadable: true }),
+    discussions: rule(value => isRecord(value) && value.version === 1 && Array.isArray(value.threads), { code: 'invalid-discussions', optional: true, unreadable: true }),
     mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: rule(value => isText(value) && value.length <= goalMax, { optional: true }), successCriteria: rule(value => isText(value) && value.length <= goalMax, { optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
@@ -108,6 +110,10 @@ const shapes = {
   // An idea's Markdown view reads its open request: who it is for, its note, who took it and its events.
   assignment: { id: anId({ unreadable: true }), nodeId: anId({ unreadable: true }), requestedFor: text({ unreadable: true }), note: text({ optional: true, unreadable: true }), status: oneOf(new Set(['requested', 'taken', 'done'])),
     takenBy: rule(value => isRecord(value) && isText(value.name), { optional: true, unreadable: true }), events: list({ unreadable: true }) },
+  // An idea's Markdown view reads its threads: their status, their messages, who wrote each and when.
+  thread: { id: anId({ unreadable: true }), nodeId: anId({ unreadable: true }), createdAt: text(), status: oneOf(new Set(['open', 'resolved'])), resolvedAt: text({ optional: true }),
+    resolvedBy: rule(value => isRecord(value) && isText(value.name), { optional: true, unreadable: true }), messages: list({ unreadable: true }) },
+  message: { id: anId({ unreadable: true }), at: text(), by: rule(value => isRecord(value) && isText(value.name), { optional: true, unreadable: true }), text: text({ unreadable: true }) },
   assignmentEvent: { at: text(), type: text(), by: rule(value => isRecord(value) && isText(value.name), { optional: true, unreadable: true }), to: text({ optional: true }), note: text({ optional: true }) },
   note: { text: text() },
   hypothesis: { test: text(), outcome: oneOf(new Set(hypothesisOutcomes), { nullable: true }), history: list() },
@@ -143,6 +149,8 @@ export function validateMap(map, { folderId } = {}) {
   if (Array.isArray(map.glossary)) map.glossary.forEach((entry, i) => check(entry, shapes.term, `glossary[${i}]`, { unreadable: true }));
   if (Array.isArray(map.inbox)) map.inbox.forEach((thought, i) => check(thought, shapes.thought, `inbox[${i}]`));
   const assignments = isRecord(map.assignments) && Array.isArray(map.assignments.items) ? map.assignments.items : [];
+  const threads = isRecord(map.discussions) && Array.isArray(map.discussions.threads) ? map.discussions.threads : [];
+  threads.forEach((thread, i) => { if (check(thread, shapes.thread, `discussions.threads[${i}]`, { unreadable: true }) && Array.isArray(thread.messages)) thread.messages.forEach((message, j) => check(message, shapes.message, `discussions.threads[${i}].messages[${j}]`, { unreadable: true })); });
   assignments.forEach((item, i) => { if (check(item, shapes.assignment, `assignments.items[${i}]`, { unreadable: true }) && Array.isArray(item.events)) item.events.forEach((event, j) => check(event, shapes.assignmentEvent, `assignments.items[${i}].events[${j}]`, { unreadable: true })); });
   nodes.forEach((node, i) => {
     if (!check(node, shapes.node, `nodes[${i}]`, { unreadable: true })) return;
@@ -194,6 +202,14 @@ export function validateMap(map, { folderId } = {}) {
     if (isText(item.id)) { if (assignmentIds.has(item.id)) report('duplicate-id', `assignments.items[${i}].id`); assignmentIds.add(item.id); }
     if (missing(item.nodeId)) report('missing-node', `assignments.items[${i}].nodeId`);
     if (isText(item.nodeId) && (item.status === 'requested' || item.status === 'taken')) { if (asked.has(item.nodeId)) report('duplicate-open-assignment', `assignments.items[${i}]`); asked.add(item.nodeId); }
+  });
+  const threadIds = new Set();
+  threads.forEach((thread, i) => {
+    if (!isRecord(thread)) return;
+    if (isText(thread.id)) { if (threadIds.has(thread.id)) report('duplicate-id', `discussions.threads[${i}].id`); threadIds.add(thread.id); }
+    if (missing(thread.nodeId)) report('missing-node', `discussions.threads[${i}].nodeId`);
+    const messageIds = new Set();
+    (Array.isArray(thread.messages) ? thread.messages : []).forEach((message, j) => { if (isRecord(message) && isText(message.id)) { if (messageIds.has(message.id)) report('duplicate-id', `discussions.threads[${i}].messages[${j}].id`); messageIds.add(message.id); } });
   });
   // Folds (Z6): a list of idea IDs; anything else is reported, and shownNodes ignores it.
   if (isRecord(map.view) && map.view.collapsed !== undefined && !(Array.isArray(map.view.collapsed) && map.view.collapsed.every(validId))) report('invalid-field', 'view.collapsed');

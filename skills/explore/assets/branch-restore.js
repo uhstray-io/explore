@@ -2,6 +2,8 @@
 // Nothing is written until Confirm, and Confirm stays disabled while anything blocks the restore.
 const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const changeWords = { changed: 'changed back', 're-added': 'brought back', removed: 'removed' };
+// What goes with the ideas removed: open requests to look at them (H7) and open discussions on them (H6).
+const alsoGone = counts => { const parts = [counts.requestsRemoved && `${count(counts.requestsRemoved, 'open request')} to look at them`, counts.discussionsRemoved && count(counts.discussionsRemoved, 'open discussion')].filter(Boolean); return parts.length ? `, with ${parts.join(' and ')}` : ''; };
 
 export function branchRestoreHtml(preview, { esc }) {
   const { counts, conflicts } = preview;
@@ -10,7 +12,7 @@ export function branchRestoreHtml(preview, { esc }) {
   const lines = [
     counts.changed && `${count(counts.changed, 'idea')} changed back to this version`,
     counts.readded && `${count(counts.readded, 'idea')} deleted since brought back`,
-    counts.removed && `${count(counts.removed, 'idea')} added since this version removed${counts.requestsRemoved ? `, with ${count(counts.requestsRemoved, 'open request')} to look at them` : ''}`,
+    counts.removed && `${count(counts.removed, 'idea')} added since this version removed${alsoGone(counts)}`,
     (counts.linksAdded || counts.linksRemoved) && `${count(counts.linksAdded, 'connection')} added, ${counts.linksRemoved} removed`,
   ].filter(Boolean);
   return `<section class="branch-restore" tabindex="-1" role="group" aria-label="Preview of restoring this branch"><h3>Restore “${esc(preview.node.title)}” and everything below it</h3>`

@@ -9,6 +9,7 @@ import { assumptionRecord } from './assumptions.mjs';
 import { interpretationsOf } from '../assets/assumptions.js';
 import { stanceOf } from '../assets/stance.js';
 import { notesOf } from '../assets/inbox.js';
+import { discussionRecords } from './discussions.mjs';
 
 // Pages are tied to a map revision so a resumed read cannot silently mix versions.
 export function contextExcerpt(map, nodeId, options = {}) {
@@ -33,8 +34,9 @@ export function contextExcerpt(map, nodeId, options = {}) {
     case 'assumptions': records = interpretationsOf(node).map(item => assumptionRecord(item).join('\n')); break;
     case 'notes': records = notesOf(node).map(note => note.text); break; // K8: the user's own words, in full.
     case 'claims': records = (node.claims || []).map(claim => claimRecord(node, claim).join('\n')); break;
+    case 'discussion': records = discussionRecords(map, node); break; // H6: people talking, never an answer.
     case 'relationships': records = map.edges.filter(e => e.from === node.id || e.to === node.id).map(e => `${e.from} ${e.type} ${e.to}`); break;
-    default: throw new Problem('Unknown section. Use summary, premise, findings, questions, options, limitations, claims, assumptions, notes, sources, or relationships.');
+    default: throw new Problem('Unknown section. Use summary, premise, findings, questions, options, limitations, claims, assumptions, notes, discussion, sources, or relationships.');
   }
   if (options.question && section !== 'questions') throw new Problem('Question IDs require the questions section.');
   if (options.question && !node.questions.some(q => q.id === options.question)) throw new Problem('Question not found.', 404);

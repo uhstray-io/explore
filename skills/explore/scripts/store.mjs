@@ -31,7 +31,7 @@ import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
 import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
-import { assignmentLines } from './assignments.mjs';
+import { peopleLines } from './people.mjs';
 import { sourceList } from './fields.mjs';
 import { reuseKey, contentKey } from './reuse.mjs';
 import { signature, signatureMatches, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
@@ -270,7 +270,7 @@ export class Store {
       if (findingsBasis(n, findings) === 'reasoning') lines.push('', `_${reasoningLabel}._`);
       if (guidance && findings) lines.push('', `_Guidance: ${guidance}_`);
       if (n.options?.length) lines.push('', ...comparisonLines(n), ...reconsiderationLines(map, n));
-      lines.push(...noteLines(n), ...assignmentLines(map, n)); // K8: the user's own notes; H7: who is asked to look at it.
+      lines.push(...noteLines(n), ...peopleLines(map, n)); // K8: the user's own notes; H7 and H6: who is asked to look at it, and discussions.
       if (n.limitations?.length) lines.push('', ...limitationLines(n));
       if (n.claims?.length) lines.push('', ...claimLines(n));
       if (n.kind === 'hypothesis') lines.push('', ...hypothesisLines(n));
