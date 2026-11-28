@@ -7,7 +7,9 @@
 //     It is the only type that may change an idea's status, findings, questions,
 //     completion or growth history.
 //   Other types: { label, target: 'node' | 'map', packet(context), validate(result, context) }
-//     packet  returns the type-specific fields of the work packet, including `instruction`.
+//     packet  returns the type-specific fields of the work packet, including `instruction`. The Store adds the
+//             identifying fields and appends searchPrivacy to the instruction, so write an instruction that reads
+//             well followed by it, and keep 800 characters of `budget` free for both.
 //     validate returns the normalized result kept on the job record, or throws a Problem.
 //     context is { map, job, node } (node is null for map-level jobs).
 //     isStale(context), optional, decides whether a result is stale when it arrives. With `recheck: true` it is

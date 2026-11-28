@@ -80,6 +80,18 @@ Use these distinctions where needed rather than filling a mandatory template. Re
 
 When a prior premise changes, check relevant dependency links and stale findings before building on them. Keep prior work and its reasons visible. Save the result's rationale and evidence, not a transcript of private reasoning.
 
+## Keep private details out of searches
+
+Search queries and fetched URLs leave the machine, and the host's tools may log them. Explore cannot see or filter them, so this rests with you.
+
+- **Treat as private:** names of people (the user, colleagues, clients, family); organisation, product or project names the user has not described as public; private figures such as budgets, salaries, revenue, negotiated prices or headcounts; addresses or locations finer than a city; health, legal or financial circumstances; internal hostnames, URLs and file paths; and any detail from the user's answers that could identify them. Credentials never leave the machine.
+- **Public names are fine** when the question is about them: a published library, a commercial product, a public standard, or a public figure in their public role.
+- **Generalise before searching.** "Acme's 40k budget for a 12-person team" becomes "typical cost of a field notebook app for a small team". Search for the public fact the decision needs.
+- **URLs follow the same rule.** Do not build fetch URLs or query strings that contain private details, and do not paste map text into a search box.
+- **When unsure whether a detail is private, treat it as private.**
+- **If a search is not useful without a private detail, do not run it.** Under unresolved points, say which check was skipped, what kind of detail it needed (not the detail itself), and how the user could check it themselves.
+- A user's explicit statement in an answer that a named detail may be searched is permission for that detail only.
+
 ## Stop with a useful result
 
 When the packet's `selected.doneWhen` is set, the user has said what would be enough for this branch, such as "a shortlist of two" or "a yes or no". Aim for it and stop when it is met; offer further work only as inactive suggestions. If it cannot be met, ask a question when a user choice is needed; otherwise finish and say what is missing and why. The summary states whether the stopping point was met.
