@@ -85,7 +85,7 @@ Keep four things distinguishable in concise prose:
 
 - **User statements and preferences:** what the user actually said, including constraints and decisions. A preference can guide the work without being a universal fact.
 - **Evidence:** a concrete observation or consulted source tied to the claim it supports or challenges. Include relevant conditions, dates, or scope when they affect applicability.
-- **Interpretation:** what you infer from that evidence, the key assumption, and what would change the interpretation. Plausibility is not verification.
+- **Interpretation:** what you infer from that evidence, the key assumption, and what would change the interpretation. Plausibility is not verification. Put the key interpretations a finding rests on in the result's `assumptions`, each with what would change it, so the user's assumptions register lists them. Never put the user's preferences there, and never mark a user's answer as an Assumption: only the user sets how sure an answer is.
 - **Unresolved points:** the specific uncertainty, why it matters, and the smallest useful way to resolve it.
 
 List only the few claims that matter for the decision in the result's `claims`. Link a claim only to a passage you actually read that supports it, and leave its support empty rather than stretch a citation. A source that only mentions the topic is not support, and passages that challenge a claim belong in the findings, not as its support. Never add a source just to avoid the "reasoning" label.

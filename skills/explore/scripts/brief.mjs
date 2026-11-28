@@ -10,6 +10,7 @@ import { findingsBasis, unsupportedClaimCount, basisNote } from '../assets/claim
 import { agreedTerms, proposedTerms } from '../assets/glossary.js';
 import { goalOf } from '../assets/guidance.js';
 import { goalLines } from './guidance.mjs';
+import { assumptionRegister } from '../assets/assumptions.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
@@ -23,7 +24,7 @@ export function mapBrief(map, nodeId = null) {
   if (nodeId && !map.nodes.some(node => node.id === nodeId)) throw new Problem('Node not found.', 404);
   const ids = nodeId ? branchIds(map, nodeId) : new Set(map.nodes.map(node => node.id));
   const nodes = map.nodes.filter(node => ids.has(node.id));
-  const count = predicate => nodes.filter(predicate).length;
+  const count = predicate => nodes.filter(predicate).length, byId = new Map(map.nodes.map(node => [node.id, node]));
   const entry = (node, text = node.summary, extra = {}) => ({ nodeId: node.id, title: clip(node.title, 100), text: clip(text, 320),
     status: node.status, reviewState: node.reviewState, stale: !!node.stale, ...extra });
   const definitions = [
@@ -36,7 +37,10 @@ export function mapBrief(map, nodeId = null) {
     ['cleared', 'Cleared findings — not relied on', nodes.filter(n => n.reviewState === 'cleared').map(n => entry(n, n.summary, n.replacedBy ? { replacedBy: n.replacedBy } : {}))],
     ['premises', 'Current premises — not findings', nodes.filter(n => !hasFindings(map, n) && n.status !== 'suggested').map(n => entry(n, n.prompt || n.summary))],
     ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: `${certaintyText(q)}${q.changedAt ? ', changed' : ''}` })))],
-    ['unsettled', 'Unsettled answers — assumptions, not decisions', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt && effectiveAnswerState(q).state === 'assumption').map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
+    // The assumptions register (K6), most dependents first: the user's answers marked Assumption and the agent's interpretations.
+    ['assumptions', 'Assumptions and interpretations — unverified', assumptionRegister(map).filter(item => ids.has(item.nodeId)).map(item => entry(byId.get(item.nodeId), item.text, {
+      heldBy: item.kind === 'answer' ? 'User assumption' : 'Agent interpretation', ...(item.kind === 'answer' ? { questionId: item.questionId, question: clip(item.question, 240) } : {}),
+      wouldChangeIf: clip(item.wouldChangeIf ?? 'not stated', 160), dependents: item.dependents })), '_None recorded. Results saved before this feature could not record the agent\'s interpretations._'],
     ['superseded', 'Earlier questions and answers — previous premises', nodes.flatMap(n => n.questions.filter(q => q.supersededAt).map(q => entry(n, q.answer || 'No answer was recorded.', { questionId: q.id, question: clip(q.text, 240), supersededAt: q.supersededAt })))],
     ['recommendations', 'Agent recommendations — not decisions', nodes.filter(n => n.options?.length).map(n => {
       const r = n.recommendation, chosen = n.options.find(option => option.id === r?.optionId);
@@ -77,7 +81,7 @@ export function mapBrief(map, nodeId = null) {
     for (const section of brief.sections) {
       lines.push('', `## ${section.label}`, '');
       for (const item of section.items) {
-        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}${item.doneWhen ? ` — Done when: ${line(item.doneWhen)}` : ''}${basisNote(item)}`);
+        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.heldBy ? `${item.heldBy} — ` : ''}${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.wouldChangeIf ? ` — would change if: ${line(item.wouldChangeIf)}` : ''}${item.certainty ? ` (${line(item.certainty)})` : ''}${item.doneWhen ? ` — Done when: ${line(item.doneWhen)}` : ''}${basisNote(item)}`);
       }
       if (!section.total) lines.push(section.empty ?? '_None recorded in this scope._');
       if (section.omitted) lines.push(`_${section.omitted} more records omitted. Use paged map reads and targeted node sections._`);
