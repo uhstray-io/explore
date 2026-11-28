@@ -819,4 +819,6 @@ test('a reply typed in a discussion survives a background refresh, and a reply s
   assert.match(h.markup(), /data-draft="discussion-reply:thread-1">Half typed<\/textarea>/, 'and it comes back once focus leaves');
   const saving = h.submit(); h.complete(true); await saving;
   assert.deepEqual(h.actCalls.at(-1), ['node-a', 'comment', { text: 'Yes, see the notes.', threadId: 'thread-1' }]);
+  h.state.historyStep = 0; h.render();
+  assert.match(h.markup(), /Is this right\?/); assert.doesNotMatch(h.markup(), /data-reply-form|data-discussion-|id="discussion-form"/, 'history shows the thread with nothing to do');
 });

@@ -160,7 +160,8 @@ test('the section lists open threads first with a reply box each, resolved ones 
   const map = { discussions: { version: 1, threads: [
     { id: 'thread-old', nodeId: 'node-a', createdAt: '2026-11-01T10:00:00.000Z', status: 'resolved', resolvedBy: { name: 'Cy <i>' }, messages: [message('message-1', 'Settled.', 'Cy')] },
     { id: 'thread-new', nodeId: 'node-a', createdAt: '2026-11-04T10:00:00.000Z', status: 'open', messages: [message('message-2', 'Open one.', 'Ana'), message('message-3', 'Reply.')] },
-    { id: 'thread-other', nodeId: 'node-b', createdAt: '2026-11-04T10:00:00.000Z', status: 'open', messages: [message('message-4', 'Elsewhere.')] }] } };
+    { id: 'thread-other', nodeId: 'node-b', createdAt: '2026-11-04T10:00:00.000Z', status: 'open', messages: [message('message-4', 'Elsewhere.')] },
+    { id: 'thread-done', nodeId: 'node-c', createdAt: '2026-11-04T10:00:00.000Z', status: 'resolved', messages: [message('message-5', 'Done here.')] }] } };
   const node = { id: 'node-a' };
   assert.deepEqual(nodeThreads(map, 'node-a').map(thread => thread.id), ['thread-new', 'thread-old']);
   const html = discussionHtml(map, node, { esc, live: true, drafts: { 'discussion-reply:thread-new': 'Half <typed>', 'discussion-new:node-a': 'New <one>' } });
@@ -172,13 +173,13 @@ test('the section lists open threads first with a reply box each, resolved ones 
   assert.match(html, /<details data-editor="discussion"><summary>Start a discussion<\/summary><form id="discussion-form" data-node-id="node-a">[\s\S]*data-draft="discussion-new:node-a">New &lt;one&gt;<\/textarea>/);
   const history = discussionHtml(map, node, { esc, live: false });
   assert.match(history, /Open one\./); assert.doesNotMatch(history, /<form|data-discussion-|<details data-editor="discussion">/, 'history only shows');
-  assert.equal(discussionHtml(map, { id: 'node-c' }, { esc, live: false }), '', 'nothing to show, nothing at all');
+  assert.equal(discussionHtml(map, { id: 'node-d' }, { esc, live: false }), '', 'nothing to show, nothing at all');
   assert.deepEqual(discussionRequest({ id: 'discussion-form', dataset: {} }, { text: 'Hi' }), { type: 'comment', input: { text: 'Hi' } });
   assert.deepEqual(discussionRequest({ id: '', dataset: { replyForm: 'thread-new' } }, { text: 'Re' }), { type: 'comment', input: { text: 'Re', threadId: 'thread-new' } });
   assert.equal(discussionRequest({ id: 'assign-form', dataset: {} }, {}), null);
   const groups = mapOverview({ nodes: ['a', 'b', 'c'].map(key => ({ id: `node-${key}`, title: key, status: 'explored', reviewState: 'unreviewed', questions: [] })), edges: [] }, { filters: [openDiscussionsFilter(map)] }).groups;
   const filter = groups.find(group => group.id === 'discussions');
-  assert.equal(filter.label, 'Open discussions'); assert.deepEqual(filter.nodes.map(entry => entry.id), ['node-a', 'node-b']);
+  assert.equal(filter.label, 'Open discussions'); assert.deepEqual(filter.nodes.map(entry => entry.id), ['node-a', 'node-b'], 'an idea whose threads are all resolved is not listed');
   assert.match(filter.lines(filter.nodes[0])[0].text, /^1 open discussion; latest from Someone · /);
 });
 
@@ -210,4 +211,13 @@ test('Undo and restore name discussion changes; a restart drops threads on the i
   assert.match(restartPreviewHtml({ deleteCount: 2, deleted: [], linksRemoved: 0, requestsRemoved: 0, discussionsRemoved: 1, superseded: [], flagged: [], checkpointName: 'c' }, { esc }), /below this branch, with 1 open discussion\./);
   assert.ok(previewRestart, 'restart drops are tested through a real restart in restart-branch.test.mjs');
   assert.deepEqual(discussionLines({ discussions: { version: 1, threads: [] } }, { id: 'x' }), []);
+});
+
+test('restoring a version brings its discussions back with it', async () => {
+  const { store, map, act } = await setup();
+  const said = await act({ type: 'comment', text: 'Keep this.' });
+  const { versions } = await store.versions.list(map.id), version = versions.find(entry => entry.revision === said.revision);
+  await act({ type: 'resolve-discussion', threadId: threadsOf(said)[0].id });
+  const restored = await store.action(map.id, { expectedRevision: (await store.get(map.id)).revision, type: 'restore-version', version: version.id }, { actor: ben });
+  assert.equal(threadsOf(restored)[0].status, 'open');
 });
