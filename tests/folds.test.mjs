@@ -60,7 +60,7 @@ test('a growth step folds only the ideas it has', () => {
 
 test('the marker and label say how many ideas are hidden and which need the user', () => {
   assert.equal(hiddenLabel({ total: 1, needsAnswer: 0, needsReview: 0, working: 0 }), '1 hidden direction');
-  assert.equal(hiddenLabel({ total: 5, needsAnswer: 1, needsReview: 2, working: 1 }), '5 hidden directions, 1 needs your answer, 2 need review, 1 being explored');
+  assert.equal(hiddenLabel({ total: 5, needsAnswer: 1, needsReview: 2, working: 1 }), '5 hidden directions, 1 needs your answer, 2 need review, 1 queued or being explored');
 });
 
 test('the idea menu reads the view: no fold offered where it cannot change, and branch focus everywhere but the start', () => {
@@ -73,7 +73,8 @@ test('the idea menu reads the view: no fold offered where it cannot change, and 
   assert.doesNotMatch(items('root', focused), /directions/, 'the starting idea cannot fold while one branch is shown');
   assert.doesNotMatch(items('a', focused), /directions/, 'nor can an idea on the path, folded or not');
   assert.match(items('a1', focused), /data-fold="a1"/); assert.match(items('a1', focused), /data-branch-focus=""[^>]*>Show whole map</);
-  assert.doesNotMatch(items('a', plain, false), /data-fold/, 'folds are read-only in growth history'); assert.match(items('a', plain, false), /Show only this branch/);
+  assert.doesNotMatch(items('a', plain, false), /data-fold/, 'growth history never saves a fold'); assert.match(items('a', plain, false), /Show only this branch/);
+  assert.match(items('b', plain, false), /data-unfold="b"[^>]*>Show its directions</, 'but a folded idea can be opened there');
   assert.match(foldMenuItems(map.nodes[1], { esc, map, live: true }), /data-fold="a"/, 'without a view, nothing is folded');
   assert.equal(branchBarHtml(map, null, { esc }), '');
   assert.match(branchBarHtml({ ...map, nodes: [...map.nodes.slice(0, 1), { ...map.nodes[1], title: 'Sync <fast>' }] }, 'a', { esc }), /Showing one branch: <strong>Sync &lt;fast&gt;<\/strong>[\s\S]*data-branch-focus=""[^>]*>Show whole map<\/button>/);
@@ -110,18 +111,23 @@ function panel({ historic = false, folded = [], selected = 'root' } = {}) {
   return { folds, state, io, bar, click };
 }
 
-test('a fold that hides the selection selects the folded idea, writes the address and focuses it; the view object stays the same until something changes', async () => {
+test('Left in the outline on the parent of the selection selects the folded idea and writes the address; a double press saves once', async () => {
   const p = panel({ selected: 'a1x' });
   const first = p.folds.view(); assert.equal(p.folds.view(), first, 'the same view while nothing changed');
-  await p.click({ '[data-fold], [data-unfold]': true, element: { dataset: { fold: 'a' } } });
-  assert.deepEqual(p.io.acts, [['a', 'fold', { collapsed: true }]]);
+  assert.equal(p.folds.foldRow('a', true), true); assert.equal(p.folds.foldRow('a', true), true, 'the second press is taken as on its way');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(p.io.acts, [['a', 'fold', { collapsed: true }]], 'one save');
   assert.equal(p.state.selected, 'a'); assert.equal(p.io.addresses, 1, 'the address names the folded idea, so a reload keeps the fold');
-  assert.deepEqual(p.io.focused, ['a']); assert.notEqual(p.folds.view(), first);
+  assert.notEqual(p.folds.view(), first);
+  await p.click({ '[data-fold], [data-unfold]': true, element: { dataset: { unfold: 'a' } } });
+  assert.deepEqual(p.io.acts.at(-1), ['a', 'fold', { collapsed: false }]); assert.match(p.io.toasts.at(-1), /shown/);
   await p.click({ '[data-branch-focus]': true, element: { dataset: { branchFocus: 'b' } } });
   assert.equal(p.state.branchFocus, 'b'); assert.equal(p.io.fits, 1); assert.match(p.bar.innerHTML, /Showing one branch: <strong>Idea b/); assert.equal(p.bar.hidden, false);
   assert.equal(p.folds.foldRow('root', true), false, 'the start cannot fold while one branch is shown');
   assert.equal(p.folds.foldRow('b', false), false, 'nothing to change');
-  assert.equal(p.folds.foldRow('b', true), true); assert.deepEqual(p.io.acts.at(-1), ['b', 'fold', { collapsed: true }]);
+  assert.equal(p.folds.foldRow('b', true), true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(p.io.acts.at(-1), ['b', 'fold', { collapsed: true }]);
 });
 
 test('revealing saves the unfold while live, but in a read-only view opens the fold in this browser only, until live again', async () => {
@@ -131,7 +137,11 @@ test('revealing saves the unfold while live, but in a read-only view opens the f
   p = panel({ folded: ['a'], historic: true });
   await p.folds.reveal('a1x');
   assert.deepEqual(p.io.acts, [], 'nothing is saved from history'); assert.ok(p.folds.view().shown.has('a1x')); assert.deepEqual(p.io.focused, ['a1x']);
-  assert.equal(p.folds.foldRow('a', true), false, 'folds do not change in history');
+  assert.equal(p.folds.foldRow('root', true), false, 'history never saves a fold');
+  const q = panel({ folded: ['a'], historic: true });
+  assert.equal(q.folds.foldRow('a', false), true, 'Right opens a folded idea in this browser'); assert.ok(q.folds.view().shown.has('a1'));
+  await q.click({ '[data-fold], [data-unfold]': true, element: { dataset: { unfold: 'a' } } });
+  assert.deepEqual(q.io.acts, [], 'nothing is saved');
   p.state.historyStep = null; p.state.historySource = null; p.folds.render();
   assert.equal(p.folds.view().shown.has('a1x'), false, 'back to live, the saved fold applies again');
 });

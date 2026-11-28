@@ -16,7 +16,7 @@ export function outlineRows(map, view = null) {
   const shown = view ? { ...map, nodes: map.nodes.filter(node => view.shown.has(node.id)) } : map, parents = new Set(map.nodes.map(node => node.parentId));
   const connected = branchIds(shown, shown.rootId);
   const rows = treeOrder(shown).map(({ node, depth }) => ({ id: node.id, node, level: depth + 1, parentId: depth ? node.parentId : null, connected: connected.has(node.id),
-    ...(view && parents.has(node.id) ? { expanded: !view.hiddenBelow.has(node.id), hidden: view.hiddenBelow.get(node.id) ?? null, foldable: !view.locked?.has(node.id) } : {}) }));
+    ...(view && parents.has(node.id) ? { expanded: !view.hiddenBelow.has(node.id), hidden: view.hiddenBelow.get(node.id) ?? null, foldable: !view.locked.has(node.id) } : {}) }));
   const sets = new Map();
   for (const row of rows) {
     const set = JSON.stringify([row.parentId, row.connected]);

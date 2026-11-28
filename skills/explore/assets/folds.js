@@ -7,19 +7,19 @@ import { branchIds } from './graph.js';
 // this browser only, until the user returns to live.
 
 const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
-// "5 hidden directions, 1 needs your answer, 2 need review, 1 being explored": the folded idea's label adds this.
+// "5 hidden directions, 1 needs your answer, 2 need review, 1 queued or being explored": the folded idea's label adds this.
 export function hiddenLabel({ total, needsAnswer, needsReview, working = 0 }) {
   return [count(total, 'hidden direction', 'hidden directions'), needsAnswer ? count(needsAnswer, 'needs your answer', 'need your answer') : '',
-    needsReview ? count(needsReview, 'needs review', 'need review') : '', working ? `${working} being explored` : ''].filter(Boolean).join(', ');
+    needsReview ? count(needsReview, 'needs review', 'need review') : '', working ? `${working} queued or being explored` : ''].filter(Boolean).join(', ');
 }
 const noView = { folded: new Set(), locked: new Set(), focus: null };
 
-// The idea's ⋯ menu items, from the view on screen: folds that cannot change here (growth history, or the path to a
-// focused branch) are not offered.
+// The idea's ⋯ menu items, from the view on screen. A fold on the path to a focused branch cannot change; in growth
+// history (`live` false) a folded idea can only be opened, in this browser.
 export function foldMenuItems(node, { esc, map, view = noView, live }) {
   const id = esc(node.id), item = (attribute, value, label) => `<button type="button" role="menuitem" tabindex="-1" ${attribute}="${value}">${label}</button>`;
   const below = branchIds(map, node.id).size - 1;
-  const fold = !live || below < 1 || view.locked.has(node.id) ? '' : view.folded.has(node.id) ? item('data-unfold', id, 'Show its directions') : item('data-fold', id, `Hide its directions (${below})`);
+  const fold = below < 1 || view.locked.has(node.id) ? '' : view.folded.has(node.id) ? item('data-unfold', id, 'Show its directions') : live ? item('data-fold', id, `Hide its directions (${below})`) : '';
   const branch = node.id === map.rootId ? '' : view.focus === node.id ? item('data-branch-focus', '', 'Show whole map') : item('data-branch-focus', id, 'Show only this branch');
   return fold + branch;
 }
@@ -52,10 +52,11 @@ export function revealPlan(map, id, { folded = [], focus = null }) {
 //                   moved to the folded idea above it (and the address with it), and the branch bar
 //   reveal(id)      shows a hidden idea, then chooses it: Find an idea, filter lists, links, the palette
 //   click(event)    the ⋯ menu items and the bar; true when handled
-//   foldRow(id, collapsed)  the outline's Left and Right; false where folds cannot change
+//   foldRow(id, collapsed)  the outline's Left and Right; false where the fold cannot change (then the key moves)
 // `redraw()` redraws the map as it is; `showAddress()` writes the selection into the address bar.
 export function foldsPanel({ $, esc, state, act, toast, closeMenus, redraw, fitMap, focusNode, showAddress }) {
   const opened = new Set(); // Folds opened in a read-only view, in this browser only.
+  const pending = new Set(); // Folds being saved: a second press while one is on its way sends nothing.
   let cached = null, bar = '';
   const live = () => state.historyStep === null;
   const folded = () => {
@@ -77,23 +78,27 @@ export function foldsPanel({ $, esc, state, act, toast, closeMenus, redraw, fitM
   }
   async function reveal(nodeId) {
     const plan = revealPlan(state.visibleMap, nodeId, { folded: folded(), focus: state.branchFocus });
-    if (plan.unfold) {
-      if (live()) { if (!(await act(nodeId, 'reveal'))) return; }
-      else for (const id of ancestorsOf(state.visibleMap, nodeId)) opened.add(id);
-    }
+    const saved = plan.unfold && live();
+    if (saved && !(await act(nodeId, 'reveal'))) return; // The save draws the map.
+    if (plan.unfold && !saved) for (const id of ancestorsOf(state.visibleMap, nodeId)) opened.add(id);
     if (plan.leaveFocus) state.branchFocus = null;
-    redraw();
+    if (!saved || plan.leaveFocus) redraw();
     if (view().shown.has(nodeId)) focusNode(nodeId);
+  }
+  // Saves a fold while live; in a read-only view only opens one, in this browser. True when it changed or is on its way.
+  async function setFold(id, collapsed) {
+    const current = view();
+    if (current.locked.has(id) || current.folded.has(id) === collapsed || pending.has(id)) return pending.has(id);
+    if (!live()) { if (collapsed) return false; opened.add(id); redraw(); return true; }
+    pending.add(id);
+    try { return await act(id, 'fold', { collapsed }); } finally { pending.delete(id); }
   }
   async function click(event) {
     const fold = event.target.closest('[data-fold], [data-unfold]');
     if (fold) {
       closeMenus();
-      const hide = fold.dataset.fold !== undefined, before = state.selected;
-      if (await act(hide ? fold.dataset.fold : fold.dataset.unfold, 'fold', { collapsed: hide })) {
-        toast(hide ? 'Its directions are hidden. Find an idea still finds them.' : 'Its directions are shown.');
-        if (state.selected !== before) focusNode(state.selected); // The fold hid the selection: the folded idea is chosen.
-      }
+      const hide = fold.dataset.fold !== undefined;
+      if (await setFold(hide ? fold.dataset.fold : fold.dataset.unfold, hide) && live()) toast(hide ? 'Its directions are hidden. Find an idea still finds them.' : 'Its directions are shown.');
       return true;
     }
     const branch = event.target.closest('[data-branch-focus]');
@@ -105,8 +110,9 @@ export function foldsPanel({ $, esc, state, act, toast, closeMenus, redraw, fitM
   }
   function foldRow(id, collapsed) {
     const current = view();
-    if (!live() || current.locked.has(id) || current.folded.has(id) === collapsed) return false;
-    act(id, 'fold', { collapsed });
+    if (pending.has(id)) return true; // Already on its way: the second press does nothing.
+    if (current.locked.has(id) || current.folded.has(id) === collapsed || (!live() && collapsed)) return false;
+    setFold(id, collapsed);
     return true;
   }
   return { render, view, reveal, click, foldRow };
