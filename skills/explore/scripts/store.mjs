@@ -13,7 +13,7 @@ import { questionFeedback } from './question-actions.mjs';
 import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
 import { sourceList } from './fields.mjs';
-import { signature, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
+import { signature, signatureMatches, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
 
 const now = () => new Date().toISOString();
@@ -688,14 +688,14 @@ export class Store {
       if (!isInvestigation(job)) {
         // The result stays on the job record: only investigations change an idea.
         // Like an investigation, work whose idea changed while it ran is kept but marked stale.
-        const stale = definition.isStale ? !!definition.isStale({ map, job, node: n }) : !!(job.inputSignature && n && job.inputSignature !== signature(map, n));
+        const stale = definition.isStale ? !!definition.isStale({ map, job, node: n }) : !!(job.inputSignature && n && !signatureMatches(map, n, job.inputSignature));
         Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
         // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
         if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });
         this.event(map, 'job-result', job.nodeId, `${definition.label}; ${job.id}`);
         return { map: await this.save(map), warnings: [] };
       }
-      const stale = job.inputSignature !== signature(map, n);
+      const stale = !signatureMatches(map, n, job.inputSignature);
       Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale }, warnings.length ? { resultWarnings: warnings.map(({ code, field }) => ({ code, field })) } : {});
       if (stale) {
         this.flagForReview(n, { sourceId: n.id, kind: 'result-during-change' }); n.status = 'interrupted';

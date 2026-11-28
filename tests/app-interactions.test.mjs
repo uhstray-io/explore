@@ -674,3 +674,11 @@ test('a refresh asked for while one runs waits for that one instead of starting 
   await second;
   assert.equal(h.events.noticed.length, 1, 'one run, one snapshot');
 });
+
+test('opening Add a connection from the idea menu shows its editor', () => {
+  const h = harness();
+  h.state.editors['node-a:link'] = true; h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /<details data-editor="link" open>/);
+  h.state.editors['node-a:link'] = undefined; h.render();
+  assert.match(h.markup(), /<details data-editor="link" hidden>/);
+});

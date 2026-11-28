@@ -123,7 +123,7 @@ test('the editor keeps what was typed, opens only from the ⋯ menu, and names v
   assert.equal(versionLabel({ labels: ['linked'] }), 'Connection added'); assert.equal(versionLabel({ labels: ['unlinked'] }), 'Connection removed');
 });
 
-test('an agent link can be removed, a removed and re-added link keeps its first growth time, and dependents of dependents are flagged', async () => {
+test('an agent link can be removed, and a removed and re-added link keeps its first growth time', async () => {
   const { store, act, map, sync, battery, rules } = await fixture();
   const { brief } = await (async () => ({ brief: (await import('../skills/explore/scripts/brief.mjs')).mapBrief }))();
   // An agent-recorded link, as a result would record it.
@@ -140,4 +140,15 @@ test('an agent link can be removed, a removed and re-added link keeps its first 
   assert.equal(batch.at, first, 'growth history shows it at its first addition (identities are recorded once)');
   const text = JSON.stringify(brief(saved));
   assert.match(text, /added by the user: Again\./);
+});
+
+test('research saved by an earlier version, before links counted, is still current', async () => {
+  const { signature, signatureMatches } = await import('../skills/explore/scripts/neighbourhood.mjs');
+  const { createHash } = await import('node:crypto');
+  const { contextNodes } = await import('../skills/explore/scripts/neighbourhood.mjs');
+  const { map, rules } = await fixture();
+  const old = createHash('sha256').update(JSON.stringify(contextNodes(map, rules).map(n => [n.id, n.contentRevision]))).digest('hex');
+  assert.equal(signatureMatches(map, rules, old), true, 'an unprefixed signature is compared the old way');
+  assert.equal(signatureMatches(map, rules, signature(map, rules)), true);
+  assert.match(signature(map, rules), /^v2:/);
 });

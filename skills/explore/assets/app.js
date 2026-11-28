@@ -591,6 +591,13 @@ $('#import-dialog').addEventListener('click', async event => {
   if ('importCopy' in button.dataset) await importMapFile(pending.data, true); else await openMap(pending.mapId);
 });
 
+// Opens one of the idea's editors, such as Add a connection, and focuses its first field. The editor is opened on the
+// page first, because a re-render copies each editor's open state from the page.
+function openEditor(name) {
+  const editor = $('#detail').querySelector?.(`details[data-editor="${name}"]`); if (editor) editor.open = true;
+  state.editors[`${state.selected}:${name}`] = true; renderDetail(true);
+  $('#detail').querySelector?.(`details[data-editor="${name}"] select, details[data-editor="${name}"] textarea`)?.focus();
+}
 function detailFocusKey(element) {
   const form = element.closest('form'), editor = element.closest('details[data-editor]');
   return JSON.stringify([element.tagName, element.getAttribute('href'),
@@ -825,7 +832,7 @@ document.addEventListener('click', async event => {
     return;
   }
   const linkOpen = event.target.closest('[data-link-open]');
-  if (linkOpen) { closeMenus(); state.editors[`${state.selected}:link`] = true; renderDetail(true); document.querySelector('#detail details[data-editor="link"] select')?.focus(); return; }
+  if (linkOpen) { closeMenus(); openEditor('link'); return; }
   const unlink = event.target.closest('[data-unlink]');
   if (unlink) { if (await act(unlink.dataset.from, 'unlink', { to: unlink.dataset.to, relation: unlink.dataset.relation })) toast('Connection removed.'); return; }
   const menuToggle = event.target.closest('[data-menu]');

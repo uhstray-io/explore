@@ -41,7 +41,7 @@ export const linkActions = {
   } },
   // Removes a link the user or the agent recorded; containment stays.
   unlink: { target: 'node', apply: ({ map, node, input, store }) => {
-    const relation = relationOf(input), index = map.edges.findIndex(edge => edge.from === node.id && edge.to === input.to && edge.type === relation);
+    const relation = relationOf(input), index = map.edges.findIndex(edge => sameLink(edge, node.id, input.to, relation));
     need(index >= 0, 'These ideas are not connected this way.', 404);
     map.edges.splice(index, 1);
     store.event(map, 'unlinked', node.id, `${relation} ${input.to}`);
