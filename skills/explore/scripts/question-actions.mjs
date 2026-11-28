@@ -192,7 +192,7 @@ export const questionJobTypes = {
       need(!extra.length, `Research returns options, a recommendation and optionally a summary and sources; remove ${extra.join(', ')}. Never answer for the user or ask questions.`);
       need(result.options !== undefined, 'Return options and a recommendation, or optionId null with what is missing.');
       const summary = textField(result.summary, 'Summary', 800, fail, { optional: true });
-      return { ...normalizeComparison(result, fail), ...(summary ? { summary } : {}), sources: sourceList(result.sources, fail) };
+      return { ...normalizeComparison(result, fail), ...(summary ? { summary } : {}), sources: sourceList(result.sources, fail, { stance: false }) };
     },
     isStale: ({ map, job }) => researchIsStale(map, job),
     recheck: true, // Checked again whenever the map is shown, so research reads as earlier as soon as its context changes.

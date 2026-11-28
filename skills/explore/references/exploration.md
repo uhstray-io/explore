@@ -101,6 +101,8 @@ Record material disagreements and gaps as `limitations` in the result, not only 
 
 When a prior premise changes, check relevant dependency links and stale findings before building on them. Keep prior work and its reasons visible. Save the result's rationale and evidence, not a transcript of private reasoning.
 
+When you cite a source, say whether it `supports` the finding, `challenges` it or gives `context`, in its `stance`. Record a challenge honestly: a source cited against the finding is evidence too, and the user's source library flags sources that back findings contradicting each other.
+
 ## Use the map's words
 
 Use the packet's `glossary` terms as the user defined them, in questions, findings and suggestions. Propose a term in the result's `glossary` only when the exploration has settled on a meaning worth keeping, not for every noun; the user decides whether it counts.

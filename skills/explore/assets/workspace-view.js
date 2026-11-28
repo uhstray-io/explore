@@ -62,6 +62,12 @@ const importanceFilters = [...importanceLevels, 'unranked'].map(level => {
 });
 export const questionFilters = [...stateFilters, ...importanceFilters];
 
+// A branch investigation (not a question or map-wide job), and one of an idea's results that is no longer its current
+// finding: stale, or replaced since (the idea's summary or body differ). Node Markdown and the source library (K10)
+// both list these as earlier results.
+export const isInvestigationJob = job => !job.type || job.type === 'investigate';
+export const isEarlierResult = (job, node) => job.nodeId === node.id && isInvestigationJob(job) && !!job.result && (!!job.stale || job.result.summary !== node.summary || job.result.body !== node.body);
+
 // `filters` adds filters a feature computes for this map, such as High impact, still open (D4) on the live map.
 export function mapOverview(map, { filters = [] } = {}) {
   const nodes = map?.nodes || [];
@@ -371,7 +377,7 @@ export function connectionsHtml(node, map, { esc, live }) {
 // idea's ⋯ menu (`shown`), keeps what the user typed across re-renders (`drafts`), and warns while any branch
 // investigation is running, since work that reads either idea would then come back for review.
 export function linkEditorHtml(node, map, { esc, drafts = {}, shown = false }) {
-  const working = map.jobs.some(job => job.status === 'running' && (!job.type || job.type === 'investigate'));
+  const working = map.jobs.some(job => job.status === 'running' && isInvestigationJob(job));
   const others = map.nodes.filter(item => item.id !== node.id).sort((a, b) => a.title.localeCompare(b.title));
   const id = esc(node.id), draft = key => drafts[`${key}-${node.id}`];
   const option = (value, label, chosen) => `<option value="${esc(value)}"${chosen === value ? ' selected' : ''}>${label}</option>`;
