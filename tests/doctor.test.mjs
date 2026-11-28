@@ -194,3 +194,12 @@ test('the doctor checks every script and reference the skill ships, including th
   const references = (await readdir(path.resolve('skills/explore/references'), { recursive: true })).filter(name => name.endsWith('.md')).map(name => `references/${name.split(path.sep).join('/')}`);
   assert.deepEqual(references.filter(file => !packageFiles.includes(file)), []);
 });
+
+test('the doctor checks every module the browser app imports', async () => {
+  const assets = path.resolve('skills/explore/assets'), seen = new Set(), queue = ['app.js'];
+  while (queue.length) {
+    const file = queue.shift(); if (seen.has(file)) continue; seen.add(file);
+    for (const [, imported] of (await readFile(path.join(assets, file), 'utf8')).matchAll(/from '\.\/([\w-]+\.js)'/g)) queue.push(imported);
+  }
+  assert.deepEqual([...seen].map(file => `assets/${file}`).filter(file => !packageFiles.includes(file)), []);
+});

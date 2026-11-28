@@ -129,7 +129,8 @@ test('the browser and CLI export and import through the server, with a larger li
 });
 
 test('the conflict view and file names say what they mean', async () => {
-  const { importConflictHtml, downloadName, briefFilename } = await import('../skills/explore/assets/workspace-view.js');
+  const { downloadName } = await import('../skills/explore/assets/workspace-view.js');
+  const { importConflictHtml } = await import('../skills/explore/assets/import-dialog.js'), { briefFilename } = await import('../skills/explore/assets/brief-dialog.js');
   const esc = value => String(value).replace(/</g, '&lt;');
   const html = importConflictHtml({ existing: { title: 'Plan <A>', revision: 4, updatedAt: '2026-11-20T10:00:00Z', ideas: 3 }, incoming: { title: 'Plan B', revision: 9, updatedAt: 'not a date', ideas: 1 } }, { esc });
   assert.match(html, /Nothing has been changed/); assert.match(html, /Already here.*Plan &lt;A>.*3 ideas · revision 4 · updated/s);
@@ -157,7 +158,7 @@ test('a map folder without a readable map.json is never written into', async () 
   const result = await to.store.importMap(await exportMap(from.store, map.id));
   assert.deepEqual(result.conflict.existing, { unreadable: true });
   assert.deepEqual(await readdir(folder), ['versions']); assert.equal(await readFile(path.join(folder, 'versions', 'keep.json'), 'utf8'), 'old history');
-  const { importConflictHtml } = await import('../skills/explore/assets/workspace-view.js');
+  const { importConflictHtml } = await import('../skills/explore/assets/import-dialog.js');
   assert.match(importConflictHtml(result.conflict, { esc: String }), /is here but cannot be opened/);
   assert.match((await to.store.importMap(await exportMap(from.store, map.id), { asCopy: true })).imported, /^map-[a-f0-9]{8}$/);
 });

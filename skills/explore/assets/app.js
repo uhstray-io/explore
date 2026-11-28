@@ -3,6 +3,8 @@ import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { changesDialog } from './changes-dialog.js';
+import { briefDialog } from './brief-dialog.js';
+import { importDialog } from './import-dialog.js';
 import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, pinClick } from './pinned-answers.js';
 import { doneWhenSection, doneWhenClick, doneWhenKey, doneWhenMenuItem, canExplore } from './done-when.js';
 import { branchRestorePanel } from './branch-restore.js';
@@ -18,10 +20,10 @@ import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette } from './command-palette.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, overviewFilters, ideaMatches, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
+import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -542,65 +544,11 @@ async function nameChosen(name) {
   } catch (error) { toast(error.message); }
 }
 
-let briefVersion = 0;
-async function showBrief(nodeId = null) {
-  if (!state.map) return;
-  const mapId = state.map.id, version = ++briefVersion;
-  state.brief = null; state.briefScope = nodeId;
-  $('#brief-title').textContent = nodeId ? 'Branch brief' : 'Map brief';
-  $('#brief-description').textContent = 'Extracted from your latest saved map. Includes recorded findings, decisions, open questions and next directions.';
-  $('#brief-content').textContent = ''; $('#brief-status').textContent = 'Preparing your brief…';
-  $('#copy-brief').disabled = true; $('#download-brief').disabled = true; $('#retry-brief').hidden = true; $('#brief-copy-fallback').hidden = true;
-  if (!$('#brief-dialog').open) $('#brief-dialog').showModal();
-  try {
-    const brief = await api(`/maps/${mapId}/brief${nodeId ? `?node=${encodeURIComponent(nodeId)}` : ''}`);
-    if (version !== briefVersion) return;
-    state.brief = brief;
-    $('#brief-description').textContent = `${brief.title}. Extracted from your latest saved ${nodeId ? 'branch and its descendants' : 'map'}.`;
-    $('#brief-content').innerHTML = briefPreview(brief);
-    $('#brief-status').textContent = `Saved revision ${brief.revision}. This brief summarizes recorded material; it does not run new research.`;
-    $('#copy-brief').disabled = false; $('#download-brief').disabled = false;
-  } catch (error) {
-    if (version !== briefVersion) return;
-    $('#brief-status').textContent = `Could not prepare the brief. ${error.message}`; $('#retry-brief').hidden = false;
-  }
-}
-$('#show-brief').addEventListener('click', () => showBrief());
-$('#retry-brief').addEventListener('click', () => showBrief(state.briefScope));
-$('#copy-brief').addEventListener('click', async () => {
-  if (!state.brief) return;
-  try { await navigator.clipboard.writeText(state.brief.markdown); $('#brief-status').textContent = 'Brief copied. Paste it into a document or your agent.'; }
-  catch { const field = $('#brief-copy-fallback'); field.value = state.brief.markdown; field.hidden = false; field.focus(); field.select(); $('#brief-status').textContent = 'Copy the selected brief text below.'; }
-});
 function download(text, type, name) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const link = document.createElement('a'); link.href = url; link.download = name; document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-$('#download-brief').addEventListener('click', () => {
-  if (!state.brief) return;
-  download(state.brief.markdown, 'text/markdown;charset=utf-8', briefFilename(state.brief.title)); $('#brief-status').textContent = 'Brief downloaded as Markdown.';
-});
-// Import a map (I2): an identical map opens the existing one; a different one with the same ID asks first.
-async function importMapFile(data, asCopy = false) {
-  try {
-    const result = await api('/import', { data, asCopy });
-    if (result.conflict) { state.importPending = { data, mapId: result.conflict.mapId }; $('#import-body').innerHTML = importConflictHtml(result.conflict, { esc }); $('#import-dialog').showModal(); return; }
-    await refresh(); await openMap(result.imported ?? result.existing);
-    toast(result.existing ? 'This map is already here, so it is open now.' : 'Map imported. Nothing in it runs until you choose to explore.');
-  } catch (error) { toast(error.message); }
-}
-$('#import-map').addEventListener('click', () => $('#import-file').click());
-$('#import-file').addEventListener('change', async () => {
-  const file = $('#import-file').files[0]; $('#import-file').value = ''; if (!file) return;
-  let data; try { data = JSON.parse(await file.text()); } catch { toast('This file is not valid JSON, so it cannot be imported.'); return; }
-  await importMapFile(data);
-});
-$('#import-dialog').addEventListener('click', async event => {
-  const button = event.target.closest('[data-import-keep], [data-import-copy]'), pending = state.importPending; if (!button || !pending) return;
-  $('#import-dialog').close(); state.importPending = null;
-  if ('importCopy' in button.dataset) await importMapFile(pending.data, true); else await openMap(pending.mapId);
-});
 
 // Opens one of the idea's editors, such as Add a connection, and focuses its first field. The editor is opened on the
 // page first, because a re-render copies each editor's open state from the page.
@@ -768,6 +716,9 @@ const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
 commandPalette({ $, $$: selector => [...document.querySelectorAll(selector)], esc, state, focusNode, openEditor });
+const showBrief = briefDialog({ api, map: () => state.map, download });
+$('#show-brief').addEventListener('click', () => showBrief());
+importDialog({ api, esc, toast, refresh, openMap });
 // Restore one branch (E2) from a previewed version's inspector.
 const branchRestore = branchRestorePanel({ api, act, esc, mapId: () => state.map?.id, version: () => state.versionPreview?.version, returnLive, reopen: id => previewVersion(id), toast, rerender: () => renderDetail(true),
   afterRestore: () => { state.versions = null; loadVersions(); } });
