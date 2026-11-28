@@ -52,6 +52,8 @@ The owner settled every open decision on 2026-11-27. Where an issue body still d
 
 ### Limits decided while building
 
+- **The source library opens from Map tools (K10 #56).** The issue placed a **Sources** button in the workspace tools row. It is a section of Map tools instead, beside Glossary and Changes since a commit, which open their own dialogs the same way: the tools row already holds Find an idea and four buttons, and the library is a review tool rather than everyday navigation. Node Markdown shows a source's stance only when one is recorded, so existing maps' generated views do not change.
+
 - **The Map / Outline switch sits in the canvas heading (Z7 #65).** The issue placed it in the workspace tools row. It sits beside the saved state instead, at the top of the view it changes: the tools row already holds Find an idea and four buttons, and a view switch is not a tool. `outlineRows` lives in `assets/outline.js` with the rest of the outline rather than in `workspace-view.js`, so one module owns it. Without Z6 (#64) rows have no `aria-expanded`, and Left and Right only move.
 
 - **Commands sit in the top bar (Z8 #66).** The issue placed a **Commands** button in the workspace tools row. It sits in the top bar beside Dark mode instead, with Ctrl+K or ⌘K: the palette works across the whole app, and the tools row already holds four map buttons.

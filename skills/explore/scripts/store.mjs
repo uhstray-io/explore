@@ -94,7 +94,7 @@ function researchLines(job, stale) {
     ...(summary ? ['', summary] : []), '', ...comparisonLines(job.result, { level: 4 }), ...(sources.length ? ['', 'Sources:', ...sources.flatMap(evidenceLine)] : [])];
 }
 // One source as the Markdown views list evidence.
-const evidenceLine = s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`];
+const evidenceLine = s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (${s.stance ? `${s.stance}; ` : ''}retrieved ${s.retrievedAt}): ${s.note}`];
 export { atomicJson } from './files.mjs';
 
 export class Store {

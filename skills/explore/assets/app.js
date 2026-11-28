@@ -4,6 +4,7 @@ import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { changesDialog } from './changes-dialog.js';
 import { glossaryDialog } from './glossary-dialog.js';
+import { sourcesDialog } from './sources.js';
 import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
 import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, pinClick } from './pinned-answers.js';
@@ -734,6 +735,7 @@ const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(
   if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
 } });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
+sourcesDialog({ esc, map: () => state.visibleMap, historic: () => state.historyStep !== null, focusNode }); // The source library (K10).
 const showBrief = briefDialog({ api, map: () => state.map, download });
 $('#show-brief').addEventListener('click', () => showBrief());
 importDialog({ api, esc, toast, refresh, openMap });

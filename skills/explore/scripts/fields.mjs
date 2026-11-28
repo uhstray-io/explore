@@ -30,12 +30,15 @@ export function safeUrl(value, fail) {
   if (protocol !== 'https:' && protocol !== 'http:') fail('Source URL must be a valid HTTP or HTTPS URL.');
   return url;
 }
-// Up to 20 sources the agent read, each with the claim it supports or challenges.
+// Up to 20 sources the agent read, each with the claim it supports or challenges. An optional `stance` (K10) says
+// whether the source supports the finding, challenges it or gives context; none given is stored as nothing.
+const stances = new Set(['supports', 'challenges', 'context']);
 export function sourceList(value, fail, at = new Date().toISOString()) {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 20) fail('Sources must be an array of at most 20 items.');
   return value.map(s => {
     if (!s || typeof s !== 'object' || Array.isArray(s)) fail('Source must be an object.');
-    return { title: textField(s.title, 'Source title', 200, fail), url: safeUrl(s.url, fail), note: textField(s.note, 'Evidence note', 1500, fail), retrievedAt: at };
+    if (s.stance !== undefined && s.stance !== null && !stances.has(s.stance)) fail('A source stance must be supports, challenges or context.');
+    return { title: textField(s.title, 'Source title', 200, fail), url: safeUrl(s.url, fail), note: textField(s.note, 'Evidence note', 1500, fail), ...(s.stance ? { stance: s.stance } : {}), retrievedAt: at };
   });
 }

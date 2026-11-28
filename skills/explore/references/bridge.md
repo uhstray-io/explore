@@ -49,13 +49,15 @@ To create a map, the input file is `{ "title": "Short name", "idea": "The user's
     {"title": "A direction worth exploring", "body": "Why it matters and what we would investigate", "kind": "research"}
   ],
   "sources": [
-    {"title": "Source title", "url": "https://example.org/source", "note": "The specific claim this source supports or challenges"}
+    {"title": "Source title", "url": "https://example.org/source", "note": "The specific claim this source supports or challenges", "stance": "supports"}
   ],
   "links": [
     {"to": "an-existing-node-id", "type": "depends_on"}
   ]
 }
 ```
+
+A source's optional `stance` is `supports`, `challenges` or `context`: whether it backs the finding, argues against it or only frames it. Any other value rejects the result; leave it out when unsure, and it shows as "Stance not recorded". The user's source library (Map tools) groups every source cited on the map and flags one that backs ideas linked as contradicting each other.
 
 When the user has named a research model, a branch investigation packet carries `modelHint: { model, note }`. It is the user's permission to delegate that investigation to a subagent running the named model. Follow it only where your host can choose a subagent's model; Claude Code's subagent tool accepts a per-call model (seen in a Claude Code session, November 2026), and Codex and Copilot support is unverified. Never switch the main conversation's model, ask for API keys, or fail a job because the hint cannot be followed; do the work yourself instead. Report what happened in optional `execution: { "delegated": true|false, "model": "as reported", "note": "optional" }` (each text at most 200 characters). It is kept on the job beside the worker and shown as reported by the agent; Explore cannot verify it.
 
