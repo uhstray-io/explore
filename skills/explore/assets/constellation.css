@@ -110,6 +110,8 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 .assumptions-body{max-height:60dvh;overflow:auto;display:grid;gap:12px}.assumption-entry{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .assumption-question{margin:0 0 2px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.assumption-text{margin:0 0 4px;font-size:13px;color:var(--ink);overflow-wrap:anywhere}.assumption-change{margin:0 0 6px;font-size:12px;color:var(--ink);overflow-wrap:anywhere}
 .assumption-editor{display:grid;gap:6px;margin:0 0 8px}.assumption-editor textarea{width:100%}.assumption-dependents{margin:0 0 6px;font-size:12px}.assumption-dependents summary{cursor:pointer;color:var(--teal)}.assumption-dependents .relationship{padding:4px 0}
+/* Reuse earlier research (Z4): Ask again, quietly at the end of a current result. */
+.reuse-again{margin:6px 0 0;font-size:12px}
 /* Answer in a file (K11): the import preview. */
 .answers-body{max-height:55dvh;overflow:auto}.answer-preview{list-style:none;margin:0;padding:0;display:grid;gap:10px}.answer-preview li{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .answer-preview-question{margin:0 0 4px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.answer-preview-text{margin:0 0 4px;font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}

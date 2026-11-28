@@ -33,7 +33,7 @@ export function presentationOnly(before, after) {
 export function snapshotOf(map) {
   const copy = structuredClone(map);
   // A transient job's texts (a draft being tidied) stay in map.json only: never in versions or exports.
-  for (const job of copy.jobs || []) { delete job.claimKey; delete job.claimHash; delete job.inputSignature; if (job.transient) { delete job.input; delete job.result; } }
+  for (const job of copy.jobs || []) { delete job.claimKey; delete job.claimHash; delete job.inputSignature; delete job.reuseKey; if (job.transient) { delete job.input; delete job.result; } }
   return copy;
 }
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
