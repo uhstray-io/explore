@@ -5,6 +5,8 @@ import { agentDialog } from './agent-dialog.js';
 import { changesDialog } from './changes-dialog.js';
 import { glossaryDialog } from './glossary-dialog.js';
 import { sourcesDialog } from './sources-dialog.js';
+import { assumptionsDialog } from './assumptions-dialog.js';
+import { answersDialog } from './answers-dialog.js';
 import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
 import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, pinClick } from './pinned-answers.js';
@@ -147,7 +149,7 @@ function renderMap(fit = false, preserveView = false) {
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
-  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged();
+  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged();
   const topologyChanged = state.layoutMap !== state.map.id || state.layoutCount !== state.map.nodes.length;
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
@@ -690,7 +692,8 @@ function renderDetail(force = false) {
   }
   detail.scrollTop = scroll;
 }
-function act(nodeId, type, extra = {}) {
+// `onError(message)` reports a refusal instead of the toast (a batch lists its own).
+function act(nodeId, type, extra = {}, { onError = toast } = {}) {
   if (!state.map || state.historyStep !== null) return Promise.resolve(false);
   const mapId = state.map.id;
   const execute = async () => {
@@ -702,12 +705,12 @@ function act(nodeId, type, extra = {}) {
       if (state.map?.id === mapId) { state.map = result; renderMap(); checkGitStatus(); }
       return true;
     } catch (error) {
-      toast(error.message);
+      onError(error.message);
       // Reload acknowledged coordinates after a conflict instead of displaying an unsaved move.
       try {
         const current = await api(`/maps/${mapId}`);
         // The refusal already explained any pull, so it is not announced again later.
-        state.outsideSeen[mapId] = current.outsideChange?.at;
+        if (onError === toast) state.outsideSeen[mapId] = current.outsideChange?.at;
         if (state.map?.id === mapId) { state.map = current; renderMap(); }
       } catch { connectionView(true); }
       return false;
@@ -747,7 +750,9 @@ const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(
   if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
 } });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
+answersDialog({ map: () => state.map, live: () => state.historyStep === null, act, esc, download }); // Answer in a file (K11).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
+const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).
 const showBrief = briefDialog({ api, map: () => state.map, download });
 $('#show-brief').addEventListener('click', () => showBrief());
 importDialog({ api, esc, toast, refresh, openMap });

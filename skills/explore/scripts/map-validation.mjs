@@ -101,9 +101,10 @@ const shapes = {
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
     prompt: text({ optional: true }), doneWhen: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
-    stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }), hypothesis: rule(isRecord, { optional: true }) },
+    stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }), assumptions: list({ optional: true }), hypothesis: rule(isRecord, { optional: true }) },
   hypothesis: { test: text(), outcome: oneOf(new Set(hypothesisOutcomes), { nullable: true }), history: list() },
-  question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }) },
+  question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }), disproveIf: text({ optional: true }) },
+  assumption: { statement: text(), wouldChangeIf: text() },
   term: { id: anId(), term: text({ unreadable: true }), definition: text({ unreadable: true }), status: oneOf(new Set(['agreed', 'proposed'])) },
   source: { title: text({ unreadable: true }), url: rule(httpUrl, { code: 'source-url' }), stance: oneOf(new Set(Object.keys(stanceWords)), { optional: true, nullable: true }) },
   edge: { from: anId(), to: anId(), type: oneOf(edgeTypes), addedBy: oneOf(new Set(['user']), { optional: true }), note: text({ optional: true }) },
@@ -137,6 +138,7 @@ export function validateMap(map, { folderId } = {}) {
     if (Array.isArray(node.questions)) node.questions.forEach((question, j) => check(question, shapes.question, `nodes[${i}].questions[${j}]`));
     if (Array.isArray(node.sources)) node.sources.forEach((source, j) => check(source, shapes.source, `nodes[${i}].sources[${j}]`));
     if (isRecord(node.hypothesis)) check(node.hypothesis, shapes.hypothesis, `nodes[${i}].hypothesis`);
+    if (Array.isArray(node.assumptions)) node.assumptions.forEach((item, j) => check(item, shapes.assumption, `nodes[${i}].assumptions[${j}]`));
   });
   edges.forEach((edge, i) => check(edge, shapes.edge, `edges[${i}]`, { unreadable: true }));
   jobs.forEach((job, i) => check(job, shapes.job, `jobs[${i}]`, { unreadable: true }));
