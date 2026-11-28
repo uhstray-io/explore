@@ -1,4 +1,4 @@
-import { comparableText } from './workspace-view.js';
+import { comparableText, sourceTitle } from './workspace-view.js';
 
 // Conflicts and evidence gaps (C3): records a result keeps when sources disagree or evidence could not be found.
 // Each says what it affects and a next step. They are the agent's account of what is unresolved, never a
@@ -22,9 +22,8 @@ const elementId = (nodeId, recordId) => `limitation-${nodeId}-${recordId}`;
 // The inspector section. `map` is the map on screen; `live` is false while history is shown.
 export function limitationsHtml(node, { esc, live, map }) {
   if (!node.limitations?.length) return '';
-  const titleOf = url => node.sources?.find(source => source.url === url)?.title ?? url;
   const records = node.limitations.map(record => {
-    const sources = record.sources?.length ? `<p class="limitation-sources">${record.sources.map(url => `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(titleOf(url))}</a>`).join('')}</p>` : '';
+    const sources = record.sources?.length ? `<p class="limitation-sources">${record.sources.map(url => `<a href="${esc(url)}" target="_blank" rel="noreferrer">${esc(sourceTitle(node, url))}</a>`).join('')}</p>` : '';
     const action = !live ? '' : added(map, node, record) ? '<p class="form-note">Added as a direction.</p>'
       : `<button type="button" class="secondary" data-limitation-direction="${esc(record.id)}" data-node-id="${esc(node.id)}">Add as a direction</button>`;
     return `<article class="limitation" id="${esc(elementId(node.id, record.id))}" tabindex="-1"><p class="limitation-kind">${esc(limitationLabel(record.kind))}${record.blocksRecommendation ? ' · <strong>Blocks a recommendation</strong>' : ''}</p>`

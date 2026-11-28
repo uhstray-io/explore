@@ -76,6 +76,8 @@ Keep four things distinguishable in concise prose:
 - **Interpretation:** what you infer from that evidence, the key assumption, and what would change the interpretation. Plausibility is not verification.
 - **Unresolved points:** the specific uncertainty, why it matters, and the smallest useful way to resolve it.
 
+List only the few claims that matter for the decision in the result's `claims`. Link a claim only to a passage you actually read that supports it, and leave its support empty rather than stretch a citation. A source that only mentions the topic is not support, and passages that challenge a claim belong in the findings, not as its support. Never add a source just to avoid the "reasoning" label.
+
 Use these distinctions where needed rather than filling a mandatory template. Research to the depth needed for the selected question, using primary sources when available. A source link without a supported claim adds little. Do not manufacture sources, consensus, test results, or precision. A supported finding can still be unreviewed; acceptance belongs to the user.
 
 Record material disagreements and gaps as `limitations` in the result, not only inside the findings:

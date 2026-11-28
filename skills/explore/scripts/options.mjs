@@ -1,9 +1,8 @@
 // Options and a conditional recommendation (C1). When a branch is really a choice, a result can
 // compare 1–4 options and give one conditional recommendation, or say what is still missing.
 // This is the agent's judgement, never a decision: only the user answers or accepts.
-import { textField } from './fields.mjs';
+import { textField, recordId } from './fields.mjs';
 
-const idPattern = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const normal = value => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
 // Returns the comparison fields to keep on the result, or {} when the result has none.
@@ -21,8 +20,7 @@ export function normalizeComparison(result, fail) {
   const ids = new Set(), titles = new Set();
   const normalized = options.map((option, index) => {
     need(option && typeof option === 'object' && !Array.isArray(option), `Option ${index + 1} must be an object.`);
-    need(typeof option.id === 'string' && idPattern.test(option.id), `Option ${index + 1} needs an identifier that starts with a letter (letters, digits, _ or -, at most 32).`);
-    need(!ids.has(option.id), 'Option identifiers must be unique.'); ids.add(option.id);
+    recordId(option.id, { label: `Option ${index + 1}`, kind: 'Option', seen: ids }, fail);
     const title = text(option.title, 'Option title', 150);
     need(!titles.has(normal(title)), 'Option titles must differ.'); titles.add(normal(title));
     const list = (value, field) => {
