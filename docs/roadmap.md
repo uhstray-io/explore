@@ -52,6 +52,8 @@ The owner settled every open decision on 2026-11-27. Where an issue body still d
 
 ### Limits decided while building
 
+- **The Map / Outline switch sits in the canvas heading (Z7 #65).** The issue placed it in the workspace tools row. It sits beside the saved state instead, at the top of the view it changes: the tools row already holds Find an idea and four buttons, and a view switch is not a tool. `outlineRows` lives in `assets/outline.js` with the rest of the outline rather than in `workspace-view.js`, so one module owns it. Without Z6 (#64) rows have no `aria-expanded`, and Left and Right only move.
+
 - **Commands sit in the top bar (Z8 #66).** The issue placed a **Commands** button in the workspace tools row. It sits in the top bar beside Dark mode instead, with Ctrl+K or ⌘K: the palette works across the whole app, and the tools row already holds four map buttons.
 
 - **More filters sit with the progress filters (Z9 #67).** The issue placed the **More filters** button in the workspace tools row. It sits directly under the progress filters instead, inside the same "Find ideas by state" landmark: it is a filter, its results open in the overview list right below, and the tools row holds map-level dialogs that a fifth button would crowd.
