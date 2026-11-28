@@ -1,6 +1,6 @@
 import { Problem, hasFindings } from './store.mjs';
 import { normalizeDoneWhen, doneWhenMax } from '../assets/done-when.js';
-import { isOpen, isBlocking, certaintyText, effectiveAnswerState, importanceRank, importanceLabel } from '../assets/questions.js';
+import { isOpen, isBlocking, isSavedForLater, certaintyText, effectiveAnswerState, importanceRank, importanceLabel } from '../assets/questions.js';
 import { proposalOutdated } from './map-jobs.mjs';
 import { linkSuffix } from './links.mjs';
 import { markdownText as line } from '../assets/workspace-view.js';
@@ -25,7 +25,7 @@ export function mapBrief(map, nodeId = null) {
     ['stale', 'Findings that need review', nodes.filter(n => n.stale).map(n => entry(n))],
     // Most important first, so the few shown are the ones that matter most.
     ['questions', 'Questions waiting for you', nodes.flatMap(n => n.questions.filter(q => isBlocking(q) && n.status === 'awaiting-answer').map(q => entry(n, q.text, { questionId: q.id, importance: q.importance ?? null }))).sort((a, b) => importanceRank(a.importance) - importanceRank(b.importance))],
-    ['later', 'Questions saved for later — open, not blocking', nodes.flatMap(n => n.questions.filter(q => isOpen(q) && q.deferredAt).map(q => entry(n, q.text, { questionId: q.id, deferredAt: q.deferredAt })))],
+    ['later', 'Questions saved for later — open, not blocking', nodes.flatMap(n => n.questions.filter(isSavedForLater).map(q => entry(n, q.text, { questionId: q.id, deferredAt: q.deferredAt })))],
     ['accepted', 'Accepted and current findings', nodes.filter(n => n.reviewState === 'accepted' && !n.stale && n.status === 'explored').map(n => entry(n))],
     ['findings', 'Working findings — not accepted', nodes.filter(n => hasFindings(map, n) && n.reviewState !== 'accepted' && n.reviewState !== 'cleared' && !n.stale).map(n => entry(n, n.summary, { sourceCount: n.sources.length }))],
     ['cleared', 'Cleared findings — not relied on', nodes.filter(n => n.reviewState === 'cleared').map(n => entry(n, n.summary, n.replacedBy ? { replacedBy: n.replacedBy } : {}))],

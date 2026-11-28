@@ -52,6 +52,8 @@ The owner settled every open decision on 2026-11-27. Where an issue body still d
 
 ### Limits decided while building
 
+- **More filters sit with the progress filters (Z9 #67).** The issue placed the **More filters** button in the workspace tools row. It sits directly under the progress filters instead, inside the same "Find ideas by state" landmark: it is a filter, its results open in the overview list right below, and the tools row holds map-level dialogs that a fifth button would crowd.
+
 - **A map file is at most 64 MiB (J3 #45).** The server neither opens nor saves a larger `map.json`; it is listed as unreadable (`too-large`) and a save is refused with a clear message. One rule in `map-validation.mjs` (`readMapFile`, `maxMapBytes`) serves the server, the validator and the support report. Real maps are far smaller; the limit keeps reads, generated views and CI checks bounded.
 
 - **Result checks reject only certain breaches (K3 #51).** A result is refused for re-asking a question answered anywhere in the map, re-asking one dismissed on the same idea, or repeating a question or suggestion title in one result. A question dismissed on another idea is only a warning (`dismissed-elsewhere`): the agent sees this idea's dismissals but not every branch's, and a dismissal means "not useful here". The issue's rule that heuristics never reject a result stands. Verified by `tests/result-checks.test.mjs`.

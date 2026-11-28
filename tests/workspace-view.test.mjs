@@ -11,7 +11,7 @@ test('overview distinguishes awaiting input, queue, inactive ideas and stale fin
     { id: 'retry', status: 'interrupted' },
   ] };
   const before = structuredClone(map), result = mapOverview(map);
-  assert.deepEqual(result.groups.map(group => [group.id, group.nodes.map(node => node.id)]), [
+  assert.deepEqual(result.groups.filter(group => group.kind === 'progress').map(group => [group.id, group.nodes.map(node => node.id)]), [
     ['answer', ['answer']], ['queued', ['queued']], ['unexplored', ['future']], ['stale', ['changed']],
   ]);
   assert.equal(result.total, 7); assert.equal(result.explored, 2); assert.equal(result.accepted, 1); assert.equal(result.running, 1);

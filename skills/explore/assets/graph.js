@@ -174,3 +174,5 @@ export function focusedView(point, viewport, scale = 1, neighbors = []) {
   }
   return { scale, x: viewport.width / 2 - point.x * scale, y: viewport.height / 2 - point.y * scale };
 }
+// A finished branch: the server marks it complete, and an older map's explored idea counts too.
+export const branchComplete = node => !!node.completed || node.status === 'explored';

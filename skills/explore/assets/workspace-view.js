@@ -1,5 +1,6 @@
 import { presentation, treeOrder } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY } from './questions.js';
+import { questionFilters } from './more-filters.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
@@ -21,13 +22,16 @@ export function questionSequence(node) {
     answered: batch.filter(q => q.answer), remaining: batch.filter(isBlocking).length };
 }
 
+// Every filter: { id, kind, label, empty, matches(node), lines(node) as [{ text, detail? }] }. The progress filters
+// fill the bar; the others are More filters (Z9).
+const summaryLine = node => (node.summary ? [{ text: node.summary }] : []);
 export const overviewFilters = [
   { id: 'answer', label: 'Needs your answer', empty: 'No questions are waiting for you.', matches: node => node.status === 'awaiting-answer',
     note: node => { const label = importanceLabel(highestImportance(node.questions)); return label ? ` · ${label}` : ''; } },
   { id: 'queued', label: 'Queued', empty: 'No branches are waiting in the queue.', matches: node => node.status === 'queued' },
   { id: 'unexplored', label: 'Unexplored', empty: 'Every suggested direction has been explored or started.', matches: node => node.status === 'suggested' },
   { id: 'stale', label: 'Needs review', empty: 'No findings are flagged by a changed premise.', matches: node => Boolean(node.stale) },
-];
+].map(filter => ({ ...filter, kind: 'progress', lines: summaryLine }));
 
 export function mapOverview(map) {
   const nodes = map?.nodes || [];
@@ -36,7 +40,7 @@ export function mapOverview(map) {
     explored: nodes.filter(node => node.status === 'explored').length,
     accepted: nodes.filter(node => node.reviewState === 'accepted' && !node.stale && node.status === 'explored').length,
     running: nodes.filter(node => node.status === 'running').length,
-    groups: overviewFilters.map(filter => ({ ...filter, nodes: nodes.filter(filter.matches) })),
+    groups: [...overviewFilters, ...questionFilters].map(filter => ({ ...filter, nodes: nodes.filter(filter.matches) })),
   };
 }
 
