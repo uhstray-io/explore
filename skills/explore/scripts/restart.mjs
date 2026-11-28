@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { answerStates, hasCurrentAnswer, isBlocking, laterQuestions, replaceAnswer } from '../assets/questions.js';
 import { isOpenJob } from './map-validation.mjs';
+import { tidyFolds } from './folds.mjs';
 
 // Restart a finished branch from a changed answer (Z2). The user previews what would be deleted; the
 // action recomputes the same plan, refuses if anything changed since, and saves a named checkpoint
@@ -79,6 +80,7 @@ export const restartActions = {
     map.edges = map.edges.filter(edge => !plan.below.has(edge.from) && !plan.below.has(edge.to));
     map.jobs = map.jobs.filter(job => !plan.below.has(job.nodeId));
     for (const id of plan.below) delete map.view?.positions?.[id];
+    tidyFolds(map); // A restarted idea's directions are new: none arrive hidden.
     replaceAnswer(plan.question, { answer, answerState: input.answerState, actor, at, mark: { restart: true } });
     for (const later of plan.superseded) later.supersededAt = at;
     // The idea keeps its premise and answers; its findings start again, and its earlier runs become history.
