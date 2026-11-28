@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from '../skills/explore/assets/graph.js';
+import { constellationLayout, connectionPath, presentation, overviewView, focusedView, detailLevel, minimapProjection, viewRect, centredView } from '../skills/explore/assets/graph.js';
 
 test('saved maps lay out deterministically without moving saved nodes or modifying research', () => {
   const map = { rootId: 'root', nodes: [{ id: 'root', status: 'explored' }, { id: 'a', parentId: 'root', status: 'suggested' }, { id: 'b', parentId: 'root', status: 'queued' }], view: { positions: { a: { x: -123.5, y: 410 } } }, jobs: [{ nodeId: 'b', status: 'queued' }] };
@@ -71,4 +71,44 @@ test('dense trees keep connected steps local and their neighborhood fits around 
       assert.ok(p.y * view.scale + view.y > 15 && p.y * view.scale + view.y < 471);
     }
   }
+});
+
+// Zoom detail levels and the minimap (Z10, #68).
+test('detail levels rise at 0.45, 1.3 and 2.2 and fall about 10% lower, so a boundary never flickers', () => {
+  assert.deepEqual([0.05, 0.44, 0.45, 1, 1.29, 1.3, 2.19, 2.2, 3].map(scale => detailLevel(scale)), ['far', 'far', 'standard', 'standard', 'standard', 'near', 'near', 'close', 'close']);
+  assert.equal(detailLevel(0.42, 'standard'), 'standard', 'just under the way up stays'); assert.equal(detailLevel(0.4, 'standard'), 'far');
+  assert.equal(detailLevel(0.44, 'far'), 'far'); assert.equal(detailLevel(0.45, 'far'), 'standard');
+  assert.equal(detailLevel(1.2, 'near'), 'near'); assert.equal(detailLevel(1.1, 'near'), 'standard');
+  assert.equal(detailLevel(2, 'close'), 'close'); assert.equal(detailLevel(1.9, 'close'), 'near');
+  assert.equal(detailLevel(3, 'far'), 'close', 'a jump crosses several levels'); assert.equal(detailLevel(0.1, 'close'), 'far');
+  assert.equal(detailLevel(1, 'unknown'), 'standard');
+});
+
+test('the minimap projection fits every idea, outliers included, and maps back to the world', () => {
+  const size = { width: 180, height: 120 };
+  const positions = { a: { x: 0, y: 0 }, b: { x: 1900, y: 700 }, far: { x: -99999, y: 99999 } };
+  const projection = minimapProjection(positions, size);
+  for (const point of Object.values(positions)) {
+    const p = projection.toMap(point);
+    assert.ok(p.x >= 0 && p.x <= size.width && p.y >= 0 && p.y <= size.height, `${JSON.stringify(point)} lands inside the minimap`);
+    const back = projection.toWorld(p);
+    assert.ok(Math.abs(back.x - point.x) < 1e-6 && Math.abs(back.y - point.y) < 1e-6);
+  }
+  const small = minimapProjection({ a: { x: 10, y: 20 } }, size);
+  assert.deepEqual(small.toMap({ x: 10, y: 20 }), { x: 90, y: 60 }, 'one idea sits in the middle');
+  assert.ok(small.scale <= 0.25, 'a small map is not magnified');
+  const empty = minimapProjection({}, size);
+  assert.deepEqual(empty.toMap({ x: 0, y: 0 }), { x: 90, y: 60 }); assert.deepEqual(empty.toWorld({ x: 90, y: 60 }), { x: 0, y: 0 });
+});
+
+test('a view centred on a point keeps its scale, and its visible rectangle is centred there', () => {
+  const viewport = { width: 900, height: 500 };
+  for (const scale of [0.05, 0.4, 1, 2.5]) {
+    const point = { x: 340, y: -120 }, view = centredView(point, viewport, scale), rect = viewRect(view, viewport);
+    assert.equal(view.scale, scale);
+    assert.ok(Math.abs(rect.x + rect.width / 2 - point.x) < 1e-9 && Math.abs(rect.y + rect.height / 2 - point.y) < 1e-9);
+    assert.ok(Math.abs(rect.width - viewport.width / scale) < 1e-9 && Math.abs(rect.height - viewport.height / scale) < 1e-9);
+  }
+  assert.deepEqual(viewRect({ x: 100, y: 50, scale: 2 }, viewport), { x: -50, y: -25, width: 450, height: 250 });
+  assert.deepEqual(focusedView({ x: 10, y: 10 }, viewport, 0.5), centredView({ x: 10, y: 10 }, viewport, 1), 'focusing still zooms in to at least 100%');
 });
