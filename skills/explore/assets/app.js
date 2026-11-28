@@ -22,7 +22,7 @@ import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, e
 import { mapOverview, overviewFilters, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -716,6 +716,7 @@ const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
 const showBrief = briefDialog({ api, map: () => state.map, download });
+$('#show-brief').addEventListener('click', () => showBrief());
 importDialog({ api, esc, toast, refresh, openMap });
 // Restore one branch (E2) from a previewed version's inspector.
 const branchRestore = branchRestorePanel({ api, act, esc, mapId: () => state.map?.id, version: () => state.versionPreview?.version, returnLive, reopen: id => previewVersion(id), toast, rerender: () => renderDetail(true),

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel } from '../skills/explore/assets/workspace-view.js';
+import { mapOverview, visibleSelection, historyStepLabel } from '../skills/explore/assets/workspace-view.js';
+import { briefFilename, briefPreview } from '../skills/explore/assets/brief-dialog.js';
 
 test('overview distinguishes awaiting input, queue, inactive ideas and stale findings without editing the map', () => {
   const map = { nodes: [

@@ -1,4 +1,11 @@
-import { importConflictHtml } from './workspace-view.js';
+import { plural } from './workspace-view.js';
+
+// Import (I2): a map with this ID is already here and the file differs. Nothing has been changed yet.
+export function importConflictHtml({ existing, incoming }, { esc }) {
+  const when = at => Number.isNaN(Date.parse(at)) ? '' : ` · updated ${esc(new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }))}`;
+  const side = (label, map) => `<div class="import-side"><h3 class="section-label">${label}</h3>${map.unreadable ? '<p class="form-note">A map folder with this ID is here but cannot be opened.</p>' : `<p><strong>${esc(map.title)}</strong></p><p class="form-note">${plural(map.ideas, 'idea')} · revision ${esc(map.revision)}${when(map.updatedAt)}</p>`}</div>`;
+  return `<p>A map with the same ID is already in this workspace, and the file is different. Nothing has been changed.</p><div class="import-sides">${side('Already here', existing)}${side('In the file', incoming)}</div>`;
+}
 
 // Import a map (I2): an identical map opens the existing one; a different one with the same ID asks first, offering
 // to keep the one here or import a copy.

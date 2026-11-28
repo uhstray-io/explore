@@ -1,7 +1,19 @@
-import { briefPreview, briefFilename } from './workspace-view.js';
+import { escapeHtml, downloadName } from './workspace-view.js';
+import { presentation } from './graph.js';
+
+export const briefFilename = title => downloadName(title, '-brief.md');
+
+// The brief as the dialog shows it.
+export function briefPreview(brief) {
+  const counts = brief.counts;
+  // Show questions and answers separately so long prompts cannot hide the answer.
+  const itemsWithAnswers = brief.sections.map(section => ({ ...section, items: section.items.map(item => item.question ? { ...item, text: `Question: ${item.question}\nAnswer: ${item.text}` } : item) }));
+  brief = { ...brief, sections: itemsWithAnswers };
+  return `${brief.originalIdea ? `<h3>Original idea</h3><blockquote>${escapeHtml(brief.originalIdea)}</blockquote>` : ''}<h3>Progress</h3><p>${counts.nodes} ideas; ${counts.explored} explored; ${counts.accepted} accepted and current; ${counts.stale} need review; ${counts.awaitingAnswer} awaiting answers.</p><p class="brief-scope-note">A bounded summary of saved material. Sections may overlap; explored findings have not necessarily been verified.</p>${brief.sections.map(section => `<section class="brief-section"><h3>${escapeHtml(section.label)}</h3>${section.items.length ? section.items.map(item => `<article class="brief-item"><strong>${escapeHtml(item.title)}</strong><small class="brief-item-state">${escapeHtml(presentation(item).label)}</small><p>${escapeHtml(item.text)}</p><small class="brief-reference">${escapeHtml(item.nodeId)}${item.questionId ? ` · ${escapeHtml(item.questionId)}` : ''}</small></article>`).join('') : '<p class="brief-empty">None recorded in this scope.</p>'}${section.omitted ? `<p class="brief-omitted">${section.omitted} more ${section.omitted === 1 ? 'record' : 'records'} in this section. Open the map to inspect the rest.</p>` : ''}</section>`).join('')}`;
+}
 
 // The map or branch brief: an extract of the saved map, never new research, to read, copy or download.
-// Returns show(nodeId): null for the whole map, or an idea for its branch.
+// Returns show(nodeId): null for the whole map, or an idea for its branch. app.js wires the buttons that open it.
 export function briefDialog({ api, map, download }) {
   const $ = selector => document.querySelector(selector);
   let brief = null, scope = null, version = 0;
@@ -27,7 +39,6 @@ export function briefDialog({ api, map, download }) {
       $('#brief-status').textContent = `Could not prepare the brief. ${error.message}`; $('#retry-brief').hidden = false;
     }
   }
-  $('#show-brief').addEventListener('click', () => show());
   $('#retry-brief').addEventListener('click', () => show(scope));
   $('#copy-brief').addEventListener('click', async () => {
     if (!brief) return;
