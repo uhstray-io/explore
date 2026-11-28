@@ -21,7 +21,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
-import { hypothesisHtml, directionKindHtml, outcomeMarkHtml, outcomeLabel } from './hypothesis.js';
+import { hypothesisHtml, directionKindHtml, outcomeMarkHtml, outcomeLabel, suggestPayload, outcomePayload } from './hypothesis.js';
 import { impactHtml, impactFilter } from './impact.js';
 import { goalInput, goalFieldsHtml, goalSectionHtml, goalEditorHtml, goalEdits, modeLabel } from './guidance.js';
 import { minimapPanel } from './minimap.js';
@@ -895,8 +895,8 @@ $('#detail').addEventListener('submit', async event => {
       if (success) delete state.tidyRestore?.[questionId]; // Saved: nothing left to restore.
       if (!success) renderDetail(true);
     }
-    if (form.id === 'suggest-form') success = await act(node, 'suggest', { title: data.title, body: data.body.trim() || data.title, ...(data.kind === 'hypothesis' ? { kind: 'hypothesis', test: data.test ?? '' } : {}) });
-    if ('outcomeForm' in form.dataset) success = await act(node, 'record-outcome', { outcome: data.outcome, note: data.note ?? '' });
+    if (form.id === 'suggest-form') success = await act(node, 'suggest', suggestPayload(data));
+    if ('outcomeForm' in form.dataset) success = await act(node, 'record-outcome', outcomePayload(data));
     if (form.id === 'guidance-form') {
       const edits = goalEdits(state.map, data);
       // Nothing changed: the editor closes and its drafts go, so a later change by someone else shows as it is.

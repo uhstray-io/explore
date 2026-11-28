@@ -133,7 +133,7 @@ const versionWords = {
   failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
   'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'branch-restored': 'Restored one branch', 'change-undone': 'Undid a change', linked: 'Connection added', unlinked: 'Connection removed', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
-  'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
+  'answer-changed': 'Answer changed', 'outcome-recorded': 'Outcome recorded', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
   'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported', 'glossary-added': 'Glossary term added', 'guidance-changed': 'Goal and mode changed', 'glossary-edited': 'Glossary term edited', 'glossary-removed': 'Glossary term removed', 'glossary-accepted': 'Glossary term accepted', 'glossary-dismissed': 'Proposed term dismissed', 'done-when-set': 'Stopping point set', 'map-recovered': 'Recovered from a version',
 };
 export function versionLabel(version) {

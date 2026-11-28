@@ -15,7 +15,8 @@ import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { normalizeLimitations, limitationLines } from './limitations.mjs';
 import { normalizeClaims, claimLines } from './claims.mjs';
-import { hypothesisTest, newHypothesis, normalizeHypothesisResult, applyHypothesisResult, hypothesisPacket, hypothesisInstruction, hypothesisLines } from './hypotheses.mjs';
+import { hypothesisTest, normalizeHypothesisResult, applyHypothesisResult, hypothesisPacket, hypothesisInstruction, hypothesisLines } from './hypotheses.mjs';
+import { newHypothesis } from '../assets/hypothesis.js';
 import { normalizeGoal, goalForPacket, goalUse, goalLines, packetBudget } from './guidance.mjs';
 import { goalOf } from '../assets/guidance.js';
 import { findingsBasis, reasoningLabel } from '../assets/claims.js';
@@ -393,9 +394,15 @@ export class Store {
     this.event(map, 'job-queued', nodeId, `${definition.label}. ${job.reason}`);
     return job;
   }
-  node(title, body, kind = 'research', parentId = null) {
+  // A new idea, suggested. A hypothesis (K13) gets its record, with how to test it.
+  node(title, body, kind = 'research', parentId = null, { test = '' } = {}) {
     return { id: id('node'), title, prompt: body, body, summary: body.slice(0, 600), kind, parentId, status: 'suggested',
-      reviewState: 'unreviewed', contentRevision: 1, questions: [], sources: [], stale: false, createdAt: now() };
+      reviewState: 'unreviewed', contentRevision: 1, questions: [], sources: [], stale: false, createdAt: now(), ...(kind === 'hypothesis' ? { hypothesis: newHypothesis(test) } : {}) };
+  }
+  // A user statement changed what these ideas rest on: the findings of every idea below or depending on `sourceId`
+  // need another look; their questions stay. Changing an answer and recording a hypothesis's outcome both do this.
+  flagAffected(map, sourceId, kind) {
+    for (const id of this.affectedBy(map, sourceId)) { const other = map.nodes.find(node => node.id === id); if (id !== sourceId && other && this.hasConclusions(map, other)) this.flagForReview(other, { sourceId, kind }); }
   }
   create(input) {
     return this.serial(async () => {
@@ -515,7 +522,7 @@ export class Store {
           n.contentRevision++; // Work running on this branch, below it or depending on it now delivers a stale result.
           // Findings that relied on the old answer need another look; their questions stay.
           if (hasFindings(map, n) && (!since || map.jobs.some(j => currentRun(n, j) && j.startedAt > since))) this.flagForReview(n, { sourceId: n.id, kind: 'answer-changed' });
-          for (const id of this.affectedBy(map, n.id)) { const other = map.nodes.find(node => node.id === id); if (id !== n.id && other && this.hasConclusions(map, other)) this.flagForReview(other, { sourceId: n.id, kind: 'answer-changed' }); }
+          this.flagAffected(map, n.id, 'answer-changed');
           // Open follow-ups asked after the old answer no longer fit it; answered ones keep their answers.
           for (const other of later) if (isOpen(other)) other.supersededAt = at;
           this.event(map, 'answer-changed', n.id, q.id);
@@ -553,8 +560,7 @@ export class Store {
           // A direction, or a hypothesis (K13) whose context is the claim, with how to test it.
           const kind = input.kind ?? 'research';
           need(kind === 'research' || kind === 'hypothesis', 'Choose a direction or a hypothesis.');
-          const child = this.node(text(input.title, 'Title', 100), text(input.body, 'Direction', 4000), kind, n.id);
-          if (kind === 'hypothesis') child.hypothesis = newHypothesis(hypothesisTest(input.test, message => need(false, message)));
+          const child = this.node(text(input.title, 'Title', 100), text(input.body, 'Direction', 4000), kind, n.id, kind === 'hypothesis' ? { test: hypothesisTest(input.test, message => need(false, message)) } : {});
           const edge = { from: n.id, to: child.id, type: 'contains' };
           map.nodes.push(child); map.edges.push(edge);
           this.recordGrowth(map, [child], [edge]);
@@ -589,7 +595,7 @@ export class Store {
             revised = [input.body ? text(input.body, 'Changed premise', 16000) : null, `Earlier answer to "${q.text}": ${q.answer}`, `Changed answer: ${answer}`].filter(Boolean).join('\n\n');
             title = `Changed answer: ${q.text}`.slice(0, 100);
           } else { revised = text(input.body, 'Changed premise', 16000); title = `Changed premise: ${n.title}`.slice(0, 100); }
-          const child = this.node(input.title ? text(input.title, 'Title', 100) : title, revised, 'research', n.id);
+          const child = this.node(input.title ? text(input.title, 'Title', 100) : title, revised, n.kind === 'hypothesis' ? 'hypothesis' : 'research', n.id, { test: n.hypothesis?.test ?? '' });
           child.revises = n.id; if (revisesAnswer) child.revisesAnswer = revisesAnswer;
           this.invalidatePremises(map, n.id, revisesAnswer ? 'answer-changed' : 'premise-forked');
           const edge = { from: n.id, to: child.id, type: 'contains' };
@@ -624,7 +630,7 @@ export class Store {
     if (dismissed.length) selected.dismissedQuestions = dismissed; // Never asked again.
     if (node.options?.length) Object.assign(selected, { options: node.options.map(({ id, title }) => ({ id, title: clip(title, 150) })), recommendation: node.recommendation?.optionId ?? null });
     if (node.claims?.length) selected.claims = node.claims.map(({ id, text }) => ({ id, text: clip(text, 200) }));
-    if (node.kind === 'hypothesis') selected.hypothesis = hypothesisPacket(node);
+    if (node.kind === 'hypothesis') selected.hypothesis = hypothesisPacket(node, clip);
     if (node.limitations?.length) selected.limitations = node.limitations.map(({ id, kind, summary, optionIds }) => ({ id, kind, summary: clip(summary, 200), ...(optionIds ? { optionIds } : {}) }));
     const feedback = questionFeedback(map, 10);
     // Nearest first, so trimming from the end leaves out the farthest ideas.
@@ -771,15 +777,14 @@ export class Store {
         // These belong to the findings: a new result replaces them, and one without them clears them.
         for (const key of resultOwnedFields) { delete n[key]; if (normalized[key] !== undefined) n[key] = normalized[key]; }
         addProposals(map, normalized.glossary, { jobId: job.id, store: this }); // The agent's terms wait for the user.
-        applyHypothesisResult(n, normalized, job.id); // A proposed outcome, never the outcome (K13).
+        applyHypothesisResult(n, normalized, job.id, now()); // A proposed outcome, never the outcome (K13).
         n.questions.push(...normalized.questions.map(q => ({ ...q, askedAt: now(), jobId: job.id }))); n.contentRevision++; n.stale = false; n.reviewState = 'unreviewed';
         n.status = normalized.questions.length ? 'awaiting-answer' : 'explored';
         if (n.status === 'explored') n.completedAt = now();
         const addedNodes = [], addedEdges = [];
         for (const s of normalized.suggestions) {
           if (existingChild(map, n, s.title)) continue; // Reported as existing-branch.
-          const child = this.node(s.title, s.body, s.kind, n.id);
-          if (s.kind === 'hypothesis') child.hypothesis = newHypothesis(s.test);
+          const child = this.node(s.title, s.body, s.kind, n.id, { test: s.test });
           const edge = { from: n.id, to: child.id, type: 'contains' };
           map.nodes.push(child); map.edges.push(edge);
           addedNodes.push(child); addedEdges.push(edge);

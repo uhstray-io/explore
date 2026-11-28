@@ -1,3 +1,4 @@
+import { hypothesisOf, outcomeOf } from '../assets/hypothesis.js';
 import { createHash } from 'node:crypto';
 import { effectiveAnswerState } from '../assets/questions.js';
 
@@ -59,6 +60,7 @@ export function certaintyFields(question) {
 export const answerBrief = (q, { question = 200, answer = 300 } = {}) => ({ question: clip(q.text, question), answer: clip(q.answer, answer), ...certaintyFields(q), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) });
 // One nearby idea in a packet: enough to keep accepted, provisional and stale material apart.
 export const nearbyBrief = n => ({ id: n.id, title: n.title, summary: clip(n.summary, 500), premise: clip(n.prompt || n.body, 600),
-  answers: n.questions.filter(q => q.answer).slice(-3).map(q => answerBrief(q)), status: n.status, reviewState: n.reviewState, stale: n.stale });
+  answers: n.questions.filter(q => q.answer).slice(-3).map(q => answerBrief(q)), status: n.status, reviewState: n.reviewState, stale: n.stale,
+  ...(hypothesisOf(n) ? { kind: 'hypothesis', outcome: outcomeOf(hypothesisOf(n).outcome) } : {}) });
 // An idea's researched findings, or '' while its body is still only the premise.
 export const ownFindings = node => node.body === node.prompt ? '' : node.body;
