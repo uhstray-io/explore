@@ -15,6 +15,11 @@ const option = (name, fallback) => {
   return args[i + 1];
 };
 const required = name => { const value = option(name); if (!value) throw new Error(`--${name} is required.`); return value; };
+// Writes a file that must not exist yet: an export never overwrites one.
+async function writeNew(out, text) {
+  try { await writeFile(out, text, { flag: 'wx' }); }
+  catch (error) { if (error.code === 'EEXIST') throw new Error('That file already exists. Choose a new --out path.'); throw error; }
+}
 // Commands whose reply carries Markdown: --format markdown prints it as it is; json prints the rest of the reply.
 const outputFormat = () => { const format = option('format', 'json'); if (!['json', 'markdown'].includes(format)) throw new Error('--format must be json or markdown.'); return format; };
 function inFormat(output, format, name) {
@@ -22,7 +27,7 @@ function inFormat(output, format, name) {
   if (typeof output.markdown !== 'string') throw new Error(`The server did not provide a Markdown ${name}.`);
   return output.markdown;
 }
-const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  doctor --support [--out FILE]          A redacted report to attach to a bug report; --out writes a new file\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  maps --query TEXT --content          Search every map's ideas, answers and sources\n  maps --archived include|only           List archived maps too, or only them\n  create --file idea.json                 {title, idea, mode?, objective?, successCriteria?}\n  export --map ID --out FILE               Complete map as JSON (no claim data); refuses to overwrite\n  export --map ID --out FILE --format mermaid|canvas|svg|print [--node ID]\n                                         A diagram or printable page of the map, or of one idea and all below it\n  import --file FILE [--as-copy]          Import an export or map.json; prints a conflict instead of choosing\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?, limitations?, claims?, assumptions?, glossary?}\n  result --job ID --file F --check        Check a result against the exploration rules without saving it\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|options|limitations|claims|assumptions|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  changes --map ID [--since REF] [--format json|markdown]  What changed since a Git commit (read-only)\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
+const usage = `Explore agent bridge (Node 20+)\n\nCommands:\n  doctor                                 Read-only setup/reconnection diagnostics; server optional\n  doctor --support [--out FILE]          A redacted report to attach to a bug report; --out writes a new file\n  status                                 Local address, bridge status, first map page\n  maps [--query TEXT] [--offset N --revision ID] [--limit 20]\n  maps --query TEXT --content          Search every map's ideas, answers and sources\n  maps --archived include|only           List archived maps too, or only them\n  create --file idea.json                 {title, idea, mode?, objective?, successCriteria?}\n  export --map ID --out FILE               Complete map as JSON (no claim data); refuses to overwrite\n  export --map ID --out FILE --format mermaid|canvas|svg|print [--node ID]\n                                         A diagram or printable page of the map, or of one idea and all below it\n  import --file FILE [--as-copy]          Import an export or map.json; prints a conflict instead of choosing\n  next --wait 25 --worker codex [--map ID]\n  result --job ID --file findings.json     {summary, body, questions?, suggestions?, sources?, links?, options?, recommendation?, limitations?, claims?, assumptions?, glossary?, hypothesis?}\n  result --job ID --file F --check        Check a result against the exploration rules without saving it\n  fail --job ID --reason "..."\n  read --map ID [--query TEXT] [--offset N --revision N] [--limit 20]\n  read --map ID --node ID [--section summary|premise|findings|questions|sources|options|limitations|claims|assumptions|relationships]\n       [--query TEXT | --question ID] [--offset N --revision N] [--limit 4000]\n  brief --map ID [--node ID] [--format json|markdown]\n  changes --map ID [--since REF] [--format json|markdown]  What changed since a Git commit (read-only)\n  usage [--map ID]                        Recorded CLI output sizes, not model tokens; server optional\n  act --map ID --file action.json         Requires expectedRevision\n  answers export --map ID --out FILE      The map's open questions as a Markdown file to answer in any editor\n  answers import --map ID --file FILE [--apply]\n                                         Preview the answers in a file; --apply saves each ready one. Only when the user asks\n\nAll commands accept --workspace PATH. Commands other than doctor/help/usage require an active server.\nOnly user-activated jobs are returned. Claims are saved locally for result delivery.\nList pages return at most 40 entries. Continue with nextOffset and revision using the same query.\nNode section reads return bounded text excerpts; --limit counts characters there.`;
 const secrets = [];
 const page = (items, revision, fields = ['title']) => {
   const integer = (name, fallback, min, max) => {
@@ -48,7 +53,7 @@ try {
     if (stdout) console.log(stdout);
     if (stderr) console.error(stderr);
   } else {
-    if (!['status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'changes', 'usage', 'act', 'export', 'import'].includes(command)) throw new Error(usage);
+    if (!['status', 'maps', 'create', 'next', 'result', 'fail', 'read', 'brief', 'changes', 'usage', 'act', 'export', 'import', 'answers'].includes(command)) throw new Error(usage);
     const connection = command === 'usage' ? null : await readConnection(workspace);
     if (connection) secrets.push(connection.token);
     async function api(route, data) {
@@ -122,8 +127,7 @@ try {
         if (format === 'json' && option('node')) throw new Error('--node works with the diagram formats: a JSON export is always the complete map.');
         const file = format === 'json' ? null : exportAs(await api(`/api/maps/${mapId}`), format, { nodeId: option('node') ?? null });
         const text = file ? file.text : JSON.stringify(await api(`/api/maps/${mapId}/export`), null, 2) + '\n';
-        try { await writeFile(out, text, { flag: 'wx' }); }
-        catch (error) { if (error.code === 'EEXIST') throw new Error('That file already exists. Choose a new --out path.'); throw error; }
+        await writeNew(out, text);
         output = { exported: mapId, format, ...(file ? { ideas: file.count } : {}), file: out }; break;
       }
       case 'import': output = await api('/api/import', { data: await input(), asCopy: args.includes('--as-copy') }); break;
@@ -148,6 +152,24 @@ try {
         output = { scope: 'Recorded CLI stdout only; not vendor tokens or active context. Excludes direct file reads, browser observations, research tools, model replies, failed commands, and host compaction.',
           commands: matching.length, characters: matching.reduce((n,e) => n + e.characters, 0), utf8Bytes: matching.reduce((n,e) => n + e.utf8Bytes, 0),
           byCommand: Object.fromEntries([...new Set(matching.map(e => e.command))].map(command => [command, { calls: matching.filter(e => e.command === command).length, characters: matching.filter(e => e.command === command).reduce((n,e) => n + e.characters, 0) }])) };
+        break;
+      }
+      case 'answers': {
+        // Answer questions in a Markdown file (K11). Only the user answers: the agent never fills one in, and imports one
+        // only when the user asks. --apply sends each ready answer as its own answer action, as the browser does.
+        const { answerFileMarkdown, openQuestionsForFile, parseAnswerFile, answerPreview } = await import('../assets/answer-file.js');
+        const { applyOverApi } = await import('./answers.mjs');
+        const mapId = required('map'), short = text => (text.length > 200 ? `${text.slice(0, 199)}…` : text);
+        if (args[1] === 'export') {
+          const out = path.resolve(required('out')), map = await api(`/api/maps/${mapId}`);
+          await writeNew(out, answerFileMarkdown(map));
+          output = { exported: mapId, questions: openQuestionsForFile(map).reduce((total, group) => total + group.questions.length, 0), file: out };
+        } else if (args[1] === 'import') {
+          const map = await api(`/api/maps/${mapId}`);
+          const preview = answerPreview(map, parseAnswerFile(await readFile(path.resolve(required('file')), 'utf8'), { mapId }).answers);
+          output = { mapId, preview: preview.map(({ questionId, status, question, answer, answerState }) => ({ questionId, status, question, answer: short(answer), ...(answerState ? { answerState } : {}) })) };
+          if (args.includes('--apply')) output.applied = await applyOverApi(preview, { api, mapId, map });
+        } else throw new Error('Use answers export --map ID --out FILE, or answers import --map ID --file FILE [--apply].');
         break;
       }
       case 'act': { const m = await api(`/api/maps/${required('map')}/action`, await input()); output = { saved: true, mapId: m.id, revision: m.revision }; break; }
