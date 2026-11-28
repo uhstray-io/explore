@@ -378,6 +378,40 @@ export function nodeMenuHtml(node, { esc, live = false, items = [] }) {
   return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open>Add a connection</button>`] : []), ...items.filter(Boolean)]);
 }
 
+// Which ideas a view shows (Z6). Every idea except the descendants of a folded one. With branch `focus`, only the
+// starting idea, the path down to the focused idea and its subtree, where alone folds apply. The starting idea is never
+// hidden; an idea whose parent is gone stays shown unless a branch is focused. Unknown IDs are ignored.
+// Returns { shown: Set of IDs, hiddenBelow: Map of a folded idea's ID → { total, needsAnswer, needsReview, working } }.
+export function shownNodes(map, { folded = [], focus = null } = {}) {
+  const byId = new Map(map.nodes.map(node => [node.id, node])), children = new Map();
+  for (const node of map.nodes) { if (!children.has(node.parentId)) children.set(node.parentId, []); children.get(node.parentId).push(node); }
+  const below = id => { const out = [], stack = [...(children.get(id) ?? [])]; while (stack.length) { const node = stack.pop(); out.push(node); stack.push(...(children.get(node.id) ?? [])); } return out; };
+  const folds = new Set((Array.isArray(folded) ? folded : []).filter(id => byId.has(id)));
+  let allowed = null;
+  if (focus && byId.has(focus)) {
+    allowed = new Set([map.rootId, focus, ...below(focus).map(node => node.id)]);
+    for (let at = byId.get(byId.get(focus).parentId); at && !allowed.has(at.id); at = byId.get(at.parentId)) { allowed.add(at.id); folds.delete(at.id); }
+    folds.delete(map.rootId);
+  }
+  const ok = id => !allowed || allowed.has(id), shown = new Set(), hiddenBelow = new Map();
+  const visit = start => {
+    for (const stack = [start]; stack.length;) {
+      const node = stack.pop();
+      if (shown.has(node.id)) continue;
+      shown.add(node.id);
+      if (folds.has(node.id)) {
+        const hidden = below(node.id).filter(item => ok(item.id));
+        if (hidden.length) hiddenBelow.set(node.id, { total: hidden.length, needsAnswer: hidden.filter(item => item.status === 'awaiting-answer').length,
+          needsReview: hidden.filter(item => item.stale).length, working: hidden.filter(item => item.status === 'queued' || item.status === 'running').length });
+        continue;
+      }
+      for (const child of children.get(node.id) ?? []) if (ok(child.id)) stack.push(child);
+    }
+  };
+  for (const node of map.nodes) if (ok(node.id) && (!byId.has(node.parentId) || !ok(node.parentId))) visit(node);
+  return { shown, hiddenBelow };
+}
+
 // Find an idea's rule, which the command palette shares: the title or summary contains the text, ignoring case.
 export function ideaMatches(nodes, query) {
   const text = String(query ?? '').trim().toLowerCase();
