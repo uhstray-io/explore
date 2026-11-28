@@ -25,8 +25,8 @@ const median = values => {
 // A running total that keeps what a summary needs: how many, their sum, the largest.
 const tally = () => ({ count: 0, sum: 0, max: null, add(value) { this.count++; this.sum += value; this.max = this.max === null ? value : Math.max(this.max, value); } });
 const meanOf = total => (total.count ? total.sum / total.count : null);
-// A saved time as milliseconds: an ISO string or a number of milliseconds; anything else is unknown.
-const time = value => { const at = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN; return Number.isFinite(at) ? at : null; };
+// A saved time as milliseconds: an ISO string or a number of milliseconds a date can hold; anything else is unknown.
+const time = value => { const at = typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN; return Number.isFinite(at) && Number.isFinite(new Date(at).getTime()) ? at : null; };
 const isoTime = value => { const at = time(value); return at === null ? null : new Date(at).toISOString(); };
 // The Monday (UTC) that starts the week of `at`, as YYYY-MM-DD.
 const weekOf = at => { const day = new Date(at); day.setUTCHours(0, 0, 0, 0); day.setUTCDate(day.getUTCDate() - ((day.getUTCDay() + 6) % 7)); return day.toISOString().slice(0, 10); };
@@ -36,24 +36,22 @@ const reviewBucket = node => ({ 'needs review': 'needsReview', accepted: 'accept
 const questionBucket = question => question.supersededAt ? 'superseded' : question.dismissedAt ? 'dismissed' : hasCurrentAnswer(question) ? 'answered' : isWaiting(question) ? 'waiting' : isOpen(question) ? 'later' : 'other';
 const jobOutcome = job => !isInvestigation(job) ? 'helpers' : job.stale ? 'stale' : job.result?.questions?.length ? 'askedQuestions' : 'finishedBranch';
 
-// One map's contribution, or a throw when it holds data that cannot be counted.
+// Whether every idea, question and job is a record; a map that is not is left out whole, before anything counts.
+const isRecord = value => !!value && typeof value === 'object';
+function countable(map) {
+  return Array.isArray(map.nodes) && map.nodes.every(node => isRecord(node) && (node.questions ?? []).every(isRecord)) && (map.jobs ?? []).every(isRecord);
+}
+// One map's contribution. Only called for a countable map, and nothing below can throw.
 function countMap(map, totals) {
-  const depths = tally(), children = new Map();
-  for (const { node, depth } of treeOrder(map)) { depths.add(depth); if (node.parentId != null) children.set(node.parentId, (children.get(node.parentId) || 0) + 1); }
+  const ids = new Set(map.nodes.map(node => node.id)), depths = tally(), children = new Map();
+  for (const { node, depth } of treeOrder(map)) { depths.add(depth); if (ids.has(node.parentId)) children.set(node.parentId, (children.get(node.parentId) || 0) + 1); }
   const row = { id: map.id, title: map.title, nodes: map.nodes.length, depth: depths.max ?? 0, meanDepth: meanOf(depths), questions: 0, answered: 0, completed: 0, failed: 0 };
-  const local = { nodes: [], questions: [], jobs: [] };
-  for (const node of map.nodes) {
-    if (!node || typeof node !== 'object') throw new Error('an idea is not a record');
-    local.nodes.push(node);
-    for (const question of node.questions || []) { if (!question || typeof question !== 'object') throw new Error('a question is not a record'); local.questions.push(question); }
-  }
-  for (const job of map.jobs || []) { if (!job || typeof job !== 'object') throw new Error('a job is not a record'); local.jobs.push(job); }
-  // Everything was readable: only now does this map count.
+  const questions = map.nodes.flatMap(node => node.questions ?? []), jobs = map.jobs ?? [];
   totals.maps.push({ map, row });
   totals.nodesPerMap.push(map.nodes.length); totals.depthMax.add(depths.max ?? 0); if (depths.count) totals.depthMean.add(meanOf(depths));
   for (const count of children.values()) totals.branching.add(count);
-  for (const node of local.nodes) { totals.kinds.add(node.kind); totals.work.add(node.status); totals.review[reviewBucket(node)]++; }
-  for (const question of local.questions) {
+  for (const node of map.nodes) { totals.kinds.add(node.kind); totals.work.add(node.status); totals.review[reviewBucket(node)]++; }
+  for (const question of questions) {
     row.questions++; totals.questions.total++; const bucket = questionBucket(question);
     if (bucket !== 'other') totals.questions[bucket]++;
     if (question.rating === 'good') totals.feedback.good++;
@@ -67,7 +65,7 @@ function countMap(map, totals) {
     const at = time(answeredSince(question));
     if (at === null) totals.unknownAnswers++; else totals.week(at).answers++;
   }
-  for (const job of local.jobs) {
+  for (const job of jobs) {
     totals.byStatus.add(job.status);
     if (typeof job.worker === 'string' && job.worker) totals.workers.add(job.worker.slice(0, 100)); else totals.unnamed++;
     if (Number.isFinite(job.contextCharacters)) totals.packets.push(job.contextCharacters);
@@ -96,7 +94,7 @@ export function usageStats(entries, { archived = 'exclude' } = {}) {
   for (const entry of entries) {
     if (!entry.map) { excluded.push({ id: entry.id, problem: entry.problem ?? entry.error?.code ?? 'unreadable' }); continue; }
     if (archived !== 'include' && entry.map.library?.archived) { archivedLeftOut++; continue; }
-    try { countMap(entry.map, totals); } catch { excluded.push({ id: entry.id, problem: 'unexpected-shape' }); }
+    if (countable(entry.map)) countMap(entry.map, totals); else excluded.push({ id: entry.id, problem: 'unexpected-shape' });
   }
   const changedAt = map => map.history?.at(-1)?.at ?? map.updatedAt ?? '';
   const rows = totals.maps.sort((a, b) => Number(!!b.map.library?.pinned) - Number(!!a.map.library?.pinned) || String(changedAt(b.map)).localeCompare(String(changedAt(a.map)))).map(({ row }) => row);

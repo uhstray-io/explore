@@ -147,3 +147,20 @@ test('map rows follow the rail: pinned first, then the most recently changed', (
   const stats = usageStats([at('map-0000000a', '2026-01-01T00:00:00.000Z'), at('map-0000000b', '2026-03-01T00:00:00.000Z'), at('map-0000000c', '2025-01-01T00:00:00.000Z', { library: { pinned: true, archived: false } })]);
   assert.deepEqual(stats.perMap.rows.map(row => row.id), ['map-0000000c', 'map-0000000b', 'map-0000000a']);
 });
+
+test('a time outside what a date can hold is unknown, and a map is either counted whole or left out', () => {
+  const map = shaped();
+  map.nodes[0].questions = [q('q1', { answer: 'Yes.', answeredAt: 1e20 })];
+  map.jobs = [job('f1', 'failed', { error: 'x', finishedAt: -1e17 })];
+  const stats = usageStats([{ id: map.id, map }]);
+  assert.equal(stats.maps.counted, 1); assert.deepEqual(stats.maps.excluded, []);
+  assert.equal(stats.activity.unknownAnswers, 1); assert.equal(stats.jobs.failures.recent[0].at, null);
+});
+
+test('an idea whose parent is missing is not counted as a parent, and a very deep map is still counted', () => {
+  const orphan = shaped(); orphan.nodes.push(node('lost', 'node-gone'));
+  assert.equal(usageStats([{ id: orphan.id, map: orphan }]).structure.branching.parents, 3);
+  const deep = { ...shaped(), nodes: [node('root', null), ...Array.from({ length: 12000 }, (_, i) => node(`n${i}`, i ? `n${i - 1}` : 'root'))] };
+  const stats = usageStats([{ id: deep.id, map: deep }]);
+  assert.equal(stats.maps.counted, 1); assert.equal(stats.structure.depth.max, 12000);
+});

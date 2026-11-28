@@ -11,11 +11,13 @@ const jobWords = { completed: 'Completed', failed: 'Failed', cancelled: 'Cancell
 export function usageHtml(stats, { esc }) {
   const { maps, structure, questions, answerStates, feedback, jobs, activity, perMap } = stats;
   // A row with a count, what it is out of, and a bar for its share.
-  const share = (label, count, total) => `<tr><th scope="row">${esc(label)}</th><td>${count} of ${total}</td><td class="usage-share" aria-hidden="true"><span class="usage-bar"><span style="width:${total ? Math.round(count / total * 100) : 0}%"></span></span></td></tr>`;
+  const share = (label, count, total) => `<tr><th scope="row">${esc(label)}</th><td>${count} of ${total}</td><td class="usage-share"><span class="usage-bar" aria-hidden="true"><span style="width:${total ? Math.round(count / total * 100) : 0}%"></span></span></td></tr>`;
   const table = (caption, rows) => rows.length ? `<table class="usage-table"><caption>${esc(caption)}</caption><tbody>${rows.join('')}</tbody></table>` : '';
   const counted = (entries, words, total) => Object.entries(entries).sort((a, b) => b[1] - a[1]).map(([key, count]) => share(words?.[key] ?? (key === 'other' ? 'Other' : key), count, total));
   const notes = [maps.archivedLeftOut ? `${plural(maps.archivedLeftOut, 'archived map')} left out.` : '',
-    maps.excluded.length ? `Left out because they cannot be read: ${maps.excluded.map(entry => esc(entry.id)).join(', ')}${maps.excludedMore ? ` and ${maps.excludedMore} more` : ''}.` : ''].filter(Boolean).join(' ');
+    ...[['Left out because they cannot be read', maps.excluded.filter(entry => entry.problem !== 'unexpected-shape')], ['Left out because they hold data that cannot be counted', maps.excluded.filter(entry => entry.problem === 'unexpected-shape')]]
+      .map(([words, list]) => (list.length ? `${words}: ${list.map(entry => esc(entry.id)).join(', ')}.` : '')),
+    maps.excludedMore ? `And ${plural(maps.excludedMore, 'more map')} left out.` : ''].filter(Boolean).join(' ');
   const parts = [`<p class="form-note">From ${plural(maps.counted, 'saved map')}. Nothing here is sent anywhere or changes a map.${notes ? ` ${notes}` : ''}</p>`];
   if (!maps.counted) return parts.join('');
   parts.push('<h3 class="section-label">Structure</h3>',
