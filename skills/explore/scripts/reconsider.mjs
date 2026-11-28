@@ -7,7 +7,7 @@ import { normalizeRecommendation, recommendationLines } from './options.mjs';
 import { answerBrief } from './neighbourhood.mjs';
 import { isOpenJob } from './map-validation.mjs';
 import { markdownText, isInvestigationJob } from '../assets/workspace-view.js';
-import { RECONSIDER, priorities, priorityWords, sortCriteria, criteriaKey, maxCriteria, criterionMax, proposalState, adoptedReconsideration, reconsiderationOutdated, ideaFingerprint, assessmentBases } from '../assets/criteria.js';
+import { RECONSIDER, priorities, priorityWords, sortCriteria, criteriaKey, maxCriteria, criterionMax, proposalState, adoptedReconsideration, reconsiderationOutdated, ideaFingerprint, reconsiderBasis, assessmentBases } from '../assets/criteria.js';
 
 class ReconsiderProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new ReconsiderProblem(message, status); };
@@ -127,11 +127,11 @@ export const reconsiderJobTypes = {
     // or shortened is listed. Work the idea moved past before it was claimed is not sent at all.
     packet: ({ job, node, budget }) => {
       need(!reconsiderationOutdated(job, node), 'The idea changed since you asked, so your agent was not sent this. Ask again.');
-      const packet = { node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 2400), summary: clip(node.summary, 700),
-        answers: node.questions.filter(q => q.answer && !q.supersededAt).slice(-8).map(q => answerBrief(q, { question: 300, answer: 600 })) },
-        options: node.options.map(({ suggestedAnswer, ...option }) => option), ...(node.optionsLimit ? { optionsLimit: node.optionsLimit } : {}), recommendation: node.recommendation, criteria: job.input.criteria,
-        ...(node.claims?.length ? { claims: node.claims.map(({ id, text }) => ({ id, text: clip(text, 300) })) } : {}),
-        ...(node.limitations?.length ? { limitations: node.limitations.map(({ id, kind, summary, blocksRecommendation: blocks }) => ({ id, kind, summary: clip(summary, 300), ...(blocks ? { blocksRecommendation: blocks } : {}) })) } : {}),
+      const basis = reconsiderBasis(node); // Exactly what the job's fingerprint covers.
+      const packet = { node: { id: node.id, title: clip(basis.title, 100), premise: clip(basis.premise, 2400), summary: clip(basis.summary, 700), answers: basis.answers.map(q => answerBrief(q, { question: 300, answer: 600 })) },
+        options: basis.options, ...(basis.optionsLimit ? { optionsLimit: basis.optionsLimit } : {}), recommendation: basis.recommendation, criteria: job.input.criteria,
+        ...(basis.claims.length ? { claims: basis.claims.map(claim => ({ ...claim, text: clip(claim.text, 300) })) } : {}),
+        ...(basis.limitations.length ? { limitations: basis.limitations.map(record => ({ ...record, summary: clip(record.summary, 300) })) } : {}),
         instruction };
       const limit = budget - 800, size = () => JSON.stringify(packet).length, omitted = { answers: 0, claims: 0, limitations: 0 };
       while (size() > limit && packet.node.answers.length) { packet.node.answers.shift(); omitted.answers++; }

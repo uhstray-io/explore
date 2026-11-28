@@ -266,6 +266,19 @@ test('a stale idea cannot be reconsidered, and outdated means what it read chang
     ['how sure an answer is', { ...node, questions: [{ ...node.questions[0], answerState: 'decided' }] }, job], ['an answer', { ...node, questions: [{ ...node.questions[0], answer: 'Any.' }] }, job],
     ['the premise', { ...node, prompt: 'Notes for crews.' }, job], ['the recommendation', { ...node, recommendation: { ...node.recommendation, optionId: 'lock' } }, job],
     ['a limitation', { ...node, limitations: [{ id: 'gap', kind: 'missing-evidence', summary: 'No data.' }] }, job]]) assert.equal(proposalState(changed, asked), 'outdated', what);
+  // Every part of what it reads, in turn; and what it does not read, which leaves it current.
+  const full = { ...node, optionsLimit: undefined, claims: [{ id: 'c1', text: 'Phones lose signal.' }], limitations: [{ id: 'gap', kind: 'missing-evidence', summary: 'No data.' }],
+    questions: [{ id: 'q0', text: 'Old?', answer: 'Was.', supersededAt: '2026-01-01T00:00:00.000Z' }, { id: 'q1', text: 'Which phones?', answer: 'Older ones.', answerState: 'assumption', disproveIf: 'New phones.' }], options: [{ ...options[0], suggestedAnswer: 'Merge.' }, options[1]] };
+  const basisJob = { input: { criteria: full.criteria, fingerprint: ideaFingerprint(full) } }, answer = full.questions[1];
+  for (const [what, changed] of [['the title', { title: 'Renamed' }], ['the premise', { prompt: 'Other notes.' }], ['the summary', { summary: 'Other.' }], ['an option', { options: [{ ...full.options[0], fit: 'Anywhere.' }, full.options[1]] }],
+    ['optionsLimit', { optionsLimit: 'Only one is real.' }], ['the recommendation', { recommendation: { ...full.recommendation, rationale: 'Other reasons.' } }], ['an answer', { questions: [full.questions[0], { ...answer, answer: 'Any.' }] }],
+    ['how sure it is', { questions: [full.questions[0], { ...answer, answerState: 'decided' }] }], ['what would disprove it', { questions: [full.questions[0], { ...answer, disproveIf: 'Tablets.' }] }],
+    ['a claim', { claims: [{ id: 'c1', text: 'Phones keep signal.' }] }], ['whether a limitation blocks', { limitations: [{ ...full.limitations[0], blocksRecommendation: true }] }]]) {
+    assert.equal(proposalState({ ...full, ...changed }, basisJob), 'outdated', what);
+  }
+  for (const [what, changed] of [['a suggested answer', { options: [{ ...full.options[0], suggestedAnswer: 'Lock.' }, full.options[1]] }], ['a superseded answer', { questions: [{ ...full.questions[0], answer: 'Is.' }, answer] }], ['the review state', { reviewState: 'accepted', contentRevision: 9 }]]) {
+    assert.equal(proposalState({ ...full, ...changed }, basisJob), 'current', `${what} is not read`);
+  }
   assert.equal(proposalState({ ...node, criteria: [{ ...node.criteria[0], label: 'Cheaper' }] }, job), 'earlier-criteria', 'a relabelled criterion');
 });
 

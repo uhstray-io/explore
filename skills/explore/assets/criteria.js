@@ -23,13 +23,17 @@ export function reconsiderationsOf(map, nodeId) {
   return { pending: mine.find(job => job.status === 'queued' || job.status === 'running') ?? null, latest: done.at(-1) ?? null,
     adopted: done.findLast(job => job.outcome === 'adopted') ?? null, failed: last?.status === 'failed' || last?.status === 'interrupted' ? last : null };
 }
-// What a reconsideration reads about its idea, as a short fingerprint kept on the job: the premise and summary, the
-// options and recommendation, the newest answers with how sure each is, and the claims and limitations. Accepting a
-// finding or anything else outside these leaves it current; a certainty change does not.
+// What a reconsideration reads about its idea: the title, premise and summary, the options (without suggested answers)
+// and recommendation, the newest current answers, and the claims and limitations. The packet clips and labels this;
+// the job keeps its fingerprint, so accepting a finding or anything else outside it leaves a proposal current.
+export function reconsiderBasis(node) {
+  return { title: node.title, premise: node.prompt || node.body, summary: node.summary, options: (node.options ?? []).map(({ suggestedAnswer, ...option }) => option),
+    optionsLimit: node.optionsLimit ?? null, recommendation: node.recommendation ?? null, answers: (node.questions ?? []).filter(q => q.answer && !q.supersededAt).slice(-8),
+    claims: (node.claims ?? []).map(({ id, text }) => ({ id, text })), limitations: (node.limitations ?? []).map(({ id, kind, summary, blocksRecommendation }) => ({ id, kind, summary, ...(blocksRecommendation ? { blocksRecommendation } : {}) })) };
+}
 const hash = text => { let a = 0x811c9dc5, b = 5381; for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = (Math.imul(b, 33) + c) | 0; } return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0'); };
-export const ideaFingerprint = node => hash(JSON.stringify([node.title, node.prompt || node.body, node.summary, node.options?.map(({ suggestedAnswer, ...option }) => option), node.optionsLimit ?? null, node.recommendation ?? null,
-  (node.questions ?? []).filter(q => q.answer && !q.supersededAt).slice(-8).map(q => [q.text, q.answer, effectiveAnswerState(q)?.state ?? null, q.disproveIf ?? null]),
-  (node.claims ?? []).map(({ id, text }) => [id, text]), (node.limitations ?? []).map(({ id, kind, summary, blocksRecommendation }) => [id, kind, summary, !!blocksRecommendation])]));
+// The answers as the packet states them: the question, the answer, how sure it is and what would disprove it.
+export const ideaFingerprint = node => { const basis = reconsiderBasis(node); return hash(JSON.stringify({ ...basis, answers: basis.answers.map(q => [q.text, q.answer, effectiveAnswerState(q)?.state ?? null, q.disproveIf ?? null]) })); };
 // Outdated once what it read changed or the idea needs review after the request; based on earlier criteria once they were edited.
 export const reconsiderationOutdated = (job, node) => !!job.stale || !node || !!node.stale || !node.options?.length || ideaFingerprint(node) !== job.input?.fingerprint;
 export function proposalState(node, job) {
