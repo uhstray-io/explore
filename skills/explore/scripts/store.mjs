@@ -14,6 +14,7 @@ import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { normalizeLimitations, limitationLines } from './limitations.mjs';
 import { normalizeClaims, claimLines } from './claims.mjs';
+import { normalizeAssumptions, assumptionLines } from './assumptions.mjs';
 import { normalizeGoal, goalForPacket, goalUse, goalLines, packetBudget } from './guidance.mjs';
 import { goalOf } from '../assets/guidance.js';
 import { findingsBasis, reasoningLabel } from '../assets/claims.js';
@@ -77,8 +78,9 @@ function object(value, field) {
   need(value && typeof value === 'object' && !Array.isArray(value), `${field} must be an object.`);
   return value;
 }
-// What an investigation result sets on its idea beside the findings: options (C1), limitations (C3) and claims (C2).
-const resultOwnedFields = ['options', 'optionsLimit', 'recommendation', 'limitations', 'claims'];
+// What an investigation result sets on its idea beside the findings: options (C1), limitations (C3), claims (C2) and
+// the agent's interpretations (K6).
+const resultOwnedFields = ['options', 'optionsLimit', 'recommendation', 'limitations', 'claims', 'assumptions'];
 function text(value, field, max = 12000, optional = false) {
   if (optional && value === undefined) return '';
   need(typeof value === 'string' && value.trim().length > 0, `${field} is required.`);
@@ -268,13 +270,14 @@ export class Store {
       if (n.options?.length) lines.push('', ...comparisonLines(n));
       if (n.limitations?.length) lines.push('', ...limitationLines(n));
       if (n.claims?.length) lines.push('', ...claimLines(n));
+      if (n.assumptions?.length) lines.push('', ...assumptionLines(n));
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
       else if (n.reaffirmedAt) lines.push('', `_Reaffirmed ${n.reaffirmedAt.slice(0, 10)}: the user re-checked it against the change; it was not re-researched._`);
       const dismissedQuestions = n.questions.filter(q => q.dismissedAt);
       const researchFor = q => { const job = questionJobs(map.jobs, RESEARCH, q.id).latest; return researchLines(job, !!job && this.resultIsStale(map, job)); };
       if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.importance || q.why ? [`_Importance: ${importanceName(q.importance)}${q.why ? ` — ${q.why}` : ''}_`, ''] : []), ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
-        ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []),
+        ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []), ...(q.answer && q.disproveIf ? ['', `_Would be disproved if: ${literal(q.disproveIf)}_`] : []),
         ...(q.previousAnswers || []).map(p => `_Earlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}_`),
         ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : []),
         ...researchFor(q)]));
@@ -707,7 +710,7 @@ export class Store {
     object(result, 'Result');
     need(JSON.stringify(result).length <= 150000, 'This result is too large. Shorten the findings, the options, the limitations or the claims.');
     const fail = message => { throw new Problem(message); };
-    const checked = { ...this.validateResultFields(result, map, node), ...normalizeComparison(result, fail), ...normalizeGlossaryProposals(result, fail) };
+    const checked = { ...this.validateResultFields(result, map, node), ...normalizeComparison(result, fail), ...normalizeGlossaryProposals(result, fail), ...normalizeAssumptions(result, fail) };
     return { ...checked, ...normalizeLimitations(result, checked, fail), ...normalizeClaims(result, checked, fail) };
   }
   validateResultFields(result, map, node) {

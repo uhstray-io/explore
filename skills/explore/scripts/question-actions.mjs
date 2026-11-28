@@ -1,4 +1,5 @@
-import { isOpen, isBlocking, normalizeQuestion, canResearch, EXPLAIN, RESEARCH, TIDY } from '../assets/questions.js';
+import { isOpen, isBlocking, normalizeQuestion, canResearch, hasCurrentAnswer, effectiveAnswerState, EXPLAIN, RESEARCH, TIDY } from '../assets/questions.js';
+import { disproveIfMax } from '../assets/assumptions.js';
 import { normalizeComparison } from './options.mjs';
 import { textField, sourceList } from './fields.mjs';
 import { nearbyIdeas, nearbyBrief, answerBrief, ownFindings, signatureMatches } from './neighbourhood.mjs';
@@ -56,6 +57,15 @@ function restoreOriginal(node, questionId) {
 }
 
 export const questionActions = {
+  // What would disprove an assumption (K6): the user's note on their own current answer marked Assumption. An
+  // annotation, so it is allowed on a finished branch and never changes content. Empty text removes it.
+  'set-disprove-if': { target: 'node', apply: ({ map, node, input, store }) => {
+    const question = findQuestion(node, input.questionId);
+    const text = textField(typeof input.text === 'string' ? input.text.trim() : input.text, 'What would disprove it', disproveIfMax, message => need(false, message), { optional: true });
+    if (text) need(hasCurrentAnswer(question) && effectiveAnswerState(question).state === 'assumption', 'Only a current answer marked Assumption takes a note on what would disprove it.', 409);
+    if (text) question.disproveIf = text; else delete question.disproveIf;
+    store.event(map, 'disprove-if-set', node.id, question.id);
+  } },
   'rate-question': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const question = findQuestion(node, input.questionId);
     need(!question.supersededAt, 'This question belongs to an earlier premise.', 409);

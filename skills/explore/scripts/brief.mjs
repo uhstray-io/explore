@@ -10,6 +10,7 @@ import { findingsBasis, unsupportedClaimCount, basisNote } from '../assets/claim
 import { agreedTerms, proposedTerms } from '../assets/glossary.js';
 import { goalOf } from '../assets/guidance.js';
 import { goalLines } from './guidance.mjs';
+import { assumptionRegister } from '../assets/assumptions.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
@@ -36,7 +37,12 @@ export function mapBrief(map, nodeId = null) {
     ['cleared', 'Cleared findings — not relied on', nodes.filter(n => n.reviewState === 'cleared').map(n => entry(n, n.summary, n.replacedBy ? { replacedBy: n.replacedBy } : {}))],
     ['premises', 'Current premises — not findings', nodes.filter(n => !hasFindings(map, n) && n.status !== 'suggested').map(n => entry(n, n.prompt || n.summary))],
     ['answers', 'Recorded user answers', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt).map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: `${certaintyText(q)}${q.changedAt ? ', changed' : ''}` })))],
-    ['unsettled', 'Unsettled answers — assumptions, not decisions', nodes.flatMap(n => n.questions.filter(q => q.answer && !q.supersededAt && effectiveAnswerState(q).state === 'assumption').map(q => entry(n, q.answer, { questionId: q.id, question: clip(q.text, 240), certainty: certaintyText(q) })))],
+    // The assumptions register (K6), most dependents first: the user's answers marked Assumption and the agent's interpretations.
+    ['assumptions', 'Assumptions and interpretations — unverified', assumptionRegister(map).filter(item => ids.has(item.nodeId)).map(item => {
+      const n = map.nodes.find(node => node.id === item.nodeId), change = ` — would change if: ${item.disproveIf ?? 'not stated'}`;
+      return item.kind === 'answer' ? entry(n, `Your assumption: ${item.text} — question: ${item.question}${change}`, { questionId: item.questionId, kind: 'answer', dependents: item.dependents.length })
+        : entry(n, `Agent interpretation: ${item.text}${change}`, { kind: 'interpretation', dependents: item.dependents.length });
+    }), '_None recorded. Results saved before this feature could not record the agent\'s interpretations._'],
     ['superseded', 'Earlier questions and answers — previous premises', nodes.flatMap(n => n.questions.filter(q => q.supersededAt).map(q => entry(n, q.answer || 'No answer was recorded.', { questionId: q.id, question: clip(q.text, 240), supersededAt: q.supersededAt })))],
     ['recommendations', 'Agent recommendations — not decisions', nodes.filter(n => n.options?.length).map(n => {
       const r = n.recommendation, chosen = n.options.find(option => option.id === r?.optionId);
