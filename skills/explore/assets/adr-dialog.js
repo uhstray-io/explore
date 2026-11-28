@@ -1,8 +1,8 @@
 import { adrDialogHtml, adrPathNote, adrSlug, adrFileText, adrToday, ADR_DRAFT } from './adr.js';
-import { recordDraftDialog } from './record-drafts.js';
+import { recordDraftDialog } from './record-draft-dialog.js';
 import { cssQuote as quote } from './dialog-focus.js';
 
-// The decision record dialog (F5), opened from Map tools, on the shared draft dialog (record-drafts.js): choose answers
+// The decision record dialog (F5), opened from Map tools, on the shared draft dialog (record-draft-dialog.js): choose answers
 // and findings, preview what the agent reads, queue the draft, edit and accept it. Its own part: the title the user has
 // in mind, Save file to docs/adr/ after previewing the exact file, and Copy. `act(nodeId, type, input, options)` is the
 // app's action call (Save file sends through the ADR route with it), `api` its read.
@@ -16,6 +16,7 @@ export function adrDialog({ map, act, api, esc, toast, live, listening }) {
   };
   return recordDraftDialog({ prefix: 'adr', type: ADR_DRAFT, map, act, api, esc, toast, live, listening, html: adrDialogHtml, extra: {
     initial: () => ({ hint: '', save: null }),
+    sent: () => ({ hint: '' }), // An open Save preview stays open.
     request: state => (state.hint.trim() ? { titleHint: state.hint.trim() } : {}),
     words: { queued: listening => (listening ? 'Your agent will draft the record next.' : 'Queued. Connect your agent to draft the record.'), accepted: 'Accepted. Save it to docs/adr/ when you are ready.' },
     acceptedFocus: itemId => `[data-adr-save="${quote(itemId)}"]`,

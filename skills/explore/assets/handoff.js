@@ -17,12 +17,13 @@ function recordLabel(map, record) {
   const node = map.nodes.find(n => n.id === record.nodeId), question = record.questionId ? node?.questions.find(q => q.id === record.questionId) : null;
   return record.questionId ? `${oneLineText(node?.title ?? 'A removed idea', 120)} · ${oneLineText(question?.text ?? 'A removed question', 200)}` : `${oneLineText(node?.title ?? 'A removed idea', 120)} (findings)`;
 }
+const reviewWords = { accepted: 'accepted', cleared: 'no longer relied on' };
 // How settled a record is: an answer's certainty, or a finding's review state, flagged when it needs review.
 function recordState(map, record) {
   const node = map.nodes.find(n => n.id === record.nodeId), question = record.questionId ? node?.questions.find(q => q.id === record.questionId) : null;
   if (!node || (record.questionId && !question)) return 'removed';
   if (question) return question.answer && !question.supersededAt ? `answer, ${certaintyText(question) ?? 'not recorded'}` : 'no longer a current answer';
-  return `findings, ${node.reviewState === 'accepted' ? 'accepted' : 'unreviewed'}${node.stale ? ', needs review' : ''}`;
+  return `findings, ${Object.hasOwn(reviewWords, node.reviewState) ? reviewWords[node.reviewState] : 'unreviewed'}${node.stale ? ', needs review' : ''}`;
 }
 // The sources that changed since the handoff was written (the server names them), or null while none did.
 const changedSources = (map, proposal) => (proposal.stale ? ((proposal.changed ?? []).map(record => recordLabel(map, record)).join('; ') || 'some of its sources') : null);

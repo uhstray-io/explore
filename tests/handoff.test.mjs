@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { startServer } from '../skills/explore/scripts/server.mjs';
-import { Store } from '../skills/explore/scripts/store.mjs';
+import { Store, publicMap } from '../skills/explore/scripts/store.mjs';
 import { handoffDialogHtml, handoffFileText, handoffFooter, handoffFilename, HANDOFF } from '../skills/explore/assets/handoff.js';
 import { handoffDialog } from '../skills/explore/assets/handoff-dialog.js';
-import { localDay, draftStatusHtml } from '../skills/explore/assets/record-drafts.js';
+import { localDay, draftStatusHtml, oneLineText } from '../skills/explore/assets/record-drafts.js';
 
 // Implementation handoff (F4, #26). Illustrative fixtures only, never ideas/.
 const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
@@ -269,5 +269,55 @@ test('a late preview of an earlier choice is dropped, in both draft dialogs', as
     await io.body.fire('change', { target: { id: 'handoff-format', value: 'spec', closest: () => null } }); // Changed while the preview was on its way.
     release(); await asked;
     assert.doesNotMatch(io.body.innerHTML, /data-handoff-send/);
+  } finally { delete globalThis.document; }
+});
+
+test('a finding the user no longer relies on is labelled so, and the agent is told to keep it out of Decisions', async () => {
+  const map = { id: 'map-1', revision: 4, rootId: 'root', nodes: [{ id: 'root', title: 'Parking', reviewState: 'cleared', stale: false, questions: [] }] };
+  assert.match(handoffFooter(map, { included: [{ nodeId: 'root' }] }, { reviewedAt: '2026-11-28T12:00:00.000Z' }), /- Parking \(findings\) \[findings, no longer relied on\]/);
+  map.nodes[0].reviewState = 'constructor';
+  assert.match(handoffFooter(map, { included: [{ nodeId: 'root' }] }, { reviewedAt: '2026-11-28T12:00:00.000Z' }), /\[findings, unreviewed\]/, 'an unknown state is never read as settled');
+  const ctx = await setup();
+  try {
+    await ctx.act({ type: 'request-map-job', jobType: HANDOFF, selection: ctx.selection, options: { format: 'brief' } });
+    const packet = await ctx.store.claim('agent', ctx.map.id);
+    assert.match(packet.instruction, /a finding that is unreviewed, stale or no longer relied on \(reviewState cleared\)[^.]*under "Open questions", never under "Decisions"/);
+  } finally { await ctx.app.close(); }
+  assert.equal(oneLineText('One\rTwo\u2028Three\n\nFour', 80), 'One Two Three Four', 'every line ending, not only \\n');
+  assert.equal(localDay(new Date(2026, 10, 28, 0, 30)), '2026-11-28', 'just after midnight, too');
+});
+
+test('every proposal type names the records it read that changed since, in the view', () => {
+  const map = { id: 'map-1', revision: 4, rootId: 'root', nodes: [{ id: 'root', title: 'Root', contentRevision: 2, questions: [] }], jobs: [],
+    proposals: ['check-answers', 'challenge', 'adr-draft', HANDOFF].map(type => ({ id: `proposal-${type}`, type, included: [{ nodeId: 'root', contentRevision: 1 }, { nodeId: 'gone', contentRevision: 1 }], items: [] })) };
+  for (const proposal of publicMap(map).proposals) assert.deepEqual([proposal.stale, proposal.changed?.map(record => record.nodeId)], [true, ['root', 'gone']], proposal.type);
+  map.proposals.forEach(proposal => { proposal.included = [{ nodeId: 'root', contentRevision: 2 }]; });
+  for (const proposal of publicMap(map).proposals) assert.deepEqual([proposal.stale, proposal.changed], [false, undefined], `${proposal.type}: nothing changed`);
+});
+
+test('the dialog drops a preview once the choice or the map changes, starts afresh after a send and on opening, and Stop stops', async () => {
+  let map = { ...fixture(), proposals: [] };
+  const calls = [];
+  const io = fakeDialog({ map: () => map, act: async (...args) => { calls.push(args); return true; }, downloads: [], api: async () => ({ format: 'tasks', records: [{ questionId: 'q-1' }], mapRevision: map.revision }) });
+  const tick = (checked, extra = { handoffQuestion: 'q-1' }) => io.body.fire('change', { target: { closest: () => ({ dataset: { handoffNode: 'root', ...extra }, checked }) } });
+  try {
+    await io.element('handoff-open').fire('click');
+    await io.body.fire('change', { target: { id: 'handoff-format', value: 'tasks', closest: () => null } });
+    await tick(true); await io.click({ handoffPreview: '' });
+    assert.match(io.body.innerHTML, /data-handoff-send/);
+    await tick(true, {}); // The idea's findings too.
+    assert.doesNotMatch(io.body.innerHTML, /data-handoff-send/, 'a changed choice needs a new preview');
+    await io.click({ handoffPreview: '' });
+    map = { ...map, revision: map.revision + 1 }; io.dialog.mapChanged();
+    assert.doesNotMatch(io.body.innerHTML, /data-handoff-send/, 'a preview describes the map it was made for');
+    await io.click({ handoffPreview: '' }); await io.click({ handoffSend: '' });
+    assert.deepEqual(calls.at(-1), [null, 'request-map-job', { jobType: HANDOFF, selection: [{ nodeId: 'root', questionId: 'q-1' }, { nodeId: 'root' }], options: { format: 'tasks' } }]);
+    assert.match(io.body.innerHTML, /<option value="brief" selected>/, 'the next handoff starts as a brief'); assert.doesNotMatch(io.body.innerHTML, / checked>/, 'with nothing chosen');
+    await tick(true);
+    await io.element('handoff-open').fire('click');
+    assert.doesNotMatch(io.body.innerHTML, / checked>/, 'opening again starts afresh');
+    map = { ...map, jobs: [{ id: 'job-1', type: HANDOFF, status: 'queued' }] }; io.dialog.mapChanged();
+    await io.click({ handoffStop: 'job-1' });
+    assert.deepEqual(calls.at(-1), [null, 'cancel-job', { jobId: 'job-1' }]);
   } finally { delete globalThis.document; }
 });

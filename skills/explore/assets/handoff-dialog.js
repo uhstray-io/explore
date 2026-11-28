@@ -1,8 +1,8 @@
 import { handoffDialogHtml, handoffFileText, handoffFilename, HANDOFF } from './handoff.js';
-import { recordDraftDialog } from './record-drafts.js';
+import { recordDraftDialog } from './record-draft-dialog.js';
 import { cssQuote as quote } from './dialog-focus.js';
 
-// The Implementation handoff dialog (F4), opened from Map tools, on the shared draft dialog (record-drafts.js): pick what
+// The Implementation handoff dialog (F4), opened from Map tools, on the shared draft dialog (record-draft-dialog.js): pick what
 // to write and the records it rests on, preview what the agent reads, queue it, edit and accept the result. Its own
 // part: the format, and Copy and Download, which give the accepted text with Explore's footer, on the live map only.
 // `download(text, type, name)` saves a file.
@@ -21,9 +21,9 @@ export function handoffDialog({ map, act, api, esc, toast, live, listening, down
     },
     click: async (event, target, ctx) => {
       const itemId = target.dataset.handoffCopy || target.dataset.handoffDownload; if (!itemId) return;
-      const shown = ctx.map(), proposal = (shown.proposals ?? []).find(entry => entry.id === target.dataset.proposal && entry.type === HANDOFF), item = proposal?.items.find(entry => entry.id === itemId);
+      const { proposal, item } = ctx.item(itemId) ?? {};
       if (!live() || item?.review !== 'accepted') return; // Only an accepted handoff leaves Explore, from the live map.
-      const text = handoffFileText(shown, proposal, item);
+      const text = handoffFileText(ctx.map(), proposal, item);
       if (target.dataset.handoffDownload) { download(text, 'text/markdown;charset=utf-8', handoffFilename(item.title)); toast('Downloaded as Markdown.'); return; }
       try { await navigator.clipboard.writeText(text); toast('Copied.'); } catch { toast('Copying is not available here.'); }
     },

@@ -985,9 +985,9 @@ export function publicMap(map, { resultIsStale = () => false, jobType = type => 
   const clone = structuredClone(map);
   for (const node of clone.nodes) Object.assign(node, { completed: isCompleted(map, node), hasFindings: hasFindings(map, node) });
   for (const job of clone.jobs) { if (resultIsStale(job)) job.stale = true; delete job.claimKey; delete job.claimHash; delete job.inputSignature; delete job.reuseKey; }
-  for (const proposal of clone.proposals || []) { // A type that records what it read names the records that changed (F4); others say only whether.
-    const definition = jobType(proposal.type ?? 'check-answers'), changed = definition?.outdatedRecords?.(map, proposal);
-    proposal.stale = !!proposal.stale || (changed ? changed.length > 0 : !!definition?.proposalOutdated?.(map, proposal));
+  for (const proposal of clone.proposals || []) { // Each type names the records it read that changed since (F4).
+    const changed = jobType(proposal.type ?? 'check-answers')?.outdatedRecords?.(map, proposal);
+    proposal.stale = !!proposal.stale || changed?.length > 0;
     if (changed?.length) proposal.changed = changed;
   }
   return clone;
