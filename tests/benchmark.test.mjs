@@ -4,8 +4,10 @@ import { mkdir, mkdtemp, readFile, readdir, stat, writeFile, appendFile } from '
 import { spawnSync } from 'node:child_process';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Store } from '../skills/explore/scripts/store.mjs';
-import { loadCases, validateCases, guidanceHash, prepare, collect, compare, compareText, afterPasses, DIMENSIONS, GATES, NOT_MEASURED } from '../scripts/benchmark.mjs';
+import { createHash } from 'node:crypto';
+import { loadCases, validateCases, guidanceHash, prepare, collect, compare, compareText, afterPasses, actsOf, DIMENSIONS, GATES, NOT_MEASURED } from '../scripts/benchmark.mjs';
 
 const root = path.resolve('.');
 const temp = async () => { await mkdir('.test-output', { recursive: true }); return mkdtemp(path.resolve('.test-output/benchmark-test-')); };
@@ -98,6 +100,10 @@ test('prepare makes one isolated workspace per case and leaves existing maps and
   await assert.rejects(prepare({ cases: 'creative-zine,creative-zine', out: path.join(dir, 'twice') }), /creative-zine is listed twice/);
   const some = await prepare({ cases: 'creative-zine,arch-offline-notes', out: path.join(dir, 'some') });
   assert.deepEqual(some.cases.map(entry => entry.id), ['creative-zine', 'arch-offline-notes']);
+  const first = run.cases[0], firstStore = new Store(path.join(out, first.workspace, 'ideas')), firstMap = await firstStore.get(first.mapId);
+  assert.equal(first.instructionSha256, createHash('sha256').update(firstStore.packet(firstMap, firstMap.jobs.find(job => job.status === 'queued')).instruction).digest('hex'), 'the instruction the first packet carries');
+  const development = await prepare({ cases: 'development', out: path.join(dir, 'development') });
+  assert.deepEqual(development.cases.map(entry => entry.id), shipped.cases.filter(entry => entry.split === 'development').map(entry => entry.id));
   const held = await prepare({ cases: 'held-out', out: path.join(dir, 'held') });
   assert.deepEqual(held.cases.map(entry => entry.id), shipped.cases.filter(entry => entry.split === 'held-out').map(entry => entry.id));
 });
@@ -127,7 +133,13 @@ async function fixtureRun(dir, name = 'run') {
   await log('result');
   await act({ type: 'activate', nodeId: map.nodes.find(node => node.title === 'What must survive a lost tablet?').id }); await log('act');
   await act({ type: 'answer', nodeId: map.rootId, questionId: map.nodes[0].questions[3].id, answer: 'Older Android tablets.' }); await log('act');
+  await act({ type: 'answer', nodeId: map.rootId, questionId: map.nodes[0].questions[4].id, answer: 'A few pages.' }); await log('answers'); // As answers import --apply.
+  await log('act'); // One that changed nothing.
   await appendFile(usage, 'not json\n');
+  // The activated idea is taken out again, as restoring an earlier version would.
+  const pruned = await store.get(notes.mapId), gone = pruned.nodes.find(node => node.title === 'What must survive a lost tablet?');
+  pruned.nodes = pruned.nodes.filter(node => node.id !== gone.id); pruned.edges = pruned.edges.filter(edge => edge.from !== gone.id && edge.to !== gone.id); pruned.jobs = pruned.jobs.filter(job => job.nodeId !== gone.id);
+  await store.save(pruned);
   // The resumption case: the agent's round, then it accepts the idea; restoring an earlier version (which keeps the
   // event log) sets the acceptance aside again.
   const gardenStore = new Store(path.join(out, garden.workspace, 'ideas')), gardenAct = async input => gardenStore.action(garden.mapId, { expectedRevision: (await gardenStore.get(garden.mapId)).revision, nodeId: (await gardenStore.get(garden.mapId)).rootId, ...input });
@@ -137,14 +149,18 @@ async function fixtureRun(dir, name = 'run') {
   await gardenAct({ type: 'request-map-job', jobType: 'check-answers' }); // A map job is a round too, kept as its type.
   packet = await gardenStore.claim('fixture-agent', garden.mapId);
   await gardenStore.complete(garden.mapId, packet.jobId, packet.claimKey, { findings: [] });
-  const restored = await gardenStore.get(garden.mapId); restored.nodes[0].reviewState = 'unreviewed'; await gardenStore.save(restored);
+  await gardenAct({ type: 'request-map-job', jobType: 'check-answers' });
+  packet = await gardenStore.claim('fixture-agent', garden.mapId);
+  await gardenStore.complete(garden.mapId, packet.jobId, packet.claimKey, { findings: [] });
+  const removedRound = packet.jobId;
+  const restored = await gardenStore.get(garden.mapId); restored.nodes[0].reviewState = 'unreviewed'; restored.jobs = restored.jobs.filter(job => job.id !== removedRound); await gardenStore.save(restored);
   // A case whose map cannot be read.
   await writeFile(path.join(out, zine.workspace, 'ideas', zine.mapId, 'map.json'), '{');
-  return { out, run };
+  return { out, run, removedRound };
 }
 
 test('collect reads every round from the saved maps without changing them, and writes stable results and a scoring template', async () => {
-  const { out, run } = await fixtureRun(await temp());
+  const { out, run, removedRound } = await fixtureRun(await temp());
   const before = await snapshot(out);
   const collected = await collect(out);
   assert.deepEqual(await snapshot(out, file => file === 'collected.json' || file === 'scores.json'), before, 'collect only adds its two files');
@@ -162,12 +178,12 @@ test('collect reads every round from the saved maps without changing them, and w
   assert.deepEqual(notes.checks.compoundQuestions, ['Who edits a note, and when?']);
   assert.deepEqual(notes.checks.repeatedDirections, ['one editor or many'], 'a direction the delivery skipped as already there');
   assert.deepEqual(notes.checks.weakSourceNotes, ['https://example.invalid/made-up']);
-  assert.deepEqual(notes.checks.activatedIdeas, ['What must survive a lost tablet?']); assert.deepEqual(notes.checks.acceptedIdeas, []);
+  assert.match(notes.checks.activatedIdeas[0], /^node-[0-9a-f]+ \(removed\)$/, 'an activated idea taken out again is still found'); assert.equal(notes.checks.activatedIdeas.length, 1); assert.deepEqual(notes.checks.acceptedIdeas, []);
   assert.deepEqual(notes.automaticGates.map(gate => gate.gate), ['self-activated-or-accepted']);
   // Each act call with what it did, and the operator's own answers never attributed to it.
-  assert.deepEqual(notes.agentActs.map(act => act.events.map(event => event.type)), [['activated'], ['answered']]);
-  assert.deepEqual(notes.checks.actsChangingUserState, notes.agentActs.map(act => act.at));
-  assert.deepEqual(notes.usageLog, { present: true, lines: 5, unreadableLines: 1 }); assert.deepEqual(notes.notes, ['1 usage log line could not be read.']);
+  assert.deepEqual(notes.agentActs.map(act => [act.command, act.events.map(event => event.type)]), [['act', ['activated']], ['act', ['answered']], ['answers', ['answered']], ['act', []]]);
+  assert.deepEqual(notes.checks.actsChangingUserState, notes.agentActs.slice(0, 3).map(act => act.at), 'an act that changed nothing is not flagged');
+  assert.deepEqual(notes.usageLog, { present: true, lines: 7, unreadableLines: 1 }); assert.deepEqual(notes.notes, ['1 usage log line could not be read.']);
   assert.ok(notes.questions.some(q => q.text === 'Which tablets do they use?' && q.answer === 'Older Android tablets.'));
 
   // The resumption case: its own setup is not the agent's work, and an acceptance stays found after a revision.
@@ -175,6 +191,7 @@ test('collect reads every round from the saved maps without changing them, and w
   assert.deepEqual(garden.checks.compoundQuestions, [], 'the earlier session\'s questions are not checked as the agent\'s');
   assert.deepEqual(garden.checks.acceptedIdeas, ['Community garden water plan'], 'found from history, though the idea is no longer accepted');
   assert.match(garden.notes[0], /No CLI usage log/); assert.deepEqual(garden.agentActs, []);
+  assert.deepEqual(garden.checks.vanishedRounds, [removedRound]); assert.match(garden.notes[1], /1 round the agent delivered is no longer in the map/);
   const mapJob = garden.rounds.find(round => round.type === 'check-answers');
   assert.deepEqual(Object.keys(mapJob), ['jobId', 'type', 'nodeId', 'packetCharacters'], 'a map job is not read as an investigation');
   assert.deepEqual(garden.checks.questionsPerResult.map(check => check.jobId), garden.rounds.filter(round => round.type === 'investigate').map(round => round.jobId));
@@ -192,6 +209,8 @@ test('collect reads every round from the saved maps without changing them, and w
   scores.scorer = 'someone'; await writeFile(path.join(out, 'scores.json'), JSON.stringify(scores));
   await collect(out);
   assert.equal(JSON.parse(await readFile(path.join(out, 'scores.json'), 'utf8')).scorer, 'someone', 'scores being written are never replaced');
+  const fresh = path.join(path.dirname(out), 'fresh'); await prepare({ cases: 'arch-offline-notes,community-resumption', out: fresh });
+  assert.deepEqual((await collect(fresh)).cases.map(c => c.notes), [[], []], 'no note for a case nobody has worked yet');
   // Guidance edited after prepare (here, a run prepared from other guidance) is noted.
   const runFile = path.join(out, 'run.json'), saved = JSON.parse(await readFile(runFile, 'utf8'));
   await writeFile(runFile, JSON.stringify({ ...saved, guidance: { ...saved.guidance, sha256: '0'.repeat(64) } }));
@@ -232,14 +251,18 @@ test('compare reports each change by case and family, never averages a regressio
   assert.deepEqual(report.gateFailures, [{ run: 'before', id: 'arch-offline-notes', gate: 'answer-for-user', evidence: 'quoted text', automatic: false }]);
   assert.equal(report.gatesNotChecked.filter(g => g.run === 'after').length, 0);
   assert.equal(report.gatesNotChecked.filter(g => g.run === 'before').length, 3 * GATES.length - 1, 'unchecked is never passed');
-  assert.equal(afterPasses(report), true, 'a failure before the change does not fail the run after it');
+  assert.equal(afterPasses(report), false, 'a case the run after the change left out fails it');
+  const sameCases = await scoredRun(dir, 'after-all', scores => {
+    score(scores, 'arch-offline-notes', {}, allGates(false)); score(scores, 'arch-stated-constraint', {}, allGates(false)); score(scores, 'creative-zine', {}, allGates(false));
+  });
+  assert.equal(afterPasses(await compare(before, sameCases)), true, 'a failure before the change does not fail the run after it');
   assert.equal(report.sameGuidance, true);
   const text = compareText(report);
   assert.match(text, /Hard gates failed[\s\S]*before\s+arch-offline-notes\s+answer-for-user/);
   assert.match(text, /Hard gates not checked[\s\S]*before\s+creative-zine\s+invented-source, answer-for-user/);
   assert.match(text, /Regressions[\s\S]*arch-stated-constraint\s+question-value\s+2 → 1/);
   assert.match(text, /software-architecture[\s\S]*question-value 2\.00 → 2\.00 over 2 cases, 1 regression/);
-  assert.match(text, /Not compared: only before creative-zine/); assert.doesNotMatch(text, /does not pass/);
+  assert.match(text, /Not compared: only before creative-zine/); assert.match(text, /does not pass[\s\S]*left out a case/);
 
   // The other way round: the run after the change failed a gate, and left one unchecked.
   const reverse = await compare(after, before);
@@ -266,13 +289,17 @@ test('compare also fails a gate the collected checks found, and refuses runs and
   const runFile = path.join(other, 'run.json'), run = JSON.parse(await readFile(runFile, 'utf8'));
   const scoresFile = path.join(other, 'scores.json'), scores = JSON.parse(await readFile(scoresFile, 'utf8'));
   const write = (file, value) => writeFile(file, JSON.stringify(value));
-  await write(runFile, { ...run, caseSet: { ...run.caseSet, version: 2 } }); await write(scoresFile, { ...scores, caseSetVersion: 2 });
+  const collectedFile = path.join(other, 'collected.json'), collectedOther = JSON.parse(await readFile(collectedFile, 'utf8'));
+  await write(runFile, { ...run, caseSet: { ...run.caseSet, version: 2 } }); await write(scoresFile, { ...scores, caseSetVersion: 2 }); await write(collectedFile, { ...collectedOther, caseSetVersion: 2 });
   await assert.rejects(compare(clean, other), /case set version 1.*version 2/s);
-  await write(scoresFile, scores);
+  await write(scoresFile, scores); await write(collectedFile, collectedOther);
   await assert.rejects(compare(clean, other), /scores\.json was made for another run/, 'the version half');
   await write(runFile, { ...run, caseSet: { ...run.caseSet, sha256: '0'.repeat(64) } });
   await assert.rejects(compare(clean, other), /different cases under the same version/);
   await write(runFile, run);
+  await write(collectedFile, { ...collectedOther, cases: collectedOther.cases.map(c => ({ ...c, mapId: 'map-00000000' })) });
+  await assert.rejects(compare(clean, other), /collected\.json was made for another run/, 'a collected.json copied from elsewhere');
+  await write(collectedFile, collectedOther);
   await write(scoresFile, { ...scores, guidanceSha256: '0'.repeat(64) });
   await assert.rejects(compare(clean, other), /scores\.json was made for another run/, 'the guidance half');
   const entry = scores.cases['arch-offline-notes'], refuse = async (changed, message) => { await write(scoresFile, { ...scores, cases: { 'arch-offline-notes': { ...entry, ...changed } } }); await assert.rejects(compare(clean, other), message, message.source); };
@@ -288,6 +315,15 @@ test('compare also fails a gate the collected checks found, and refuses runs and
   await write(runFile, { ...run, cases: run.cases.map(c => ({ ...c, instructionSha256: '1'.repeat(64) })) });
   const changed = await compare(path.join(dir, 'clean'), other);
   assert.equal(changed.sameGuidance, false); assert.match(compareText(changed), /instructions the Store writes into packets differ/);
+  // The flagged run's unreadable map is reported, and fails it as the run after the change.
+  const both = await compare(clean, flagged);
+  assert.deepEqual(both.unreadable, [{ run: 'after', id: 'creative-zine', problem: 'invalid-json' }]); assert.ok(both.collectNotes.some(n => n.run === 'after' && /No CLI usage log/.test(n.note)));
+  const unreadable = path.join(dir, 'unreadable-only'); await prepare({ cases: 'creative-zine', out: unreadable });
+  const zine = JSON.parse(await readFile(path.join(unreadable, 'run.json'), 'utf8')).cases[0];
+  await writeFile(path.join(unreadable, zine.workspace, 'ideas', zine.mapId, 'map.json'), '{'); await collect(unreadable);
+  const zineScores = path.join(unreadable, 'scores.json'), zs = JSON.parse(await readFile(zineScores, 'utf8')); score(zs, 'creative-zine', {}, allGates(false)); await writeFile(zineScores, JSON.stringify(zs));
+  const zineRun = await compare(unreadable, unreadable);
+  assert.equal(afterPasses(zineRun), false, 'a map that could not be read fails the run after the change, even with every gate checked'); assert.match(compareText(zineRun), /Maps collect could not read[\s\S]*creative-zine  invalid-json/);
 });
 
 test('the benchmark makes no network request and starts no process', async () => {
@@ -348,4 +384,19 @@ test('the command line prepares, collects and compares, exits by the "after" run
   const packaged = await readdir('skills/explore', { recursive: true });
   assert.deepEqual(packaged.filter(file => /benchmark/i.test(file)), []);
   assert.doesNotMatch(await readFile('skills/explore/scripts/result-checks.mjs', 'utf8'), /benchmark/, 'the skill package is unchanged');
+});
+
+test('an act call is paired with the events of the five seconds before it, after the previous command', () => {
+  const map = { history: [{ at: '2026-11-28T10:00:00.000Z', type: 'answered', nodeId: 'n' }, { at: '2026-11-28T10:00:20.000Z', type: 'activated', nodeId: 'm' }] };
+  const lines = [{ at: '2026-11-28T09:59:50.000Z', command: 'next' }, { at: '2026-11-28T10:00:10.000Z', command: 'act' }, { at: '2026-11-28T10:00:19.000Z', command: 'result' }, { at: '2026-11-28T10:00:21.000Z', command: 'act' }];
+  assert.deepEqual(actsOf(map, lines).map(act => act.events.map(event => event.type)), [[], ['activated']], 'ten seconds before is too long ago; one second before and after the previous command is its own');
+  assert.deepEqual(actsOf(map, [{ at: '2026-11-28T10:00:01.000Z', command: 'answers' }]).map(act => act.events.map(event => event.type)), [['answered']]);
+  assert.deepEqual(actsOf(map, [{ at: '2026-11-28T10:00:01.000Z', command: 'read' }]), [], 'reading changes nothing');
+});
+
+test('loading the benchmark starts no process', async () => {
+  const dir = await temp(), preload = path.join(dir, 'stub-processes.mjs');
+  await writeFile(preload, "import { createRequire, syncBuiltinESMExports } from 'node:module';\nconst cp = createRequire(import.meta.url)('node:child_process');\nfor (const name of ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']) cp[name] = () => { process.stdout.write('STARTED ' + name + '\\n'); throw new Error('not allowed'); };\nsyncBuiltinESMExports();\n");
+  const loaded = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, '--input-type=module', '-e', "await import('./scripts/benchmark.mjs'); await new Promise(resolve => setTimeout(resolve, 100)); console.log('loaded');"], { cwd: root, encoding: 'utf8' });
+  assert.equal(loaded.status, 0, loaded.stderr); assert.match(loaded.stdout, /loaded/); assert.doesNotMatch(loaded.stdout, /STARTED/);
 });

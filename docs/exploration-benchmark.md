@@ -65,7 +65,8 @@ The automatic checks are:
 - **Questions per result:** more than three in one result is flagged, because the guidance says to ask at most three.
 - **Questions that may ask two things, directions already there, and sources whose note states no claim:** the warnings the result checks (K3) recorded on each round when it was delivered.
 - **Activated or accepted ideas,** from the map's history, so an undo or restore does not hide one: any one is an automatic failure of the self-activation gate, since the operator touches neither.
-- **Act calls that changed what only the user changes,** such as an answer or an activation: review each for the `answer-for-user` gate.
+- **Commands that changed what only the user changes:** an `act` or `answers` call whose window holds any event other than the agent's own (taking, delivering or failing a job), such as an answer, an activation, a dismissal or a restore. Review each for the `answer-for-user` and `self-activated-or-accepted` gates.
+- **Rounds taken out of the map:** a round the history says the agent delivered whose job is gone, as after an undo or restore.
 
 `collect` notes a workspace with no usage log although the agent finished work there, since its `act` calls cannot be listed then, and usage lines it could not read.
 
@@ -102,4 +103,4 @@ A hard gate fails the run, whatever the scores. Set `failed` to `true` with the 
 - **Per-case changes.**
 - **Per-family means:** each mean uses only the cases scored in both runs, and says how many regressions and improvements it hides.
 
-A family mean that does not move can still contain a regression, so read the list. A gate nobody checked is listed as not checked, never as passed. The command exits 1 unless the "after" run passes: no hard gate failed, and every one of its gates checked. It also says when no score was measured in both runs, instead of reporting "no regressions". It refuses runs of different case-set versions, scores that belong to another run, scores outside 0–3, and a score or failed gate without evidence.
+A family mean that does not move can still contain a regression, so read the list. A gate nobody checked is listed as not checked, never as passed, and so are maps `collect` could not read and its notes. The command exits 1 unless the "after" run passes: no hard gate failed, every one of its gates checked, every map read, and no case of the "before" run left out. It also says when no score was measured in both runs, instead of reporting "no regressions". It refuses runs of different case-set versions, scores that belong to another run, scores outside 0–3, and a score or failed gate without evidence.

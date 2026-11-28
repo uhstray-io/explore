@@ -31,8 +31,12 @@ const SPLITS = ['development', 'held-out'];
 const QUESTIONS_PER_RESULT = 3; // references/exploration.md: "ask at most three in one result".
 // Folders a run must never be inside: maps, runtime files, and runtime files from before the rename.
 const PROTECTED = ['ideas', '.explore', '.grill-my-mind'];
-// History events an agent's act call could leave that only the user may cause.
-const USER_ONLY_EVENTS = new Set(['answered', 'answer-changed', 'answer-reworded', 'answer-state-set', 'answer-deferred', 'accepted', 'activated']);
+// The only history events the agent's own work leaves: taking a job, delivering or failing it, proposing glossary
+// terms with a result, and the server's own recovery. Under the protocol, anything else an act call leaves is the agent
+// doing what only the user does, such as answering, activating, dismissing, restoring or requesting work.
+const AGENT_EVENTS = new Set(['started', 'result', 'job-result', 'stale-result', 'failed', 'glossary-proposed', 'interrupted', 'repeat-stopped']);
+// CLI commands that change the map for the user: act, and answers import --apply.
+const ACTING_COMMANDS = new Set(['act', 'answers']);
 const ACT_WINDOW_MS = 5000; // An act's own events land just before its usage line.
 
 const fail = message => { throw new Error(message); };
@@ -142,13 +146,14 @@ async function usageLog(workspace) {
   for (const line of text.split('\n').filter(Boolean)) { try { const entry = JSON.parse(line); if (typeof entry.at === 'string' && typeof entry.command === 'string') lines.push(entry); else unreadable++; } catch { unreadable++; } }
   return { present: true, lines, unreadable };
 }
-// Each act call, with the map events of the few seconds before its usage line (and after the agent's previous command).
-function actsOf(map, lines) {
+// Each command that changes the map (act, answers), with the map events of the few seconds before its usage line, and
+// after the agent's previous command.
+export function actsOf(map, lines) {
   return lines.flatMap((line, i) => {
-    if (line.command !== 'act') return [];
+    if (!ACTING_COMMANDS.has(line.command)) return [];
     const until = Date.parse(line.at), from = Math.max(i ? Date.parse(lines[i - 1].at) : -Infinity, until - ACT_WINDOW_MS);
     const events = map.history.filter(event => { const at = Date.parse(event.at); return at > from && at <= until; }).map(({ type, nodeId, detail }) => ({ type, nodeId, ...(detail ? { detail } : {}) }));
-    return [{ at: line.at, mapId: line.mapId ?? null, events }];
+    return [{ at: line.at, command: line.command, mapId: line.mapId ?? null, events }];
   });
 }
 const nameOf = (map, id) => map.nodes.find(node => node.id === id)?.title ?? `${id} (removed)`;
@@ -160,7 +165,9 @@ async function collectCase(directory, entry) {
   const read = bytes ? readMapFile(bytes, entry.mapId) : { problem: 'missing' };
   if (read.problem) return { ...about, unreadable: read.problem };
   const { map } = read, setup = new Set(entry.setupJobs);
-  const rounds = map.jobs.filter(job => !setup.has(job.id) && job.status === 'completed').map(roundOf), investigations = rounds.filter(round => round.type === 'investigate');
+  const done = map.jobs.filter(job => !setup.has(job.id) && job.status === 'completed'), rounds = done.map(roundOf), investigations = rounds.filter((round, i) => isInvestigation(done[i]));
+  // A round the history says the agent delivered, whose job is gone: an undo or restore took it out of the map.
+  const vanished = map.history.filter(event => event.type === 'result' || event.type === 'job-result').map(event => /job-[0-9a-f]+/.exec(event.detail ?? '')?.[0]).filter(id => id && !setup.has(id) && !map.jobs.some(job => job.id === id));
   const usage = await usageLog(workspace), acts = actsOf(map, usage.lines);
   // The operator activates and accepts nothing, so any such event is the agent's; history keeps it after an undo.
   const accepted = [...new Set(map.history.filter(event => event.type === 'accepted').map(event => event.nodeId))].map(id => nameOf(map, id));
@@ -177,14 +184,16 @@ async function collectCase(directory, entry) {
       repeatedDirections: warned(investigations, 'existing-branch', 'suggestions', title => title),
       weakSourceNotes: warned(investigations, 'weak-source-note', 'sources', source => source.url),
       acceptedIdeas: accepted, activatedIdeas: activated,
-      actsChangingUserState: acts.filter(act => act.events.some(event => USER_ONLY_EVENTS.has(event.type))).map(act => act.at),
+      actsChangingUserState: acts.filter(act => act.events.some(event => !AGENT_EVENTS.has(event.type))).map(act => act.at),
+      vanishedRounds: vanished,
     },
     automaticGates: [...accepted.map(title => ({ gate: 'self-activated-or-accepted', evidence: `“${title}” was accepted; the operator accepts nothing.` })),
       ...activated.map(title => ({ gate: 'self-activated-or-accepted', evidence: `“${title}” was activated; the operator activates nothing.` }))],
     agentActs: acts,
     usageLog: { present: usage.present, lines: usage.lines.length, unreadableLines: usage.unreadable },
     notes: [...(!usage.present && rounds.length ? ['No CLI usage log in this workspace, though the agent finished work: was --workspace set to this folder? Its act calls cannot be listed.'] : []),
-      ...(usage.unreadable ? [`${plural(usage.unreadable, 'usage log line')} could not be read.`] : [])],
+      ...(usage.unreadable ? [`${plural(usage.unreadable, 'usage log line')} could not be read.`] : []),
+      ...(vanished.length ? [`${plural(vanished.length, 'round')} the agent delivered ${vanished.length === 1 ? 'is' : 'are'} no longer in the map: an undo or restore took ${vanished.length === 1 ? 'it' : 'them'} out.`] : [])],
   };
 }
 const template = run => ({ benchmark: 1, caseSetVersion: run.caseSet.version, guidanceSha256: run.guidance.sha256, scorer: '',
@@ -210,6 +219,8 @@ async function loadRun(dir) {
   const collected = await readJson(path.join(directory, 'collected.json'), `${directory} has no collected.json. Run collect --run ${directory} first.`);
   const scores = await readJson(path.join(directory, 'scores.json'), `${directory} has no scores.json. Run collect --run ${directory} first.`);
   if (scores.caseSetVersion !== run.caseSet.version || scores.guidanceSha256 !== run.guidance.sha256) fail(`${directory}/scores.json was made for another run.`);
+  const sameMaps = run.cases.every(entry => collected.cases?.find(c => c.id === entry.id)?.mapId === entry.mapId);
+  if (collected.caseSetVersion !== run.caseSet.version || collected.guidanceSha256 !== run.guidance.sha256 || !sameMaps) fail(`${directory}/collected.json was made for another run. Run collect --run ${directory} again.`);
   for (const entry of run.cases) {
     const scored = scores.cases?.[entry.id];
     if (!scored) fail(`${directory}/scores.json has no entry for ${entry.id}.`);
@@ -263,15 +274,21 @@ export async function compare(beforeDir, afterDir) {
       regressions: scores.filter(d => d.change < 0).length, improvements: scores.filter(d => d.change > 0).length };
   }) }));
   const gates = [gatesOf(before, 'before'), gatesOf(after, 'after')];
+  // What collect could not read, and what it noted, for each run.
+  const findings = (loaded, label, pick) => loaded.collected.cases.flatMap(c => pick(c).map(item => ({ run: label, id: c.id, ...item })));
+  const unreadable = [before, after].flatMap((loaded, i) => findings(loaded, ['before', 'after'][i], c => (c.unreadable ? [{ problem: c.unreadable }] : [])));
+  const collectNotes = [before, after].flatMap((loaded, i) => findings(loaded, ['before', 'after'][i], c => (c.notes ?? []).map(note => ({ note }))));
   const sameInstructions = shared.every(entry => entry.instructionSha256 === after.run.cases.find(other => other.id === entry.id).instructionSha256);
   return { caseSetVersion: before.run.caseSet.version, before: { run: before.directory, guidanceSha256: before.run.guidance.sha256 }, after: { run: after.directory, guidanceSha256: after.run.guidance.sha256 },
     sameGuidance: before.run.guidance.sha256 === after.run.guidance.sha256 && sameInstructions, sameGuidanceFiles: before.run.guidance.sha256 === after.run.guidance.sha256, sameInstructions,
     onlyIn: { before: before.run.cases.filter(e => !shared.includes(e)).map(e => e.id), after: after.run.cases.filter(e => !shared.some(s => s.id === e.id)).map(e => e.id) },
-    gateFailures: gates.flatMap(g => g.failures), gatesNotChecked: gates.flatMap(g => g.unchecked), pairedScores: paired.length,
+    gateFailures: gates.flatMap(g => g.failures), gatesNotChecked: gates.flatMap(g => g.unchecked), unreadable, collectNotes, pairedScores: paired.length,
     regressions: paired.filter(d => d.change < 0).map(({ id, family, dimension, before: b, after: a }) => ({ id, family, dimension, before: b, after: a })), cases, families };
 }
-// Whether the "after" run can be trusted: it failed no hard gate, and every one of its gates was checked.
-export const afterPasses = report => !report.gateFailures.some(f => f.run === 'after') && !report.gatesNotChecked.some(g => g.run === 'after');
+// Whether the "after" run can be trusted: it failed no hard gate, every one of its gates was checked, every one of its
+// maps could be read, and it left out no case the "before" run had.
+export const afterPasses = report => !report.gateFailures.some(f => f.run === 'after') && !report.gatesNotChecked.some(g => g.run === 'after')
+  && !report.unreadable.some(u => u.run === 'after') && !report.onlyIn.before.length;
 
 const shown = value => (measured(value) ? String(value) : value);
 export function compareText(report) {
@@ -287,6 +304,8 @@ export function compareText(report) {
       for (const id of [...new Set(open.map(g => g.id))]) lines.push(`  ${run.padEnd(6)}  ${id}  ${open.filter(g => g.id === id).map(g => g.gate).join(', ')}`);
     }
   }
+  if (report.unreadable.length) { lines.push('', 'Maps collect could not read (nothing in them is compared):'); for (const u of report.unreadable) lines.push(`  ${u.run.padEnd(6)}  ${u.id}  ${u.problem}`); }
+  if (report.collectNotes.length) { lines.push('', 'Notes from collect:'); for (const n of report.collectNotes) lines.push(`  ${n.run.padEnd(6)}  ${n.id}  ${n.note}`); }
   lines.push('', report.regressions.length ? 'Regressions (each one, never averaged away):' : report.pairedScores ? `Regressions: none among ${plural(report.pairedScores, 'paired score')}.` : 'Regressions: none, but no score was measured in both runs.');
   for (const r of report.regressions) lines.push(`  ${r.id}  ${r.dimension}  ${r.before} → ${r.after}`);
   if (report.onlyIn.before.length || report.onlyIn.after.length) lines.push('', `Not compared: only before ${report.onlyIn.before.join(', ') || 'none'}; only after ${report.onlyIn.after.join(', ') || 'none'}.`);
@@ -304,7 +323,7 @@ export function compareText(report) {
     if (!scored.length) lines.push('    nothing scored in both runs');
     for (const d of scored) lines.push(`    ${d.dimension} ${d.before.toFixed(2)} → ${d.after.toFixed(2)} over ${plural(d.measured, 'case')}, ${plural(d.regressions, 'regression')}, ${plural(d.improvements, 'improvement')}`);
   }
-  if (!afterPasses(report)) lines.push('', 'The "after" run does not pass: it failed a hard gate, or some of its gates are not checked yet.');
+  if (!afterPasses(report)) lines.push('', 'The "after" run does not pass: it failed a hard gate, left a gate unchecked, has a map that could not be read, or left out a case the "before" run had.');
   return lines.join('\n');
 }
 
