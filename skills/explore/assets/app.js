@@ -123,7 +123,7 @@ function renderEdges() {
 }
 function renderMap(fit = false, preserveView = false) {
   if (!state.map || gesture) return;
-  changes.mapChanged(state.map.revision);
+  changes.mapChanged(state.map.id, state.map.revision);
   const historic = state.historyStep !== null;
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
@@ -745,7 +745,7 @@ for (const button of document.querySelectorAll('.close-dialog')) button.addEvent
 // Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
-const changes = changesDialog({ api, map: () => state.map });
+const changes = changesDialog({ api, map: () => state.map, download });
 $('#changes-open').addEventListener('click', () => { $('#tools-dialog').close(); changes.show(); });
 const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
