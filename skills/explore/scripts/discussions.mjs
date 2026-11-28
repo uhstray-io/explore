@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { textField } from './fields.mjs';
 import { markdownText } from '../assets/workspace-view.js';
-import { discussionLimits, threadsOf, nodeThreads, isOpenThread } from '../assets/discussions.js';
+import { discussionLimits, threadsOf, threadsOn, nodeThreads, isOpenThread } from '../assets/discussions.js';
 
 class DiscussionProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new DiscussionProblem(message, status); };
@@ -51,9 +51,9 @@ export const discussionActions = {
 };
 
 // Discussions on ideas a restart or a branch restore removes go with them; the version kept before still has them.
-export const openThreadsOn = (map, ids) => threadsOf(map).filter(thread => ids.has(thread.nodeId) && isOpenThread(thread)).length;
+export const openThreadsOn = (map, ids) => threadsOn(map, ids).filter(isOpenThread).length;
 export function dropThreadsOn(map, ids) {
-  if (map.discussions && threadsOf(map).some(thread => ids.has(thread.nodeId))) map.discussions.threads = map.discussions.threads.filter(thread => !ids.has(thread.nodeId));
+  if (threadsOn(map, ids).length) map.discussions.threads = map.discussions.threads.filter(thread => !ids.has(thread.nodeId));
 }
 // The `discussion` section of `read --node`: every thread, open first, each labelled as people talking, not an answer.
 export const discussionRecords = (map, node) => nodeThreads(map, node.id).map(thread => [`## ${thread.id} (${isOpenThread(thread) ? 'open' : 'resolved'})`,

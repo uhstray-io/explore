@@ -4,9 +4,13 @@
 
 export const discussionLimits = { text: 4000, messages: 50, threads: 200 };
 const isRecord = value => !!value && typeof value === 'object' && !Array.isArray(value);
+import { cssQuote } from './dialog-focus.js';
+
 // The map's threads. Validation refuses a map whose threads the views cannot read; anything else is skipped here.
 export const threadsOf = map => (Array.isArray(map?.discussions?.threads) ? map.discussions.threads.filter(thread => isRecord(thread) && Array.isArray(thread.messages)) : []);
 export const isOpenThread = thread => thread.status === 'open';
+// The threads on ideas `ids`: what a restart or a branch restore takes with them.
+export const threadsOn = (map, ids) => threadsOf(map).filter(thread => ids.has(thread.nodeId));
 // An idea's threads: open ones first, each group oldest first.
 export const nodeThreads = (map, nodeId) => { const own = threadsOf(map).filter(thread => thread.nodeId === nodeId); return [...own.filter(isOpenThread), ...own.filter(thread => !isOpenThread(thread))]; };
 // Who wrote a message and when, as the card shows it: "Ana · 4 Nov, 10:00".
@@ -47,7 +51,7 @@ export async function discussionClick(event, { act, toast, renderDetail }) {
   target.disabled = true;
   if (await act(nodeId, resolve ? 'resolve-discussion' : 'reopen-discussion', { threadId })) {
     toast(resolve ? 'Resolved.' : 'Reopened.'); renderDetail(true);
-    focus(resolve ? `#discussion-heading-${nodeId}` : `[data-reply-form="${threadId}"] textarea`);
+    focus(resolve ? `#${cssQuote(`discussion-heading-${nodeId}`)}` : `[data-reply-form="${cssQuote(threadId)}"] textarea`); // IDs from a pulled file are quoted.
   }
   target.disabled = false;
   return true;

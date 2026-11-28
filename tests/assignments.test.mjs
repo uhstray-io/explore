@@ -113,7 +113,7 @@ test('restoring a version brings its assignments back with it', async () => {
 
 test('the card shows the request, its history and who took it as literal text; Pass on opens only when asked; nothing to do in history', () => {
   const map = { nodes: [{ id: 'node-a', title: 'A' }], assignments: { version: 1, items: [{ id: 'assignment-1', nodeId: 'node-a', requestedFor: 'Ana <b>', note: 'Look <here>.', status: 'requested', events: [{ at: '2026-11-04T10:00:00.000Z', type: 'requested', by: { name: 'Ben & co' }, to: 'Ana <b>', note: 'Look <here>.' }] }] } };
-  const node = map.nodes[0], drafts = { 'assignment-pass:node-a-to': 'Cy <i>' };
+  const node = map.nodes[0], drafts = { 'assignment-pass:assignment-1-to': 'Cy <i>' };
   let html = assignmentCardHtml(map, node, { esc, live: true, drafts });
   assert.match(html, /<strong>Requested for Ana &lt;b&gt; by Ben &amp; co · [^<]+<\/strong>/); assert.match(html, /<p class="assignment-note">Look &lt;here&gt;\.<\/p>/);
   assert.match(html, /<li>Requested for Ana &lt;b&gt; by Ben &amp; co · [^<]+<span class="form-note"> Look &lt;here&gt;\.<\/span><\/li>/, 'the history, as literal text');
@@ -123,7 +123,8 @@ test('the card shows the request, its history and who took it as literal text; P
   html = assignmentCardHtml(map, node, { esc, live: true, drafts, passing: 'assignment-1' });
   assert.match(html, /<form class="assignment-pass-form" data-pass-form="assignment-1" data-node-id="node-a">[\s\S]*value="Cy &lt;i&gt;"[\s\S]*data-assignment-pass-cancel="assignment-1"[^>]*>Cancel<\/button><\/div><\/form>/, 'its form, its draft kept, and Cancel');
   assert.doesNotMatch(assignmentCardHtml(map, node, { esc, live: true, passing: 'assignment-2' }), /<form/, 'another request\'s form is not this one');
-  assert.match(assignmentCardHtml(map, node, { esc, live: true, drafts: { 'assignment-pass:node-a-note': 'Bring <tea>' }, passing: 'assignment-1' }), />Bring &lt;tea&gt;<\/textarea>/);
+  assert.match(assignmentCardHtml(map, node, { esc, live: true, drafts: { 'assignment-pass:assignment-1-note': 'Bring <tea>' }, passing: 'assignment-1' }), />Bring &lt;tea&gt;<\/textarea>/);
+  assert.doesNotMatch(assignmentCardHtml({ ...map, assignments: { version: 1, items: [{ ...map.assignments.items[0], id: 'assignment-2' }] } }, node, { esc, live: true, drafts, passing: 'assignment-2' }), /Cy &lt;i&gt;/, 'the next request on this idea starts empty');
   assert.equal(assignFormHtml(map, node, { esc, live: true }), '', 'no second request while one is open');
   assert.doesNotMatch(assignmentCardHtml(map, node, { esc, live: false, passing: 'assignment-1' }), /data-assignment-|<form|data-menu/, 'nothing to do in history, even while it waits');
   map.assignments.items[0] = { ...map.assignments.items[0], status: 'taken', takenBy: { name: 'Ana <i>' } };
@@ -141,7 +142,7 @@ test('the card shows the request, its history and who took it as literal text; P
 });
 
 test('Take it, Pass on, Cancel and Mark done act through the app and keep focus on the card', async () => {
-  const calls = [], toasts = [], focused = [], state = { drafts: { 'assignment-pass:node-a-to': 'Dee', 'assignment-pass:node-a-note': 'Hi', 'assign:node-a-to': 'Kept' }, assignmentPassing: null }; let rendered = 0;
+  const calls = [], toasts = [], focused = [], state = { drafts: { 'assignment-pass:assignment-1-to': 'Dee', 'assignment-pass:assignment-1-note': 'Hi', 'assign:node-a-to': 'Kept' }, assignmentPassing: null }; let rendered = 0;
   const ctx = { state, act: async (...args) => { calls.push(args); return true; }, toast: message => toasts.push(message), renderDetail: force => { assert.equal(force, true); rendered++; } };
   const click = dataset => assignmentClick({ target: { closest: selector => { const name = selector.match(/^\[data-([a-z-]+)\]$/)[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase()); return name in dataset ? { dataset, disabled: false } : null; } } }, ctx);
   globalThis.document = { querySelector: selector => ({ focus: () => focused.push(selector) }) };
@@ -156,6 +157,8 @@ test('Take it, Pass on, Cancel and Mark done act through the app and keep focus 
     assert.deepEqual(calls.at(-1), ['node-a', 'complete-assignment', { assignmentId: 'assignment-1' }]); assert.equal(focused.at(-1), '#detail [data-editor="assign"] summary', 'on to asking someone new');
     assert.deepEqual(toasts, ['It is yours now.', 'Marked done.']); assert.equal(rendered, 4);
     assert.equal(await click({ explore: 'node-a' }), false, 'other clicks are left alone');
+    await click({ assignmentTake: 'a"]b', nodeId: 'node-a' });
+    assert.equal(focused.at(-1), '#detail [data-menu="a\\"]b"]', 'an odd ID from a pulled file is quoted, never a broken selector');
   } finally { delete globalThis.document; }
 });
 
@@ -175,7 +178,6 @@ test('a hand-edited or newer assignments block the views cannot read is refused,
   const { map, branch } = await base();
   assert.equal(readProblem(map), null);
   const broken = [
-    ['a newer version', m => { m.assignments.version = 2; }, 'assignments'],
     ['items not a list', m => { m.assignments.items = {}; }, 'assignments'],
     ['an item that is not a record', m => { m.assignments.items.push(null); }, 'assignments.items[1]'],
     ['no events', m => { delete m.assignments.items[0].events; }, 'assignments.items[0].events'],
@@ -203,6 +205,9 @@ test('a hand-edited or newer assignments block the views cannot read is refused,
     assert.ok(validateMap(copy).errors.some(error => error.code === code && error.at === at), `${name}: ${code} at ${at}`);
   }
   assert.deepEqual(assignmentsOf({ assignments: { items: [null, 3, [], { id: 'x' }, { id: 'y', events: [] }] } }).map(item => item.id), ['y'], 'the views skip what they cannot read');
+  const newer = structuredClone(map); newer.assignments = { version: 2, requests: [{ anything: true }] };
+  assert.equal(readProblem(newer), 'unsupported-version', 'a newer Explore wrote it: the map waits for that Explore, never a repair');
+  assert.deepEqual(validateMap(newer).errors.map(error => [error.code, error.at]), [['unsupported-version', 'assignments.version']]);
   assert.equal(openAssignment(map, branch.id).takenBy.name, 'Ana');
 });
 
@@ -224,6 +229,9 @@ test('Undo and restore name assignment changes; restarting or restoring a branch
   const cache = saved.nodes.find(node => node.title === 'Cache');
   saved = await store.action(map.id, { expectedRevision: saved.revision, nodeId: cache.id, type: 'assign', to: 'Cy' }, { actor: ben });
   saved = await store.action(map.id, { expectedRevision: saved.revision, nodeId: cache.id, type: 'comment', text: 'About the cache.' }, { actor: ben }); // H6: a discussion goes with it too.
+  const earlier = await previewBranchRestore(store, map.id, version.id, { nodeId: branch.id });
+  saved = await store.action(map.id, { expectedRevision: saved.revision, nodeId: cache.id, type: 'take-assignment', assignmentId: openAssignment(saved, cache.id).id }, { actor: ana });
+  await assert.rejects(store.action(map.id, { expectedRevision: saved.revision, type: 'restore-branch', nodeId: branch.id, version: version.id, previewHash: earlier.hash }, { actor: ben }), /Preview the restore again/, 'a request taken since the preview changes what it removes');
   const preview = await previewBranchRestore(store, map.id, version.id, { nodeId: branch.id });
   assert.deepEqual([preview.counts.requestsRemoved, preview.counts.discussionsRemoved], [1, 1]);
   assert.match(branchRestoreHtml(preview, { esc }), /1 idea added since this version removed, with 1 open request to look at them and 1 open discussion/);

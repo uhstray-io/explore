@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import { textField } from './fields.mjs';
 import { markdownText } from '../assets/workspace-view.js';
-import { assignmentLimits, assignmentsOf, openAssignment, requestLine } from '../assets/assignments.js';
+import { assignmentLimits, assignmentsOf, openAssignment, requestLine, requestsOn, isOpenAssignment } from '../assets/assignments.js';
 
 class AssignmentProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new AssignmentProblem(message, status); };
@@ -63,9 +63,9 @@ export const assignmentActions = {
 
 // Requests on ideas a restart or a branch restore removes go with them, as their jobs do; the version kept before the
 // change still has them. `ids` the ideas removed. Returns how many open requests that drops.
-export const openRequestsOn = (map, ids) => assignmentsOf(map).filter(item => ids.has(item.nodeId) && (item.status === 'requested' || item.status === 'taken')).length;
+export const openRequestsOn = (map, ids) => requestsOn(map, ids).filter(isOpenAssignment).length;
 export function dropRequestsOn(map, ids) {
-  if (map.assignments && assignmentsOf(map).some(item => ids.has(item.nodeId))) map.assignments.items = map.assignments.items.filter(item => !ids.has(item.nodeId));
+  if (requestsOn(map, ids).length) map.assignments.items = map.assignments.items.filter(item => !ids.has(item.nodeId));
 }
 
 // The open request in an idea's Markdown view (committed with the map), as literal text, its note quoted line by line.

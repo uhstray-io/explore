@@ -129,7 +129,6 @@ test('a map without discussions loads unchanged; a block the views cannot read i
   const saved = await act({ type: 'comment', text: 'Hi.' });
   assert.equal(readProblem(saved), null); assert.deepEqual(validateMap(saved).errors, []);
   for (const [name, spoil, at] of [
-    ['a newer version', m => { m.discussions.version = 2; }, 'discussions'],
     ['threads not a list', m => { m.discussions.threads = {}; }, 'discussions'],
     ['a thread that is not a record', m => { m.discussions.threads.push('x'); }, 'discussions.threads[1]'],
     ['no messages', m => { delete m.discussions.threads[0].messages; }, 'discussions.threads[0].messages'],
@@ -153,6 +152,9 @@ test('a map without discussions loads unchanged; a block the views cannot read i
     assert.ok(validateMap(copy).errors.some(error => error.code === code && error.at === at), `${name}: ${code} at ${at}`);
   }
   assert.deepEqual(threadsOf({ discussions: { threads: [null, 1, { id: 'a' }, { id: 'b', messages: [] }] } }).map(thread => thread.id), ['b']);
+  const newer = structuredClone(saved); newer.discussions = { version: 2, rooms: [] };
+  assert.equal(readProblem(newer), 'unsupported-version', 'a newer Explore wrote it: the map waits for that Explore, never a repair');
+  assert.deepEqual(validateMap(newer).errors.map(error => [error.code, error.at]), [['unsupported-version', 'discussions.version']]);
 });
 
 test('the section lists open threads first with a reply box each, resolved ones collapsed, drafts kept, and nothing to do in history', () => {
@@ -195,6 +197,8 @@ test('Resolve and Reopen act through the app and keep focus in the section', asy
     assert.deepEqual(calls.at(-1), ['node-a', 'reopen-discussion', { threadId: 'thread-1' }]); assert.equal(focused.at(-1), '#detail [data-reply-form="thread-1"] textarea');
     assert.deepEqual(toasts, ['Resolved.', 'Reopened.']); assert.equal(rendered, 2);
     assert.equal(await click({ assignmentTake: 'a' }), false, 'other clicks are left alone');
+    await click({ discussionReopen: 't"]x', nodeId: 'node-a' });
+    assert.equal(focused.at(-1), '#detail [data-reply-form="t\\"]x"] textarea', 'an odd ID from a pulled file is quoted, never a broken selector');
   } finally { delete globalThis.document; }
 });
 

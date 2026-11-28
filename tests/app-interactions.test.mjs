@@ -771,7 +771,7 @@ test('Explore this as a direction opens Add a direction on that idea once it is 
 
 test('the inspector shows the Assign form, then the request; Pass on opens its form until it is sent, cancelled or another idea is shown; history only shows (H7)', async () => {
   const item = { id: 'assignment-1', nodeId: 'node-a', requestedFor: 'Ana', status: 'requested', events: [{ at: '2026-11-04T10:00:00.000Z', type: 'requested', to: 'Ana' }] };
-  const passFields = [{ name: 'to', value: 'Cy', dataset: { draft: 'assignment-pass:node-a-to' } }, { name: 'note', value: '', dataset: { draft: 'assignment-pass:node-a-note' } }];
+  const passFields = [{ name: 'to', value: 'Cy', dataset: { draft: 'assignment-pass:assignment-1-to' } }, { name: 'note', value: '', dataset: { draft: 'assignment-pass:assignment-1-note' } }];
   const h = harness({ formAs: { id: '', dataset: { nodeId: 'node-a', passForm: 'assignment-1' }, querySelectorAll: () => passFields } });
   h.document.activeElement = null; h.render(true);
   assert.match(h.markup(), /<form id="assign-form" data-node-id="node-a">/, 'nobody is asked yet: the Assign form');
@@ -784,9 +784,9 @@ test('the inspector shows the Assign form, then the request; Pass on opens its f
     await click({ assignmentPass: 'assignment-1', nodeId: 'node-a' });
     assert.match(h.markup(), /<form class="assignment-pass-form" data-pass-form="assignment-1"/, 'Pass on opens its form in the real inspector');
     assert.match(h.markup(), /data-assignment-pass-cancel="assignment-1"[^>]*>Cancel</); assert.equal(focused.at(-1), '#detail [data-pass-form] input');
-    h.state.drafts['assignment-pass:node-a-to'] = 'Dee';
+    h.state.drafts['assignment-pass:assignment-1-to'] = 'Dee';
     await click({ assignmentPassCancel: 'assignment-1', nodeId: 'node-a' });
-    assert.doesNotMatch(h.markup(), /data-pass-form/); assert.equal(h.state.drafts['assignment-pass:node-a-to'], undefined, 'Cancel drops what was typed');
+    assert.doesNotMatch(h.markup(), /data-pass-form/); assert.equal(h.state.drafts['assignment-pass:assignment-1-to'], undefined, 'Cancel drops what was typed');
     assert.equal(focused.at(-1), '#detail [data-menu="assignment-1"]', 'back to the menu it came from');
     await click({ assignmentPass: 'assignment-1', nodeId: 'node-a' });
     h.state.selected = 'node-b'; h.render(); h.state.selected = 'node-a'; h.render();
