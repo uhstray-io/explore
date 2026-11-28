@@ -12,6 +12,8 @@ import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
 import { usageStats } from './stats.mjs';
+import { viewerFile } from './viewer.mjs';
+import { previewBranchRestore } from './branch-restore.mjs';
 import { changesSince } from './changes.mjs';
 import { searchMaps } from './search.mjs';
 import { listedMaps } from '../assets/rail.js';
@@ -80,7 +82,13 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         }
         // Usage across saved maps (J1): read only; a map that cannot be read is listed, not counted.
         if (req.method === 'GET' && url.pathname === '/api/stats') return send(res, 200, usageStats(await store.eachMap(), { archived: url.searchParams.get('archived') === 'include' ? 'include' : 'exclude' }));
-        // Version history: listing and previewing never write anything.
+        // Version history: listing and previewing never write anything. A branch preview (E2) shows what
+        // restoring one idea and everything below it from that version would change.
+        const branchRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions\/([A-Za-z0-9-]+)\/branch$/);
+        if (req.method === 'GET' && branchRoute) {
+          const q = url.searchParams;
+          return send(res, 200, await previewBranchRestore(store, branchRoute[1], branchRoute[2], { nodeId: q.get('node'), offset: q.get('offset'), limit: q.get('limit') }));
+        }
         const versionsRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions(?:\/([A-Za-z0-9-]+))?$/);
         if (req.method === 'GET' && versionsRoute && !versionsRoute[2]) { await store.get(versionsRoute[1]); return send(res, 200, await store.versions.list(versionsRoute[1])); }
         if (req.method === 'GET' && versionsRoute) {
@@ -102,7 +110,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (req.method === 'GET' && exportRoute) return send(res, 200, await exportMap(store, exportRoute[1]));
         const contextRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/context$/);
         if (req.method === 'GET' && contextRoute) return send(res, 200, contextExcerpt(await store.get(contextRoute[1]), url.searchParams.get('node'), Object.fromEntries(url.searchParams)));
-        const match = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)(?:\/(action|result|fail))?$/);
+        const match = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)(?:\/(action|result|fail|viewer))?$/);
         if (req.method === 'GET' && match && !match[2]) return send(res, 200, store.view(await store.get(match[1])));
         if (req.method === 'GET' && url.pathname === '/api/next') {
           const workerName = (url.searchParams.get('worker') || 'agent').slice(0, 100);
@@ -144,10 +152,12 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           const { map, warnings } = await store.deliver(match[1], body.jobId, body.claimKey, body.result);
           return send(res, 200, { ...store.view(map), warnings });
         }
+        // A read-only viewer file of chosen ideas (I4), built from the saved map.
+        if (match?.[2] === 'viewer') return send(res, 200, viewerFile(await store.get(match[1]), body));
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/usage-dialog.js': 'usage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/usage-dialog.js': 'usage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };

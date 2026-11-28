@@ -1,4 +1,4 @@
-import { presentation } from './graph.js';
+import { presentation, treeOrder } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY } from './questions.js';
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
@@ -76,7 +76,7 @@ const versionWords = {
   activated: 'Exploration started', answered: 'Answer saved', result: 'Agent result', suggested: 'Direction added',
   accepted: 'Finding accepted', revised: 'Premise revised', 'revision-suggested': 'Changed premise added', cancelled: 'Exploration stopped',
   failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
-  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', linked: 'Connection added', unlinked: 'Connection removed', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
+  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'branch-restored': 'Restored one branch', 'change-undone': 'Undid a change', linked: 'Connection added', unlinked: 'Connection removed', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
   'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
   'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported',
@@ -364,13 +364,7 @@ export function menuFocusIndex(index, key, count) {
 
 // Review flagged findings (D3): flagged ideas in tree order from the root, then any outside the tree.
 export function reviewQueue(map) {
-  const children = new Map(map.nodes.map(node => [node.id, []]));
-  for (const node of map.nodes) children.get(node.parentId)?.push(node);
-  const ordered = [], seen = new Set();
-  const visit = node => { if (seen.has(node.id)) return; seen.add(node.id); ordered.push(node); for (const child of children.get(node.id)) visit(child); };
-  for (const node of map.nodes.filter(node => node.id === map.rootId)) visit(node);
-  for (const node of map.nodes) visit(node);
-  return ordered.filter(node => node.stale).map(node => node.id);
+  return treeOrder(map).filter(({ node }) => node.stale).map(({ node }) => node.id);
 }
 const shortDate = at => at ? new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '';
 // One step of the review: what changed upstream, then Still holds, Re-explore or No longer relevant.
@@ -386,6 +380,8 @@ export function reviewStepHtml({ map, nodeId, index, total, esc }) {
     if (c.kind === 'premise-forked') return `${source(c.sourceId)} was explored with a changed premise${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(from?.prompt, map.nodes.filter(n => n.revises === c.sourceId).at(-1)?.prompt)}`;
     if (c.kind === 'answer-changed') { const q = from?.questions.filter(x => x.previousAnswers?.length).at(-1); return `An answer on ${source(c.sourceId)} changed${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.${more(q?.previousAnswers.at(-1)?.answer, q?.answer)}`; }
     if (c.kind === 'branch-restarted') { const q = from?.questions.filter(x => x.previousAnswers?.some(p => p.restart)).at(-1); return `${source(c.sourceId)} was restarted from a changed answer${c.at ? ` on ${esc(shortDate(c.at))}` : ''}; the ideas below it were removed and are kept in a checkpoint version.${more(q?.previousAnswers.filter(p => p.restart).at(-1)?.answer, q?.answer)}`; }
+    if (c.kind === 'branch-restored') return `${source(c.sourceId)} was restored from an earlier version${c.at ? ` on ${esc(shortDate(c.at))}` : ''}.`;
+    if (c.kind === 'restored-context-changed') return `This idea was restored from an earlier version, and ${source(c.sourceId)}, which it relied on, has changed since${c.at ? ` (${esc(shortDate(c.at))})` : ''}.`;
     if (c.kind === 'result-during-change') return `A result arrived while this idea's premise was changing${c.at ? ` (${esc(shortDate(c.at))})` : ''}. It is kept in history, not applied.`;
     return `${source(c.sourceId)} changed.`;
   };
