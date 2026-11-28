@@ -896,7 +896,8 @@ $('#detail').addEventListener('submit', async event => {
       if (!success) renderDetail(true);
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', suggestPayload(data));
-    const asked = assignmentRequest(form, data); if (asked && (success = await act(node, asked.type, asked.input)) && asked.type === 'pass-assignment') state.assignmentPassing = null; // Ask someone, or pass it on (H7).
+    const asked = assignmentRequest(form, data); if (asked) success = await act(node, asked.type, asked.input); // Ask someone, or pass it on (H7).
+    if (success && asked?.type === 'pass-assignment') state.assignmentPassing = null;
     if ('outcomeForm' in form.dataset) success = await act(node, 'record-outcome', outcomePayload(data));
     if (form.id === 'guidance-form') {
       const edits = goalEdits(state.map, data);

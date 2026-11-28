@@ -56,8 +56,8 @@ export function readMapFile(bytes, folderId) {
 }
 // The reason, if any, that the server cannot open this parsed map.
 export function readProblem(map, folderId) {
-  const blocking = validateMap(map, { folderId }).errors.find(error => error.unreadable);
-  return !blocking ? null : blocking.code === 'unsupported-version' ? 'unsupported-version' : 'invalid-map';
+  const blocking = validateMap(map, { folderId }).errors.filter(error => error.unreadable);
+  return !blocking.length ? null : blocking.some(error => error.code === 'unsupported-version') ? 'unsupported-version' : 'invalid-map';
 }
 
 // Generated Markdown names the revision it was made from, so an out-of-date view can be found.
@@ -85,6 +85,8 @@ const messages = {
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isText = value => typeof value === 'string';
 const httpUrl = value => { try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; } };
+// A block a newer Explore wrote: reported as that, so the map waits for it rather than being repaired or recovered.
+const newer = value => Number.isSafeInteger(value?.version) && value.version > 1;
 const isGrowth = value => isRecord(value) && value.version === 1 && Array.isArray(value.batches);
 // A field rule: `test` accepts good values and `code` names a failure. `optional` lets the field be absent
 // and `nullable` lets it be null. `unreadable` marks failures the server cannot open a map with; it can
@@ -98,7 +100,7 @@ const shapes = {
   map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
-    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), inbox: list({ optional: true }), assignments: rule(value => isRecord(value) && value.version === 1 && Array.isArray(value.items), { code: 'invalid-assignments', optional: true, unreadable: true }),
+    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), inbox: list({ optional: true }), assignments: rule(value => isRecord(value) && (newer(value) || (value.version === 1 && Array.isArray(value.items))), { code: 'invalid-assignments', optional: true, unreadable: true }),
     mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: rule(value => isText(value) && value.length <= goalMax, { optional: true }), successCriteria: rule(value => isText(value) && value.length <= goalMax, { optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
@@ -142,7 +144,8 @@ export function validateMap(map, { folderId } = {}) {
   const nodes = Array.isArray(map.nodes) ? map.nodes : [], edges = Array.isArray(map.edges) ? map.edges : [], jobs = Array.isArray(map.jobs) ? map.jobs : [];
   if (Array.isArray(map.glossary)) map.glossary.forEach((entry, i) => check(entry, shapes.term, `glossary[${i}]`, { unreadable: true }));
   if (Array.isArray(map.inbox)) map.inbox.forEach((thought, i) => check(thought, shapes.thought, `inbox[${i}]`));
-  const assignments = isRecord(map.assignments) && Array.isArray(map.assignments.items) ? map.assignments.items : [];
+  if (isRecord(map.assignments) && newer(map.assignments)) report('unsupported-version', 'assignments.version', true);
+  const assignments = isRecord(map.assignments) && map.assignments.version === 1 && Array.isArray(map.assignments.items) ? map.assignments.items : [];
   assignments.forEach((item, i) => { if (check(item, shapes.assignment, `assignments.items[${i}]`, { unreadable: true }) && Array.isArray(item.events)) item.events.forEach((event, j) => check(event, shapes.assignmentEvent, `assignments.items[${i}].events[${j}]`, { unreadable: true })); });
   nodes.forEach((node, i) => {
     if (!check(node, shapes.node, `nodes[${i}]`, { unreadable: true })) return;

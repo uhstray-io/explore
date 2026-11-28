@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { isOpenJob, readProblem } from './map-validation.mjs';
 import { snapshotOf } from './versions.mjs';
 import { branchIds } from '../assets/graph.js';
-import { assignmentsOf } from '../assets/assignments.js';
+import { requestsOn } from '../assets/assignments.js';
 import { openRequestsOn, dropRequestsOn } from './assignments.mjs';
 
 // Restore one branch from a saved version (E2): an idea and everything below it come back as they were, and the
@@ -105,7 +105,7 @@ export function branchRestoration(current, historical, nodeId, rules) {
   const state = id => [id, nowById.get(id)?.contentRevision ?? null, nowById.get(id)?.status ?? null];
   const removed = new Set(changes.removed.map(node => node.id)); // Requests to look at these go with them (H7).
   const hash = createHash('sha256').update(canonical({ nodeId,
-    from: { branch: current.nodes.filter(node => was.has(node.id)), requests: assignmentsOf(current).filter(item => removed.has(item.nodeId)).map(item => [item.id, item.status]), jobs: savedJobs(current.jobs.filter(job => merged.touched.has(job.nodeId))), reliedOn: [...flags.reliedOn].sort().map(state), outside: flags.outsideAffected.map(state) },
+    from: { branch: current.nodes.filter(node => was.has(node.id)), requests: requestsOn(current, removed).map(item => [item.id, item.status]), jobs: savedJobs(current.jobs.filter(job => merged.touched.has(job.nodeId))), reliedOn: [...flags.reliedOn].sort().map(state), outside: flags.outsideAffected.map(state) },
     to: { branch: merged.restored, links: merged.edges.map(canonical).sort(), jobs: savedJobs(merged.jobs.filter(job => merged.touched.has(job.nodeId))) } })).digest('hex');
   return { conflicts, branch: then, nodes: merged.nodes, edges: merged.edges, jobs: merged.jobs, positions: merged.positions,
     changes: { changed: changes.changed, readded: changes.readded, removed: changes.removed, unchanged: changes.unchanged }, links: changes.links,

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { answerStates, hasCurrentAnswer, isBlocking, laterQuestions, replaceAnswer } from '../assets/questions.js';
 import { isOpenJob } from './map-validation.mjs';
 import { tidyFolds } from './folds.mjs';
-import { assignmentsOf } from '../assets/assignments.js';
+import { requestsOn } from '../assets/assignments.js';
 import { openRequestsOn, dropRequestsOn } from './assignments.mjs';
 
 // Restart a finished branch from a changed answer (Z2). The user previews what would be deleted; the
@@ -34,7 +34,7 @@ function restartPlan(store, map, node, questionId) {
   const links = map.edges.filter(edge => below.has(edge.from) || below.has(edge.to));
   const hash = createHash('sha256').update(JSON.stringify([node.id, question.id, question.answer,
     [node, ...deleted].map(other => [other.id, other.contentRevision, other.status].join(' ')).sort(), superseded.map(q => q.id), flagged.map(other => other.id).sort(),
-    links.map(edge => [edge.from, edge.to, edge.type].join(' ')).sort(), assignmentsOf(map).filter(item => below.has(item.nodeId)).map(item => `${item.id} ${item.status}`).sort()])).digest('hex');
+    links.map(edge => [edge.from, edge.to, edge.type].join(' ')).sort(), requestsOn(map, below).map(item => `${item.id} ${item.status}`).sort()])).digest('hex');
   return { question, below, deleted, superseded, flagged, links, hash };
 }
 
