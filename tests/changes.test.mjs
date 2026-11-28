@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, chmod, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { compareMaps, changesMarkdown, mapAtCommit } from '../skills/explore/scripts/changes.mjs';
@@ -37,7 +38,7 @@ test('the Markdown names both sides, shows user text literally, and says what it
   const before = map([]), after = map(Array.from({ length: 30 }, (_, i) => node(`n${i}`, { title: i === 0 ? '<b>`tick`</b> *bold*' : `Idea ${i}` })));
   const sha = 'abc1234'.padEnd(40, '0');
   const markdown = changesMarkdown(compareMaps(before, after), { before: { sha, ref: 'HEAD~1', existed: true }, after: { revision: 7 }, limit: 10 });
-  assert.match(markdown, /^# Changes in Field notebook/m); assert.match(markdown, /Commit `abc1234` \(HEAD~1\) → current saved map, revision 7 \(may include uncommitted changes\)/);
+  assert.match(markdown, /^# Changes in Field notebook/m); assert.match(markdown, /Commit `abc1234` \(HEAD\\~1\) → current saved map, revision 7 \(may include uncommitted changes\)/);
   assert.match(changesMarkdown(compareMaps(before, after), { before: { sha, ref: 'ABC12', existed: false }, after: { revision: 7 } }), /Commit `abc1234`, before this map existed →/, 'a hash the user typed is not repeated');
   assert.match(markdown, /\\<b\\>\\`tick\\`\\<\/b\\> \\\*bold\\\*/, 'escaped like the brief');
   assert.match(markdown, /20 more not shown/);
@@ -101,6 +102,18 @@ test('each question is classified once: an answer set aside and a question saved
   assert.match(changesMarkdown(result, { before: { sha: 'f'.repeat(40), ref: 'HEAD', existed: true }, after: { revision: 2 } }), /## Saved for later\n\n- Who pays\?/);
 });
 
+test('closed means it was open at the commit, or its answer was set aside since', () => {
+  const asked = (id, extra) => ({ id, text: `Question ${id}?`, answer: null, ...extra });
+  const before = map([node('idea', { questions: [asked('a', { supersededAt: 'x', answer: 'Old.' }), asked('b', { dismissedAt: 'x' }), asked('c', { answer: 'Yes.' }), asked('d', { deferredAt: 'x' })] })]);
+  const after = map([node('idea', { questions: [asked('a', { answer: 'New.' }), asked('b', { answer: 'Later yes.' }), asked('c', { answer: 'Yes.', dismissedAt: 'x' }), asked('d', { answer: 'Done.' })] })]);
+  assert.deepEqual(compareMaps(before, after).questions.closed.map(q => [q.questionId, q.how]), [['c', 'dismissed'], ['d', 'answered']]);
+});
+
+test('a ref is shown literally, tildes included', () => {
+  const markdown = changesMarkdown(compareMaps(map([]), map([])), { before: { sha: 'f'.repeat(40), ref: 'a~1~2', existed: true }, after: { revision: 2 } });
+  assert.match(markdown, /\(a\\~1\\~2\)/);
+});
+
 test('the Markdown says when nothing changed, and a long summary is cut between lines with a count', () => {
   const sides = { before: { sha: 'f'.repeat(40), ref: 'HEAD', existed: true }, after: { revision: 2 } };
   assert.match(changesMarkdown(compareMaps(map([]), map([])), sides), /Nothing changed in ideas, answers, questions, links or findings\./);
@@ -144,7 +157,8 @@ test('a map that did not exist at the commit is reported as new, with every idea
 });
 
 test('a folder outside any repository and a missing Git each give a clear error', async t => {
-  const outside = path.join(await mkdtemp(path.join(os.tmpdir(), 'explore-norepo-')), 'map-0000000a'); await mkdir(outside);
+  const temporary = await mkdtemp(path.join(os.tmpdir(), 'explore-norepo-')), outside = path.join(temporary, 'map-0000000a'); await mkdir(outside);
+  t.after(() => rm(temporary, { recursive: true, force: true }));
   const fixture = await repo(t); if (!fixture) return;
   await assert.rejects(mapAtCommit(outside, 'HEAD'), error => error.status === 400 && /not inside a Git repository/.test(error.message));
   await assert.rejects(mapAtCommit(fixture.dir, 'HEAD', { binary: 'explore-no-such-git' }), error => error.status === 503 && /Git is not installed/.test(error.message));
@@ -168,10 +182,13 @@ test('a commit whose map Git cannot read is an error, not a map that did not exi
 });
 
 test('reading a commit never fetches, even in a partial clone', async t => {
+  // Git 2.44 added GIT_NO_LAZY_FETCH; older Git ignores it (see bridge.md).
+  const version = (await exec('git', ['--version']).catch(() => ({ stdout: '' }))).stdout.match(/(\d+)\.(\d+)/);
+  if (!version || Number(version[1]) * 1000 + Number(version[2]) < 2044) { t.skip('Needs Git 2.44 or later.'); return; }
   const source = await committed(t); if (!source) return;
   await source.git('config', 'uploadpack.allowFilter', 'true');
   const clone = await mkdtemp(path.join(path.resolve('.test-output'), 'changes-clone-'));
-  await exec('git', ['clone', '-q', '--filter=blob:none', '--no-checkout', `file:///${source.dir.replaceAll('\\', '/')}`, clone]);
+  await exec('git', ['clone', '-q', '--filter=blob:none', '--no-checkout', pathToFileURL(source.dir).href, clone]);
   const missing = async () => (await exec('git', ['rev-list', '--objects', '--missing=print', 'HEAD'], { cwd: clone, env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } })).stdout.split('\n').filter(line => line.startsWith('?')).length;
   const before = await missing(); assert.ok(before > 0, 'the clone starts without blobs');
   const folder = path.join(clone, 'ideas', source.saved.id); await mkdir(folder, { recursive: true });

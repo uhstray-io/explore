@@ -24,6 +24,15 @@ export const unreadableMessages = {
   'invalid-map': 'This map file is missing required parts or belongs to another folder. Restore it from Git or a preserved copy.',
   'too-large': 'This map file is larger than 64 MiB. Restore it from Git or a preserved copy.',
 };
+// The same problems as a clause, for a map file that is not the one open (E4 reads committed maps).
+export const unreadableReasons = {
+  'invalid-utf8': 'is not valid UTF-8 text',
+  'conflict-markers': 'has unresolved Git conflict markers',
+  'invalid-json': 'is not valid JSON',
+  'unsupported-version': 'uses an unsupported format version',
+  'invalid-map': 'is missing required parts or belongs to another folder',
+  'too-large': 'is larger than 64 MiB',
+};
 export const maxMapBytes = 64 * 1024 * 1024;
 // JSON strings cannot contain raw line breaks, so a line starting with a marker is never map content.
 export const hasConflictMarkers = raw => /^(<{7}|={7}|>{7})(\s|$)/m.test(raw);

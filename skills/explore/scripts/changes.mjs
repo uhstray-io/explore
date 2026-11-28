@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { git } from './git.mjs';
-import { maxMapBytes, readMapFile, unreadableMessages } from './map-validation.mjs';
+import { maxMapBytes, readMapFile, unreadableReasons } from './map-validation.mjs';
 import { isCompleted, hasFindings } from './store.mjs';
 import { isWaiting, hasCurrentAnswer } from '../assets/questions.js';
 import { markdownText as line } from '../assets/workspace-view.js';
@@ -17,7 +17,7 @@ const linkKey = edge => `${edge.from}\u0000${edge.to}\u0000${edge.type}`;
 // Where a question stands, so each change is read from one pair of states.
 const questionState = question => !question ? 'absent' : question.supersededAt ? 'superseded' : question.dismissedAt ? 'dismissed'
   : hasCurrentAnswer(question) ? 'answered' : isWaiting(question) ? 'waiting' : 'later';
-const settled = new Set(['answered', 'superseded', 'dismissed']);
+const open = new Set(['waiting', 'later']), setAside = new Set(['superseded', 'dismissed']);
 
 export function compareMaps(before, after) {
   const was = byId(before.nodes), now = byId(after.nodes);
@@ -33,8 +33,8 @@ export function compareMaps(before, after) {
       if (to === 'answered' && from === 'answered' && previous.answer !== question.answer) result.answers.changed.push(questionOf(node, question));
       if (to === 'waiting' && from !== 'waiting') result.questions.opened.push(questionOf(node, question));
       if (to === 'later' && from !== 'later') result.questions.savedForLater.push(questionOf(node, question));
-      // Closed: a question the commit had, now answered or set aside. One asked and settled since was never open there.
-      if (settled.has(to) && from !== to && from !== 'absent') result.questions.closed.push({ ...questionOf(node, question), how: to });
+      // Closed: open at the commit and now answered or set aside, or answered then and set aside since.
+      if ((open.has(from) && !open.has(to)) || (from === 'answered' && setAside.has(to))) result.questions.closed.push({ ...questionOf(node, question), how: to });
     }
     if (!old) continue;
     // A summary is a finding only once research wrote it; before that it is the premise, reported above.
@@ -61,7 +61,7 @@ export const countsOf = result => ({ ideasAdded: result.ideas.added.length, idea
 
 // The two sides as the reader sees them. A hash the user typed is not repeated after the short hash.
 const typedHash = (sha, ref) => /^[0-9a-f]+$/i.test(ref) && sha.startsWith(ref.toLowerCase());
-const beforeLabel = ({ sha, ref, existed }) => `Commit \`${sha.slice(0, 7)}\`${typedHash(sha, ref) ? '' : ` (${line(ref)})`}${existed ? '' : ', before this map existed'}`;
+const beforeLabel = ({ sha, ref, existed }) => `Commit \`${sha.slice(0, 7)}\`${typedHash(sha, ref) ? '' : ` (${line(ref).replaceAll('~', '\\~')})`}${existed ? '' : ', before this map existed'}`;
 const afterLabel = ({ revision }) => `current saved map, revision ${revision} (may include uncommitted changes)`;
 const maxCharacters = 200000;
 // Headed sections with node IDs. User text is escaped as the brief escapes it; each section shows at most `limit`
@@ -110,7 +110,7 @@ export async function mapAtCommit(folder, ref, { binary } = {}) {
   if (verified.outcome === 'exit') {
     need(!/not a git repository/i.test(verified.stderr), 'This map is not inside a Git repository.');
     need(verified.code !== 1, `No commit is named ${ref}.`); // --quiet: an unknown name exits 1 and says nothing.
-    need(false, 'Git refused to read this repository. Run git status in the map folder to see why.', 503);
+    throw new ChangesProblem('Git refused to read this repository. Run git status in the map folder to see why.', 503);
   }
   const sha = verified.stdout.trim();
   const shown = await git(['show', `${sha}:./map.json`], { cwd: folder, binary, maxBuffer: maxMapBytes, encoding: 'buffer' });
@@ -118,7 +118,7 @@ export async function mapAtCommit(folder, ref, { binary } = {}) {
   need(shown.outcome !== 'failed', 'Git could not read the map at that commit in time, or it is larger than 64 MiB.', 503);
   need(shown.outcome === 'ok', 'Git could not read the map at that commit.', 503);
   const { map, problem } = readMapFile(shown.stdout, path.basename(folder));
-  need(!problem, `Explore cannot read the map at that commit. ${unreadableMessages[problem]?.split('. ')[0].replace(/\.?$/, '.')} Compare with another commit.`, 422);
+  need(!problem, `The map at that commit ${unreadableReasons[problem]}, so Explore cannot read it. Compare with another commit.`, 422);
   return { sha, map };
 }
 export async function changesSince(store, mapId, ref) {
