@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { effectiveAnswerState } from '../assets/questions.js';
+import { effectiveAnswerState, isAssumption } from '../assets/questions.js';
 
 // The ideas an agent reads around one idea: the root, the path up to it, semantic neighbours of those, and
 // transitive dependencies, without expanding other branches' children. Shared by every packet that reads
@@ -53,7 +53,8 @@ const clip = (s, length) => s.length > length ? s.slice(0, length) + '\n[Shorten
 // How sure a saved answer is, as packets state it.
 export function certaintyFields(question) {
   const certainty = effectiveAnswerState(question);
-  return certainty ? { answerState: certainty.state, ...(certainty.recorded ? {} : { certaintyRecorded: false }) } : {};
+  // The user's note on what would disprove an assumption (K6) travels with it.
+  return certainty ? { answerState: certainty.state, ...(certainty.recorded ? {} : { certaintyRecorded: false }), ...(isAssumption(question) && question.disproveIf ? { disproveIf: question.disproveIf.length > 300 ? `${question.disproveIf.slice(0, 299)}…` : question.disproveIf } : {}) } : {};
 }
 // A saved answer as packets show it, keeping how sure it is and whether it came from an earlier premise.
 export const answerBrief = (q, { question = 200, answer = 300 } = {}) => ({ question: clip(q.text, question), answer: clip(q.answer, answer), ...certaintyFields(q), ...(q.supersededAt ? { supersededAt: q.supersededAt } : {}) });

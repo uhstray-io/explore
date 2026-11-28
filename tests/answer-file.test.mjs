@@ -6,7 +6,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
-import { answerFileMarkdown, parseAnswerFile, answerPreview, applyAnswers, applyOverApi, openQuestionsForFile } from '../skills/explore/assets/answer-file.js';
+import { answerFileMarkdown, parseAnswerFile, answerPreview, applyAnswers, openQuestionsForFile } from '../skills/explore/assets/answer-file.js';
+import { applyOverApi } from '../skills/explore/scripts/answers.mjs';
 import { answersDialog, answerPreviewHtml, answerFilename } from '../skills/explore/assets/answers-dialog.js';
 
 // Answer questions in a Markdown file (K11, #57). Illustrative fixtures only, never ideas/.
@@ -232,7 +233,7 @@ test('the browser exports a file, previews an import, and saves the ready answer
     assert.equal(io.element('answers-status').textContent, '', 'closing Map tools clears it');
     for (const question of map.nodes[0].questions) if (['q-aaaaaaaa', 'q-later000'].includes(question.id)) question.answer = 'Saved.';
     io.element('answers-file').files = [{ text: async () => text }]; await io.element('answers-file').fire('change'); // Everything is answered now.
-    assert.match(io.element('answers-summary').textContent, /^0 answers ready to save. \d will not be saved.$/, 'nothing to save promises nothing'); assert.equal(io.element('answers-save').hidden, true);
+    assert.match(io.element('answers-summary').textContent, /^0 answers ready to save\. \d will not be saved\.$/, 'nothing to save promises nothing'); assert.equal(io.element('answers-save').hidden, true);
   } finally { delete globalThis.document; }
 });
 

@@ -107,8 +107,8 @@ test('packets, section reads, briefs and node Markdown all say how sure each ans
   const read = contextExcerpt(saved, map.rootId, { section: 'questions' });
   assert.match(read.excerpt, /Certainty: Decided/); assert.match(read.excerpt, /Certainty: Assumption/); assert.match(read.excerpt, /Saved for later/);
   const brief = mapBrief(await store.get(map.id));
-  const unsettled = brief.sections.find(s => s.id === 'unsettled');
-  assert.deepEqual(unsettled.items.map(item => item.questionId), [b.id], 'assumptions are not read as decisions');
+  const assumed = brief.sections.find(s => s.id === 'assumptions');
+  assert.deepEqual(assumed.items.map(item => item.questionId), [b.id], 'assumptions are not read as decisions');
   assert.deepEqual(brief.sections.find(s => s.id === 'later').items.map(item => item.questionId), [c.id]);
   const doc = await readFile(path.join(store.directory, map.id, 'nodes', `${map.rootId}.md`), 'utf8');
   assert.match(doc, /Certainty: Decided/); assert.match(doc, /Saved for later/);

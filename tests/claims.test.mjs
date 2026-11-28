@@ -92,7 +92,7 @@ test('a stale result keeps its claims in job history only; revise clears them; a
   saved = await store.action(map.id, { expectedRevision: saved.revision, type: 'answer', nodeId: map.rootId, questionId: saved.nodes[0].questions[0].id, answer: 'Android.' });
   const next = await store.claim('agent', map.id);
   assert.deepEqual(next.selected.claims, [{ id: 'offline', text: supported.text }]);
-  assert.match(next.instruction, /read --section options\|limitations\|claims and resend in full those that still hold/); assert.match(next.retrieval, /claims/);
+  assert.match(next.instruction, /read --section options\|limitations\|claims\|assumptions and resend in full those that still hold/); assert.match(next.retrieval, /claims/);
   saved = await store.get(map.id);
   saved = await store.action(map.id, { expectedRevision: saved.revision, type: 'revise', nodeId: map.rootId, body: 'Notes that work offline for a year.' });
   assert.equal(saved.nodes[0].claims, undefined, 'revise clears them with the sources');
