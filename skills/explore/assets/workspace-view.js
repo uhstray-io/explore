@@ -214,12 +214,16 @@ export function optionsHtml(node, esc, extra = () => '', lead = '') {
 // The cards and the recommendation for any comparison; `extra(option)` adds controls to a card.
 function optionCardsHtml(comparison, esc, extra = () => '', { original = false } = {}) {
   const r = comparison.recommendation, list = (label, items) => items?.length ? `<p class="option-list"><strong>${label}</strong> ${items.map(esc).join(' · ')}</p>` : '';
-  const cards = comparison.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ' <span class="option-badge">Recommended</span>' : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}${extra(option)}</article>`).join('');
-  const chosen = comparison.options.find(option => option.id === r?.optionId);
-  const advice = chosen
+  const cards = comparison.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ` <span class="option-badge">${original ? 'Originally recommended' : 'Recommended'}</span>` : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}${extra(option)}</article>`).join('');
+  return `${comparison.optionsLimit ? `<p class="state-note">Only one real option: ${esc(comparison.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${original ? '<p class="option-original">Original recommendation</p>' : ''}${adviceHtml(comparison.options, r, esc)}</div>`;
+}
+// A recommendation's advice: why, the main trade-off and what would change it, or what is missing. Shared with the
+// reconsideration (C9), whose `options` are the `{ id, title }` it was asked about.
+export function adviceHtml(options, r, esc) {
+  const chosen = options.find(option => option.id === r?.optionId);
+  return chosen
     ? `<p><strong>Why ${esc(chosen.title)}:</strong> ${esc(r.rationale)}</p><p><strong>Main trade-off:</strong> ${esc(r.mainTradeoff)}</p>${r.reconsiderIf ? `<p><strong>Reconsider if:</strong> ${esc(r.reconsiderIf)}</p>` : ''}`
     : `<p><strong>No recommendation yet.</strong> ${esc(r?.missing ?? '')}</p>`;
-  return `${comparison.optionsLimit ? `<p class="state-note">Only one real option: ${esc(comparison.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${original ? '<p class="option-original">Original recommendation</p>' : ''}${advice}</div>`;
 }
 // A suggested answer is added after the user's own draft, never replacing it.
 export function appendSuggestion(draft, suggestion) {

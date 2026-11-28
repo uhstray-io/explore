@@ -750,7 +750,7 @@ const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(
   if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
 } });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
-const criteria = criteriaDialog({ map: () => state.visibleMap, act, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Criteria (C9).
+const criteria = criteriaDialog({ map: () => state.visibleMap, act, esc, toast, listening: agentListening }); // Criteria (C9), opened only on the live map.
 answersDialog({ map: () => state.map, live: () => state.historyStep === null, act, esc, download }); // Answer in a file (K11).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).

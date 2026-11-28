@@ -148,7 +148,7 @@ Options and a recommendation are required; when the evidence does not settle it,
 
 ## Reconsidering with the user's criteria
 
-A `reconsider` packet carries an idea's comparison (C1) and the criteria the user gave it, each `{ id, label, priority }` with priority `high`, `normal` or `low`: `node` (premise, summary and the user's answers), `options`, the original `recommendation`, `criteria`, and the idea's `claims` and `limitations` if any. Do no new research: judge from the saved evidence. Return:
+Only the user asks for this (`reconsider`); never request it on their behalf. A `reconsider` packet carries an idea's comparison (C1) and the criteria the user gave it, each `{ id, label, priority }` with priority `high`, `normal` or `low`: `node` (premise, summary and the user's answers, each with how sure the user is), `options` (without suggested answers), the original `recommendation`, `criteria`, and the idea's `claims` and `limitations` if any. If the packet would be too long, the oldest answers, then claims, then limitations that block nothing are left out (counted in `omitted`), and last the options' wording is shortened. Do no new research: judge from the saved evidence. Return:
 
 ```json
 {
@@ -158,7 +158,7 @@ A `reconsider` packet carries an idea's comparison (C1) and the criteria the use
 }
 ```
 
-Give exactly one assessment (at most 300 characters) for every option and criterion, with `basis` `evidence`, `reasoning` or `unknown`. The recommendation follows the same rules as a comparison, `optionId: null` with `missing` included; if a limitation on the idea blocks a recommendation, it must stay null. `changed` is at most 600 characters. Anything else rejects the result. The result stays on its job: the idea's own options, recommendation, status and findings never change, and the user chooses to use it or keep the original.
+Give exactly one assessment (at most 300 characters) for every option and criterion in the packet, with `basis` `evidence`, `reasoning` or `unknown`. The recommendation follows the same rules as a comparison, `optionId: null` with `missing` included; if a limitation on the idea blocks a recommendation, it must stay null. `changed` is at most 600 characters. Anything else rejects the result. The result stays on its job: the idea's own options, recommendation, status and findings never change, and the user chooses to use it or keep the original.
 
 ## Tidying an answer
 
@@ -201,6 +201,8 @@ If someone pulled or switched branches since you last read the map, an action fa
 - `set-done-when`: `doneWhen`. Change or clear the stopping point of an unfinished branch that is not running (running work already has its packet). User-only; it never flags findings or queues work, and a result can never set it.
 - `answer`: `questionId`, `answer`, optional `answerState` (`tentative` by default, `decided` or `assumption`; all need text). Supply only an actual user answer. Questions superseded by a changed premise remain in history and reject new answers. Answering a question saved for later clears that.
 - `set-disprove-if`: `questionId`, `text` (at most 1,000 characters; empty removes it). User-only: the user's note on what would show one of their own current answers marked Assumption is wrong. It is an annotation like `set-answer-state`: allowed on finished branches, and it never changes content; a change that changes nothing is refused. Event `disprove-if-set`. A packet shows the note as `disproveIf` on that answer.
+- `set-criteria`: `criteria` (up to 8 `{ id?, label, priority }`, labels at most 120 characters and each once; an empty list clears them). User-only: the user's own criteria for an idea's options. It queues nothing and changes no findings.
+- `reconsider`, `adopt-reconsideration` and `dismiss-reconsideration` (`jobId`): user-only. Asking queues a `reconsider` job; using a result or keeping the original changes only which recommendation leads, never the idea's own options, findings or status. Never take these on the user's behalf.
 - `set-answer-state`: `questionId`, `answerState`. Changes how sure a saved, current answer is. It is an annotation: allowed on finished branches, and it never re-runs research, flags findings or changes content. User-only.
 - `rate-question`: `questionId`, `rating` (`good`, `bad` or `null` to clear), optional `reason` (600). Feedback, not content: allowed on answered questions and finished branches, never re-runs research. User-only; an agent never rates.
 - `dismiss-question`: `questionId`. Sets an open question aside on an unfinished branch; it then rejects answers. When nothing else blocks, the branch continues. `restore-question` brings it back while the branch is waiting for answers. User-only.

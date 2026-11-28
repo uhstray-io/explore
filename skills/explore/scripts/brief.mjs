@@ -46,7 +46,7 @@ export function mapBrief(map, nodeId = null) {
     ['recommendations', 'Agent recommendations — not decisions', nodes.filter(n => n.options?.length).map(n => {
       const r = n.recommendation, chosen = n.options.find(option => option.id === r?.optionId);
       // A reconsideration the user adopted (C9) leads, with the original beside it.
-      return entry(n, reconsideredBriefText(map, n) ?? (chosen ? `Recommended: ${chosen.title}. Main trade-off: ${r.mainTradeoff}` : `No recommendation yet: ${r?.missing ?? 'not recorded'}`), { options: n.options.length, ...(reconsideredBriefText(map, n) ? { reconsidered: true } : {}) });
+      return entry(n, reconsideredBriefText(map, n) ?? (chosen ? `Recommended: ${chosen.title}. Main trade-off: ${r.mainTradeoff}` : `No recommendation yet: ${r?.missing ?? 'not recorded'}`), { options: n.options.length });
     })],
     // Older results could not record these, so an empty section never reads as "none found".
     ['limitations', 'Conflicts and evidence gaps — unresolved', nodes.flatMap(n => (n.limitations || []).map(record => entry(n, `${limitationLabel(record.kind)}: ${clip(record.summary, 180)} Next step: ${clip(record.nextStep, 100)}`, { limitationId: record.id, kind: record.kind }))),

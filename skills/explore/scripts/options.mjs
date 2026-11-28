@@ -66,13 +66,12 @@ export function comparisonLines(comparison, { level = 2 } = {}) {
     if (option.suggestedAnswer) lines.push(`Suggested answer (a draft, not the user's answer): ${option.suggestedAnswer}`);
     lines.push('');
   }
-  lines.push(`${heading} Recommendation`, '', '_The agent\'s judgement, not a decision._', '');
-  const r = comparison.recommendation;
-  if (!r || r.optionId === null) lines.push(`No recommendation yet. Missing: ${r?.missing ?? 'not recorded'}`);
-  else {
-    const title = comparison.options.find(option => option.id === r.optionId)?.title ?? r.optionId;
-    lines.push(`Recommended: ${title} (${r.optionId})`, `Why: ${r.rationale}`, `Main trade-off: ${r.mainTradeoff}`);
-    if (r.reconsiderIf) lines.push(`Reconsider if: ${r.reconsiderIf}`);
-  }
+  lines.push(`${heading} Recommendation`, '', '_The agent\'s judgement, not a decision._', '', ...recommendationLines(comparison.options, comparison.recommendation));
   return lines;
+}
+// A recommendation as plain lines, for a comparison and for a reconsideration in use (C9). `format` escapes text.
+export function recommendationLines(options, r, { format = text => text } = {}) {
+  if (!r || r.optionId === null) return [`No recommendation yet. Missing: ${format(r?.missing ?? 'not recorded')}`];
+  const title = options.find(option => option.id === r.optionId)?.title ?? r.optionId;
+  return [`Recommended: ${format(title)} (${r.optionId})`, `Why: ${format(r.rationale)}`, `Main trade-off: ${format(r.mainTradeoff)}`, ...(r.reconsiderIf ? [`Reconsider if: ${format(r.reconsiderIf)}`] : [])];
 }
