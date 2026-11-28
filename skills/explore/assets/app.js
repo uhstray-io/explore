@@ -41,7 +41,7 @@ import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, e
 import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml, isInvestigationJob } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, prefilled: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -278,9 +278,10 @@ function focusNode(nodeId) {
 // Explore this as a direction (F2): Add a direction on that idea, opened once it is shown and chosen. It is prefilled
 // unless the user has a draft of their own there; an earlier hypothesis's prefill they left as it was is replaced.
 async function exploreAsDirection({ nodeId, title, body }) {
-  const [titleKey, bodyKey] = [`${nodeId}-title`, `${nodeId}-branch`], last = state.prefilled?.[nodeId];
-  if ((!state.drafts[titleKey] && !state.drafts[bodyKey]) || (state.drafts[titleKey] === last?.title && state.drafts[bodyKey] === last?.body)) Object.assign(state.drafts, { [titleKey]: title, [bodyKey]: body }), (state.prefilled ??= {})[nodeId] = { title, body };
-  else toast('Your own draft there is kept. Clear it to use this hypothesis instead.');
+  const [titleKey, bodyKey] = [`${nodeId}-title`, `${nodeId}-branch`], last = state.prefilled[nodeId];
+  if ((!state.drafts[titleKey] && !state.drafts[bodyKey]) || (state.drafts[titleKey] === last?.title && state.drafts[bodyKey] === last?.body)) {
+    Object.assign(state.drafts, { [titleKey]: title, [bodyKey]: body }); state.prefilled[nodeId] = { title, body };
+  } else toast('Your own draft there is kept. Clear it to use this hypothesis instead.');
   await focusNode(nodeId); if (state.selected === nodeId) openEditor('suggest');
 }
 function centerSelected() {

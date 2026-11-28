@@ -738,7 +738,7 @@ test('Add a direction sends a hypothesis with its test, trimmed', () => {
 // Explore this as a direction (F2): the app's real callback, with the page and folds replaced.
 test('Explore this as a direction opens Add a direction on that idea once it is shown, and never replaces a draft there', async () => {
   const run = ({ shown, drafts = {} }) => {
-    const calls = [], state = { positions: { a: {}, b: {} }, visibleMap: { nodes: [{ id: 'a' }, { id: 'b' }] }, view: { shown: new Set(shown) }, selected: 'a', drafts };
+    const calls = [], state = { positions: { a: {}, b: {} }, visibleMap: { nodes: [{ id: 'a' }, { id: 'b' }] }, view: { shown: new Set(shown) }, selected: 'a', drafts, prefilled: {} };
     const context = vm.createContext({ state, $: () => ({ focus() {} }), closeOverview() {}, centerSelected() {}, outline: { active: () => false }, toast: message => calls.push(['toast', message]),
       selectNode: id => { state.selected = id; calls.push(['select', id]); },
       // A folded idea is revealed after a save's round trip, and only then chosen.
