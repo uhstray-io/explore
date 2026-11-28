@@ -229,6 +229,6 @@ test('the preview says how many more it leaves out of each list', () => {
   const preview = { node: idea(0), counts: { changed: 0, readded: 0, removed: 0, linksAdded: 0, linksRemoved: 0, reopened: 60, flaggedInside: 0, affected: 70, flagged: 3, questionsSetAside: 4 },
     nodes: [], nextOffset: null, reopened: Array.from({ length: 50 }, (_, i) => idea(i)), flaggedInside: [], affected: Array.from({ length: 50 }, (_, i) => idea(i)), conflicts: [] };
   const html = branchRestoreHtml(preview, { esc: String });
-  assert.match(html, /and 10 more\./); assert.match(html, /and 20 more\. 3 findings will be flagged for review, and 4 open questions set aside/);
+  assert.match(html, /and 10 more\./); assert.match(html, /and 20 more\. 3 findings will be flagged for review, and 4 questions set aside \(their answers are kept\)/);
   assert.doesNotMatch(html, /role="alert"/); assert.match(html, /<section class="branch-restore" tabindex="-1" role="group"/);
 });
