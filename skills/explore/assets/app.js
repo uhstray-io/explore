@@ -172,7 +172,7 @@ function renderMap(fit = false, preserveView = false) {
 function transform() { $('#world').style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`; $('#world').style.setProperty('--graph-scale', state.scale); $('#zoom-value').textContent = `${state.scale < .1 ? (state.scale * 100).toFixed(1) : Math.round(state.scale * 100)}%`; }
 function viewport() { return { width: $('#canvas').clientWidth, height: $('#canvas').clientHeight }; }
 function fitMap() {
-  if (!state.map) return;
+  if (!state.map || !$('#canvas').clientWidth) return; // Hidden behind the outline: the return to the map fits it.
   state.overview = true;
   Object.assign(state, overviewView(visiblePositions(), viewport()));
   transform();
@@ -187,7 +187,7 @@ function selectNode(nodeId) {
   state.selected = visibleSelection(state.visibleMap, nodeId);
   showAddress();
   for (const card of document.querySelectorAll('.node')) { card.classList.toggle('selected', card.dataset.node === nodeId); card.setAttribute('aria-pressed', String(card.dataset.node === nodeId)); }
-  $('#focus-selected').disabled = !state.selected; renderDetail(); outline.render();
+  $('#focus-selected').disabled = !state.selected; renderDetail(); outline.showSelection();
 }
 // Git status of the open map (H9). Checked when a map opens, when the user asks, and at most every 10 seconds
 // after this browser saves or a fetch brings a changed map (a pull or an agent's result); never on every poll.
@@ -260,7 +260,7 @@ function focusNode(nodeId) {
 }
 function centerSelected() {
   const node = state.visibleMap?.nodes.find(n => n.id === state.selected);
-  if (!node) return;
+  if (!node || !$('#canvas').clientWidth) return;
   const neighbors = state.visibleMap.nodes.filter(n => n.parentId === node.id || n.id === node.parentId).map(n => state.positions[n.id]);
   state.overview = false;
   Object.assign(state, focusedView(state.positions[node.id], viewport(), 1, neighbors)); transform();
@@ -722,8 +722,12 @@ const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
 commandPalette({ $, $$: selector => [...document.querySelectorAll(selector)], esc, state, focusNode, openEditor, toast });
-const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(selector)], esc, glyphs, state, select: selectNode,
-  showMap: () => { if (state.map) (state.selected ? centerSelected : fitMap)(); } }); // The canvas is shown again, so it measures now.
+// Back on the map the canvas is shown again, so it measures now. Focus that was in the outline goes to the selected idea.
+const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(selector)], esc, glyphs, state, select: selectNode, showMap: ({ refocus }) => {
+  if (!state.map) return;
+  (state.selected ? centerSelected : fitMap)();
+  if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
+} });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
 const showBrief = briefDialog({ api, map: () => state.map, download });
 $('#show-brief').addEventListener('click', () => showBrief());
