@@ -183,7 +183,9 @@ export const questionJobTypes = {
       };
       // 800 characters stay free for the fields every packet carries.
       const limit = budget - 800, size = () => JSON.stringify(packet).length;
-      while (size() > limit && packet.context.length) { packet.context.pop(); packet.omittedContext++; }
+      const sizes = packet.context.map(item => JSON.stringify(item).length + 1);
+      for (let total = size(); total > limit && packet.context.length;) { total -= sizes.pop(); packet.context.pop(); packet.omittedContext++; }
+      while (size() > limit && packet.context.length) { packet.context.pop(); packet.omittedContext++; } // The count's own digits.
       if (size() > limit) packet.node.findings = clip(findings, 1500);
       while (size() > limit && packet.node.answers.length) packet.node.answers.shift(); // The oldest answers are dropped first.
       return packet;

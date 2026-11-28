@@ -1,12 +1,12 @@
 import { appendSuggestion, researchSuggestion } from './workspace-view.js';
-import { isBlocking, questionJobs, reusableResult, TIDY, EXPLAIN, RESEARCH } from './questions.js';
+import { isBlocking, questionJobs, TIDY, EXPLAIN, RESEARCH } from './questions.js';
 
 // Clicks on a question's controls: starting a draft from a suggestion or research, stopping the agent's work on it,
 // one question at a time or all, changing or restarting from an answer, and the question's ⋯ menu. Resolves true
 // when the click was one of these. `app` passes what the handlers need from app.js.
 const helpKinds = { research: { type: RESEARCH, action: 'request-research', doing: 'research', got: 'research' }, help: { type: EXPLAIN, action: 'request-help', doing: 'explain', got: 'explanation' } };
 export async function questionClick(event, app) {
-  const { state, act, toast, renderDetail, closeMenus, agentListening, loadRestartPreview } = app;
+  const { state, act, api, toast, renderDetail, closeMenus, agentListening, loadRestartPreview } = app;
   const suggested = event.target.closest('[data-suggest-answer]');
   if (suggested) {
     const option = state.map?.nodes.find(node => node.id === state.selected)?.options?.find(item => item.id === suggested.dataset.suggestAnswer);
@@ -80,24 +80,28 @@ export async function questionClick(event, app) {
     if (done) toast(row.dataset.action === 'regenerate' ? (agentListening() ? 'Your agent will write a better question.' : 'Queued. Connect your agent for a new question.') : 'Thanks. Your agent will ask fewer questions like this.');
     send.disabled = false; return true;
   }
-  // Help me answer and Explain this question. Asking again for help nothing has changed since opens the earlier
-  // result instead of queueing work (Z4); its Ask again queues new work.
+  // Help me answer and Explain this question. Asking again for help nothing has changed since opens the earlier result
+  // instead of queueing work (Z4); the Store checks only now, when asked. Ask again at the end of a result queues anew.
   const ask = event.target.closest('[data-q-research], [data-q-help], [data-reuse-again]');
   if (ask) {
     const again = ask.dataset.reuseAgain !== undefined, { nodeId, questionId } = ask.dataset;
     const kind = helpKinds[again ? ask.dataset.reuseAgain : 'qResearch' in ask.dataset ? 'research' : 'help'];
     closeMenus();
-    const earlier = again ? null : reusableResult(state.visibleMap?.jobs, kind.type, questionId);
+    const query = new URLSearchParams({ type: kind.type, node: nodeId, question: questionId });
+    const found = again || !state.map ? null : await api(`/maps/${state.map.id}/reusable?${query}`).catch(() => null);
+    const earlier = found?.jobId ? state.visibleMap?.jobs.find(job => job.id === found.jobId) : null;
     if (earlier) { // Read-only: nothing is written.
       state.helpSeen?.delete(earlier.id); renderDetail(true);
       const details = document.querySelector(`[data-help="${earlier.id}"]`);
       if (details) { details.open = true; details.scrollIntoView?.({ block: 'nearest' }); details.querySelector('summary')?.focus(); }
-      toast('Nothing it used has changed since you asked, so here is the earlier result.');
+      toast('Nothing it read has changed since this was asked, so here is that result. Ask again under it for a new one.');
       return true;
     }
     ask.disabled = true;
-    if (await act(nodeId, kind.action, { questionId })) toast(agentListening() ? `Your agent will ${kind.doing} this question next.` : `Queued. Connect your agent to get the ${kind.got}.`);
+    const queued = await act(nodeId, kind.action, { questionId });
+    if (queued) toast(agentListening() ? `Your agent will ${kind.doing} this question next.` : `Queued. Connect your agent to get the ${kind.got}.`);
     ask.disabled = false;
+    if (queued) document.querySelector(`[data-menu="${questionId}"]`)?.focus(); // The result gave way to its status; focus stays on the question.
     return true;
   }
   const dismiss = event.target.closest('[data-q-dismiss]');

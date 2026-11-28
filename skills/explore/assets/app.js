@@ -860,7 +860,7 @@ document.addEventListener('click', async event => {
   const menuToggle = event.target.closest('[data-menu]');
   if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeMenus(); if (opening) openMenu(menuToggle); return; }
   if (!event.target.closest('.item-menu')) closeMenus();
-  if (await questionClick(event, { state, act, toast, renderDetail, closeMenus, agentListening, loadRestartPreview })) return;
+  if (await questionClick(event, { state, act, api, toast, renderDetail, closeMenus, agentListening, loadRestartPreview })) return;
   if (await limitationClick(event, { state, act, toast })) return;
   if (await pinClick(event, { act, focusNode, toast, closeMenus })) return;
   if (await folds.click(event)) return; // The idea's ⋯ menu and the branch bar.

@@ -287,15 +287,15 @@ export function questionMenuHtml(question, { nodeId, kind, completed = false, la
 // Explain this question (B4): what the agent is doing about it, or its latest current help, under the
 // question. Help is never an answer: it is labelled so and never touches the answer field. It opens the
 // first time it appears and stays collapsed once seen.
-// The earlier result, when nothing it read has changed (Z4): asking again opens it, and Ask again queues new work.
-const unchangedHtml = (job, kind, { question, esc }) => (job.contextUnchanged
-  ? `<p class="reuse-note" id="reuse-note-${esc(job.id)}">Nothing it used has changed since you asked. <button type="button" class="text-button" data-reuse-again="${kind}" data-node-id="${esc(job.nodeId)}" data-question-id="${esc(question.id)}" aria-describedby="reuse-note-${esc(job.id)}">Ask again</button></p>` : '');
+// A current result's quiet footer (Z4): asking from the menu again opens this result while nothing it read has
+// changed; Ask again always queues new work.
+const askAgainHtml = (job, kind, { question, esc }) => `<p class="reuse-again"><button type="button" class="text-button" data-reuse-again="${kind}" data-node-id="${esc(job.nodeId)}" data-question-id="${esc(question.id)}">Ask again</button></p>`;
 const finishedOn = job => (job.finishedAt ? new Date(job.finishedAt).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '');
 const dated = job => (job.finishedAt ? ` · ${finishedOn(job)}` : '');
 export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
   const { pending, latest: help } = questionJobs(jobs, EXPLAIN, question.id);
   if (pending) return `<p class="question-help-status">${waitingWords(pending, listening, 'explaining this question')}</p>`;
-  return help && !help.stale ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer${esc(dated(help))}</summary>${unchangedHtml(help, 'help', { question, esc })}<p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
+  return help && !help.stale ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer${esc(dated(help))}</summary><p class="question-help-text">${esc(help.result.help)}</p>${askAgainHtml(help, 'help', { question, esc })}</details>` : '';
 }
 // What a queued or running question job is doing, promising nothing while no agent is listening.
 const waitingWords = (job, listening, doing) => job.status === 'running' ? `Your agent is ${doing}.` : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.';
@@ -309,7 +309,7 @@ export function questionResearchHtml({ question, jobs, listening, seen, esc }) {
   const { summary, sources = [] } = job.result;
   const copy = option => option.suggestedAnswer ? `<button type="button" class="text-button" data-copy-answer="${esc(option.id)}" data-research-job="${esc(job.id)}" data-question-id="${esc(question.id)}"${job.stale ? ' disabled title="The question or its context changed since this research."' : ''}>Copy to my answer</button>` : '';
   const cited = sources.length ? `<ul class="research-sources">${sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> · ${esc(s.note)}</li>`).join('')}</ul>` : '';
-  return `<details class="question-help question-research" data-help="${esc(job.id)}" data-editor="help-${esc(job.id)}"${seen.has(job.id) ? '' : ' open'}><summary>${job.stale ? 'Earlier research' : 'Research from your agent, not your answer'}${esc(dated(job))}</summary>${unchangedHtml(job, 'research', { question, esc })}${job.stale ? '<p class="form-note">The question or its context changed since. Ask again for current research.</p>' : ''}${summary ? `<p class="question-help-text">${esc(summary)}</p>` : ''}${optionCardsHtml(job.result, esc, copy)}${cited}</details>`;
+  return `<details class="question-help question-research" data-help="${esc(job.id)}" data-editor="help-${esc(job.id)}"${seen.has(job.id) ? '' : ' open'}><summary>${job.stale ? 'Earlier research' : 'Research from your agent, not your answer'}${esc(dated(job))}</summary>${job.stale ? '<p class="form-note">The question or its context changed since. Ask again for current research.</p>' : ''}${summary ? `<p class="question-help-text">${esc(summary)}</p>` : ''}${optionCardsHtml(job.result, esc, copy)}${cited}${job.stale ? '' : askAgainHtml(job, 'research', { question, esc })}</details>`;
 }
 // Tidy my wording (Z3), under the answer box: what the agent is doing, or the tidied wording beside the user's
 // own, with Use this wording and Keep mine. Using it only changes the draft; Restore my wording undoes that.

@@ -8,6 +8,7 @@ import { contextExcerpt } from './context.mjs';
 import { gitContributor } from './contributor.mjs';
 import { mapBrief } from './brief.mjs';
 import { exportMap } from './transfer.mjs';
+import { reusableResult } from './reuse.mjs';
 import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
@@ -80,6 +81,9 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           try { selection = url.searchParams.get('selection') ? JSON.parse(url.searchParams.get('selection')) : undefined; } catch { throw new Problem('The selection is not valid JSON.'); }
           return send(res, 200, await store.previewMapJob(previewRoute[1], url.searchParams.get('type'), selection));
         }
+        // Asking again for help nothing has changed since (Z4): read only, checked when the user asks.
+        const reusableRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/reusable$/);
+        if (req.method === 'GET' && reusableRoute) { const q = url.searchParams; return send(res, 200, await reusableResult(store, reusableRoute[1], { type: q.get('type'), nodeId: q.get('node'), questionId: q.get('question') })); }
         // Usage across saved maps (J1): read only; a map that cannot be read is listed, not counted.
         if (req.method === 'GET' && url.pathname === '/api/stats') return send(res, 200, usageStats(await store.eachMap({ adopt: false }), { archived: url.searchParams.get('archived') === 'include' ? 'include' : 'exclude' }));
         // Version history: listing and previewing never write anything. A branch preview (E2) shows what
