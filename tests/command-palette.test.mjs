@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { availableCommands, commandPalette } from '../skills/explore/assets/command-palette.js';
-import { commandResults, ideaMatches, draftNeeded } from '../skills/explore/assets/workspace-view.js';
+import { draftNeeded } from '../skills/explore/assets/command-palette.js';
+import { commandResults, ideaMatches } from '../skills/explore/assets/workspace-view.js';
 
 // Command palette (Z8, #66). A fake page whose controls behave like the real ones: marked with data-command or in a
 // ⋯ menu, visible or not (checkVisibility), and replaced by new elements when the inspector is redrawn.
@@ -17,20 +18,22 @@ function page() {
     tag, textContent: text, dataset: { ...data }, attributes: { ...attributes }, hidden, disabled: false, parent, generation,
     getAttribute(name) { return this.attributes[name] ?? null; }, hasAttribute(name) { return name in this.attributes || name.replace(/^data-/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase()) in this.dataset; },
     checkVisibility() { return visible; }, matches(selector) { return selector === 'textarea, input' && (this.tag === 'textarea' || this.tag === 'input'); },
-    closest(selector) { for (let at = this; at; at = at.parent) { if (selector === '#detail' && at.id === 'detail') return at; if (selector === '.item-menu' && at.attributes.class === 'item-menu') return at; if (selector === 'form' && at.tag === 'form') return at; } return null; },
+    closest(selector) { for (let at = this; at; at = at.parent) { if (selector === '[data-node-id]' && at.dataset?.nodeId) return at; if (selector === '.item-menu' && at.attributes.class === 'item-menu') return at; if (selector === 'form' && at.tag === 'form') return at; } return null; },
     querySelector(selector) { return selector === '[data-draft]' ? this.draft ?? null : null; },
     click() { clicks.push([this.generation, this.dataset.command ?? this.textContent]); }, focus() { focused.push([this.generation, this.dataset.command]); },
   });
   let controls = [], toggles = {};
   const draw = ({ selected = 'node-a', yourAnswersOpen = false, draft = '' } = {}) => {
     generation++;
-    const detail = { id: 'detail' };
+    const detail = { id: 'detail', dataset: { nodeId: selected } };
     const form = { tag: 'form', parent: detail, querySelector: selector => (selector === '[data-draft]' ? { value: draft } : null) };
     const questionMenu = { attributes: { class: 'item-menu' }, id: 'menu-q-1', parent: form };
     const answeredMenu = { attributes: { class: 'item-menu' }, id: 'menu-q-2', parent: detail };
-    toggles = { 'menu-q-1': control({ visible: true }), 'menu-q-2': control({ visible: yourAnswersOpen }) };
+    const ideaMenu = { attributes: { class: 'item-menu' }, id: 'menu-idea', parent: detail };
+    toggles = { 'menu-q-1': control({ visible: true }), 'menu-q-2': control({ visible: yourAnswersOpen }), 'menu-idea': control({ visible: true }) };
     controls = [
       control({ text: 'Map brief', data: { command: 'brief' } }),
+      control({ text: `Unexplored${generation}`, data: { command: 'filter', commandLabel: 'Show: Unexplored' } }),
       control({ text: 'Zoom in', data: { command: 'zoom-in' }, attributes: { 'aria-label': 'Zoom in' }, visible: false }),
       control({ text: '+ New exploration', data: { command: 'new-map', commandLabel: 'New exploration' }, attributes: { 'data-command-anywhere': '' }, visible: false }),
       control({ text: 'Explore this branch', data: { command: 'explore', nodeId: selected }, parent: detail }),
@@ -39,6 +42,7 @@ function page() {
       control({ text: 'Help me answer', data: { nodeId: selected, questionId: 'q-1' }, attributes: { role: 'menuitem' }, parent: questionMenu }),
       control({ text: 'Tidy my wording', data: { nodeId: selected, questionId: 'q-1' }, attributes: { role: 'menuitem', 'data-needs-draft': '' }, parent: questionMenu, hidden: true }),
       control({ text: 'Change answer', data: { nodeId: selected, questionId: 'q-2' }, attributes: { role: 'menuitem' }, parent: answeredMenu }),
+      control({ text: 'Add a connection', attributes: { role: 'menuitem' }, parent: ideaMenu }),
     ];
   };
   draw();
@@ -46,7 +50,7 @@ function page() {
   const $$ = selector => (selector === '[data-command]' ? controls.filter(item => item.dataset.command) : selector === '#detail .item-menu [role="menuitem"]' ? controls.filter(item => item.attributes.role === 'menuitem') : []);
   return { $, $$, draw, clicks, focused, controls: () => controls };
 }
-const labels = (io, selected = 'node-a', toast = () => {}) => availableCommands({ $: io.$, $$: io.$$, map, selected, openEditor: name => io.focused.push(['editor', name]), toast }).map(command => command.label);
+const labels = (io, toast = () => {}) => availableCommands({ $: io.$, $$: io.$$, map, openEditor: name => io.focused.push(['editor', name]), toast }).map(command => command.label);
 
 test('ideas match by Find an idea’s rule; an empty query lists only actions; the count knows about the cap', () => {
   const nodes = [{ id: 'a', title: 'Offline sync', summary: 'Conflicts' }, { id: 'b', title: 'Photos', summary: '' }];
@@ -60,16 +64,16 @@ test('ideas match by Find an idea’s rule; an empty query lists only actions; t
 
 test('only controls the user could reach are offered, named from the map', () => {
   const io = page();
-  assert.deepEqual(labels(io), ['Map brief', 'New exploration', 'Explore this branch: Offline sync', 'Add a direction: Offline sync', 'Answer (question: Which phones?)', 'Help me answer (question: Which phones?)']);
+  assert.deepEqual(labels(io), ['Map brief', 'Show: Unexplored', 'New exploration', 'Explore this branch: Offline sync', 'Add a direction: Offline sync', 'Answer (question: Which phones?)', 'Help me answer (question: Which phones?)', 'Add a connection: Offline sync']);
   // "Zoom in" is not visible; Tidy needs a draft; "Change answer" sits in a collapsed section. Menu items are not hidden
   // themselves, their menu is; only Tidy is rendered hidden until there is a draft.
   io.draw({ draft: 'android', yourAnswersOpen: true });
-  assert.deepEqual(labels(io).slice(-3), ['Help me answer (question: Which phones?)', 'Tidy my wording (question: Which phones?)', 'Change answer (question: Who edits?)']);
+  assert.deepEqual(labels(io).slice(-4), ['Help me answer (question: Which phones?)', 'Tidy my wording (question: Which phones?)', 'Change answer (question: Who edits?)', 'Add a connection: Offline sync']);
 });
 
 test('a command finds its control again after a redraw, and never acts on another idea', () => {
   const io = page(), toasts = [];
-  const commands = availableCommands({ $: io.$, $$: io.$$, map, selected: 'node-a', openEditor: name => io.focused.push(['editor', name]), toast: message => toasts.push(message) });
+  const commands = availableCommands({ $: io.$, $$: io.$$, map, openEditor: name => io.focused.push(['editor', name]), toast: message => toasts.push(message) });
   const explore = commands.find(command => command.label.startsWith('Explore this branch'));
   io.draw(); // A poll redrew the inspector: every element is new.
   explore.run();
@@ -78,9 +82,13 @@ test('a command finds its control again after a redraw, and never acts on anothe
   assert.deepEqual(io.focused.at(-1), ['editor', 'suggest']);
   commands.find(command => command.label.startsWith('Answer')).run();
   assert.deepEqual(io.focused.at(-1), [2, 'answer'], 'a field is focused, not clicked');
+  commands.find(command => command.label === 'Show: Unexplored').run();
+  assert.deepEqual(io.clicks.at(-1), [2, 'filter'], 'a count in its text does not lose the command');
   io.draw({ selected: 'node-b' }); // The selection moved to another idea.
-  explore.run();
-  assert.equal(io.clicks.length, 1, 'nothing on the other idea is clicked'); assert.match(toasts.at(-1), /no longer available/);
+  const before = io.clicks.length;
+  explore.run(); commands.find(command => command.label === 'Add a connection: Offline sync').run();
+  assert.equal(io.clicks.length, before, 'nothing on the other idea is clicked, from a button or the idea\'s own menu');
+  assert.equal(toasts.filter(message => /no longer available/.test(message)).length, 2);
 });
 
 test('the draft rule is the one the ⋯ menu uses', () => {

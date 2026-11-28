@@ -18,10 +18,10 @@ import { questionClick } from './question-clicks.js';
 import { limitationsHtml, optionLimitationNotes, limitationClick } from './limitations.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
-import { commandPalette } from './command-palette.js';
+import { commandPalette, draftNeeded } from './command-palette.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, overviewFilters, ideaMatches, draftNeeded, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
+import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
@@ -40,7 +40,7 @@ document.addEventListener('keydown', event => {
 });
 const themeQuery = new URL(location.href).searchParams.get('theme');
 let dark = (themeQuery || localStorage.getItem('explore-theme') || 'light') === 'dark';
-function theme() { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; $('#theme-toggle').setAttribute('aria-pressed', String(dark)); localStorage.setItem('explore-theme', dark ? 'dark' : 'light'); }
+function theme() { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; $('#theme-toggle').setAttribute('aria-pressed', String(dark)); $('#theme-toggle').dataset.commandLabel = dark ? 'Light mode' : 'Dark mode'; localStorage.setItem('explore-theme', dark ? 'dark' : 'light'); }
 $('#theme-toggle').onclick = () => { dark = !dark; theme(); }; theme();
 // Legacy prototype links now open the real workspace; theme is a preference, not a route.
 const currentUrl = new URL(location.href); currentUrl.searchParams.delete('variant'); currentUrl.searchParams.delete('theme'); history.replaceState(null, '', currentUrl);
@@ -343,6 +343,7 @@ function renderHistory() {
   // A version preview reuses the read-only canvas but has its own panel.
   const historic = state.historyStep !== null && !state.versionPreview;
   $('#history-panel').hidden = !historic;
+  $('#show-history').dataset.commandLabel = state.historyStep !== null ? 'Return to live' : 'Growth history';
   $('#show-history').setAttribute('aria-expanded', String(historic));
   $('#show-history').disabled = !state.timeline.steps.length;
   $('#show-brief').textContent = historic ? 'Today’s brief' : 'Map brief';

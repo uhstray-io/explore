@@ -389,8 +389,6 @@ export function commandResults(commands, nodes, query) {
   const text = String(query ?? '').trim().toLowerCase(), ideas = text ? ideaMatches(nodes, text) : [];
   return { actions: commands.filter(command => command.label.toLowerCase().includes(text)), ideas: ideas.slice(0, 12), ideaTotal: ideas.length };
 }
-// A ⋯ menu item that needs a draft (Tidy my wording) is shown only while its answer box has text.
-export const draftNeeded = item => !!item.hasAttribute?.('data-needs-draft') && !item.closest('form')?.querySelector('[data-draft]')?.value.trim();
 // Text compared the way people read it: case, repeated whitespace and trailing punctuation ignored.
 export const comparableText = value => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[\s?.!,;:…]+$/, '');
 // Text that reads as itself in Markdown, on one line.

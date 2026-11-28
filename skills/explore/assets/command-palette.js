@@ -1,4 +1,4 @@
-import { commandResults, draftNeeded } from './workspace-view.js';
+import { commandResults } from './workspace-view.js';
 
 // The command palette (Z8): everything the user can do now, and the ideas on the map, in one searchable list.
 //
@@ -9,6 +9,10 @@ import { commandResults, draftNeeded } from './workspace-view.js';
 //   data-command-anywhere the control works from a closed panel (the Maps rail), so only a hidden page rules it out
 //   data-command-editor   opens that inspector editor and focuses its first field
 //   data-node-id / data-question-id  what it acts on; the name then says which idea or question
+
+// A ⋯ menu item that needs a draft (Tidy my wording) is shown only while its answer box has text. The menu and the
+// palette share this rule.
+export const draftNeeded = item => !!item.hasAttribute?.('data-needs-draft') && !item.closest('form')?.querySelector('[data-draft]')?.value.trim();
 
 // The controls that are commands now, in page order.
 const candidates = $$ => [...$$('[data-command]'), ...$$('#detail .item-menu [role="menuitem"]')];
@@ -24,14 +28,16 @@ export function reachable(element, $) {
 }
 
 const clip = (text, length) => { const flat = String(text ?? '').replace(/\s+/g, ' ').trim(); return flat.length > length ? `${flat.slice(0, length - 1)}…` : flat; };
-// What a control acts on: the question or idea it names, or the selected idea for the idea's own menu.
-const scope = (element, selected) => ({ nodeId: element.dataset.nodeId ?? (element.closest('#detail') ? selected : null), questionId: element.dataset.questionId ?? null });
-// A command's identity, so it can be found again after the page is redrawn.
-const keyOf = (element, selected) => { const { nodeId, questionId } = scope(element, selected); return JSON.stringify([element.dataset.command ?? 'menu', element.textContent.trim(), nodeId, questionId]); };
+// What a control acts on: the question or idea it names, or the idea the inspector shows (#detail carries it).
+const scope = element => ({ nodeId: element.closest('[data-node-id]')?.dataset.nodeId || null, questionId: element.dataset.questionId ?? null });
+// The command's own name: its label, aria-label or text. Changing text (a count, a draft, a status) carries a label.
+const nameOf = element => clip(element.dataset.commandLabel ?? element.getAttribute('aria-label') ?? element.textContent, 60);
+// A command's identity, so it can be found again after the page is redrawn, and never on another idea.
+const keyOf = element => { const { nodeId, questionId } = scope(element); return JSON.stringify([element.dataset.command ?? 'menu', nameOf(element), nodeId, questionId]); };
 // Its name, from the control and the map: the idea's title or the question's text, never scraped from the page.
-function labelOf(element, map, selected) {
-  const own = clip(element.dataset.commandLabel ?? element.getAttribute('aria-label') ?? element.textContent, 60);
-  const { nodeId, questionId } = scope(element, selected), node = nodeId ? map?.nodes.find(item => item.id === nodeId) : null;
+function labelOf(element, map) {
+  const own = nameOf(element);
+  const { nodeId, questionId } = scope(element), node = nodeId ? map?.nodes.find(item => item.id === nodeId) : null;
   const question = questionId ? node?.questions.find(item => item.id === questionId) : null;
   if (question) return `${own} (question: ${clip(question.text, 50)})`;
   return node ? `${own}: ${clip(node.title, 60)}` : own;
@@ -39,11 +45,11 @@ function labelOf(element, map, selected) {
 
 // The commands available now: { key, label, run }. `run` finds the control again by its key and uses it, or says
 // it is gone, so a redraw never leaves a command acting on nothing, and it never acts on another idea.
-export function availableCommands({ $, $$, map, selected, openEditor, toast }) {
+export function availableCommands({ $, $$, map, openEditor, toast }) {
   return candidates($$).filter(element => reachable(element, $)).map(element => {
-    const key = keyOf(element, selected);
-    return { key, label: labelOf(element, map, selected), run: () => {
-      const target = candidates($$).find(item => keyOf(item, selected) === key && reachable(item, $));
+    const key = keyOf(element);
+    return { key, label: labelOf(element, map), run: () => {
+      const target = candidates($$).find(item => keyOf(item) === key && reachable(item, $));
       if (!target) { toast('That command is no longer available. Open the palette again to see what you can do now.'); return; }
       if (target.dataset.commandEditor) openEditor(target.dataset.commandEditor);
       else if (target.matches('textarea, input')) target.focus();
@@ -57,7 +63,7 @@ export function commandPalette({ $, $$, esc, state, focusNode, openEditor, toast
   const dialog = $('#command-dialog'), input = $('#command-input'), list = $('#command-list'), count = $('#command-count');
   let options = [], active = 0, returnTo = null, ran = false;
   function render() {
-    const results = commandResults(availableCommands({ $, $$, map: state.visibleMap, selected: state.selected, openEditor, toast }), state.visibleMap?.nodes ?? [], input.value);
+    const results = commandResults(availableCommands({ $, $$, map: state.visibleMap, openEditor, toast }), state.visibleMap?.nodes ?? [], input.value);
     const ideas = results.ideas.map(node => ({ label: node.title, run: () => focusNode(node.id) }));
     options = [...results.actions, ...ideas];
     const option = (item, index) => `<div role="option" id="command-option-${index}" data-index="${index}" aria-selected="${index === active}" class="command-option">${esc(item.label)}</div>`;
