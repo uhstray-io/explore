@@ -23,10 +23,10 @@ export function assumptionsDialog({ act, map, note, esc, toast, focusNode }) {
     if (!render()) return;
     $('#tools-dialog').close(); dialog.showModal();
   });
-  // A list of what rests on an entry is filled the first time it opens.
+  // A list of what rests on an entry is filled each time it opens, from the map as it is then.
   body.addEventListener('toggle', event => {
     const list = event.target.dataset?.dependents !== undefined && event.target.open ? event.target.querySelector('.assumption-dependent-list') : null;
-    if (list && !list.innerHTML) list.innerHTML = dependentsHtml(map(), event.target.dataset.dependents, { esc });
+    if (list) list.innerHTML = dependentsHtml(map(), event.target.dataset.dependents, { esc });
   }, true);
   body.addEventListener('click', async event => {
     const target = event.target.closest('button'); if (!target) return;

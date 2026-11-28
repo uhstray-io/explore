@@ -288,6 +288,22 @@ test('a pulled map with a malformed note or interpretation is reported, and the 
   for (const bad of ['abc', {}]) assert.doesNotThrow(() => mapBrief({ ...map, nodes: [{ ...map.nodes[0], assumptions: bad }] }), JSON.stringify(bad));
 });
 
+test('a wording fix keeps the note on its answer, a Decided answer sends no note, and removal needs text', async () => {
+  const { store, map } = await asked(['Who decides?', 'When?']);
+  const [first, second] = map.nodes[0].questions;
+  await answer(store, map, first, 'The lead.', 'assumption'); await answer(store, map, second, 'Soon.', 'decided');
+  await act(store, map.id, { type: 'set-disprove-if', nodeId: map.rootId, questionId: first.id, text: 'A pilot disagrees.' });
+  await assert.rejects(act(store, map.id, { type: 'set-disprove-if', nodeId: map.rootId, questionId: first.id }), /Give the note as text/);
+  const saved = await act(store, map.id, { type: 'change-answer', nodeId: map.rootId, questionId: first.id, answer: 'The team lead.', rerun: false });
+  assert.equal(saved.nodes[0].questions[0].disproveIf, 'A pilot disagrees.', 'a wording fix is the same answer');
+  assert.equal(Object.hasOwn(saved.nodes[0].questions[0].previousAnswers.at(-1), 'disproveIf'), false);
+  const raw = JSON.parse(await readFile(store.file(map.id), 'utf8'));
+  raw.nodes[0].questions[1].disproveIf = 'A stray note.'; // Left on a Decided answer by a hand edit.
+  const { writeFile } = await import('node:fs/promises'); await writeFile(store.file(map.id), JSON.stringify(raw));
+  const packet = await store.claim('test');
+  assert.equal(packet.selected.questions[0].disproveIf, 'A pilot disagrees.'); assert.equal(Object.hasOwn(packet.selected.questions[1], 'disproveIf'), false, 'only an Assumption carries its note');
+});
+
 test('an empty list of interpretations is stored as none', async () => {
   const { map } = await asked(['Who decides?'], { assumptions: [] });
   assert.equal(Object.hasOwn(map.nodes[0], 'assumptions'), false);

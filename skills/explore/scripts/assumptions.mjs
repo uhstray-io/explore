@@ -30,7 +30,8 @@ export const assumptionActions = {
   'set-disprove-if': { target: 'node', apply: ({ map, node, input, store }) => {
     const question = node.questions.find(q => q.id === input.questionId);
     need(question, 'Question not found.', 404);
-    const text = textField(typeof input.text === 'string' ? input.text.trim() : input.text, 'What would disprove it', disproveIfMax, message => need(false, message), { optional: true }) ?? '';
+    need(typeof input.text === 'string', 'Give the note as text; empty text removes it.');
+    const text = textField(input.text.trim(), 'What would disprove it', disproveIfMax, message => need(false, message), { optional: true }) ?? '';
     if (text) need(isAssumption(question), 'Only a current answer marked Assumption takes a note on what would disprove it.', 409);
     need(text !== (question.disproveIf ?? ''), 'Nothing changed.', 409);
     if (text) question.disproveIf = text; else delete question.disproveIf;
