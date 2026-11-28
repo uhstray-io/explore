@@ -2,6 +2,7 @@
 // reconsideration against them, kept on its job beside the original recommendation. Shared by the Store and the app;
 // it imports only C1's advice renderer. The dialog is criteria-dialog.js.
 import { adviceHtml } from './workspace-view.js';
+import { effectiveAnswerState } from './questions.js';
 
 export const RECONSIDER = 'reconsider';
 export const priorities = ['high', 'normal', 'low'];
@@ -22,8 +23,15 @@ export function reconsiderationsOf(map, nodeId) {
   return { pending: mine.find(job => job.status === 'queued' || job.status === 'running') ?? null, latest: done.at(-1) ?? null,
     adopted: done.findLast(job => job.outcome === 'adopted') ?? null, failed: last?.status === 'failed' || last?.status === 'interrupted' ? last : null };
 }
-// Outdated once the idea changed or needs review after the request; based on earlier criteria once they were edited.
-export const reconsiderationOutdated = (job, node) => !!job.stale || !node || !!node.stale || node.contentRevision !== job.input?.contentRevision || !node.options?.length;
+// What a reconsideration reads about its idea, as a short fingerprint kept on the job: the premise and summary, the
+// options and recommendation, the newest answers with how sure each is, and the claims and limitations. Accepting a
+// finding or anything else outside these leaves it current; a certainty change does not.
+const hash = text => { let a = 0x811c9dc5, b = 5381; for (let i = 0; i < text.length; i++) { const c = text.charCodeAt(i); a = Math.imul(a ^ c, 0x01000193); b = (Math.imul(b, 33) + c) | 0; } return (a >>> 0).toString(16).padStart(8, '0') + (b >>> 0).toString(16).padStart(8, '0'); };
+export const ideaFingerprint = node => hash(JSON.stringify([node.title, node.prompt || node.body, node.summary, node.options?.map(({ suggestedAnswer, ...option }) => option), node.optionsLimit ?? null, node.recommendation ?? null,
+  (node.questions ?? []).filter(q => q.answer && !q.supersededAt).slice(-8).map(q => [q.text, q.answer, effectiveAnswerState(q)?.state ?? null, q.disproveIf ?? null]),
+  (node.claims ?? []).map(({ id, text }) => [id, text]), (node.limitations ?? []).map(({ id, kind, summary, blocksRecommendation }) => [id, kind, summary, !!blocksRecommendation])]));
+// Outdated once what it read changed or the idea needs review after the request; based on earlier criteria once they were edited.
+export const reconsiderationOutdated = (job, node) => !!job.stale || !node || !!node.stale || !node.options?.length || ideaFingerprint(node) !== job.input?.fingerprint;
 export function proposalState(node, job) {
   if (reconsiderationOutdated(job, node)) return 'outdated';
   return criteriaKey(job.input?.criteria) === criteriaKey(node.criteria) ? 'current' : 'earlier-criteria';

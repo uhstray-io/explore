@@ -7,7 +7,7 @@ import { normalizeRecommendation, recommendationLines } from './options.mjs';
 import { answerBrief } from './neighbourhood.mjs';
 import { isOpenJob } from './map-validation.mjs';
 import { markdownText, isInvestigationJob } from '../assets/workspace-view.js';
-import { RECONSIDER, priorities, priorityWords, sortCriteria, criteriaKey, maxCriteria, criterionMax, proposalState, adoptedReconsideration, reconsiderationOutdated, assessmentBases } from '../assets/criteria.js';
+import { RECONSIDER, priorities, priorityWords, sortCriteria, criteriaKey, maxCriteria, criterionMax, proposalState, adoptedReconsideration, reconsiderationOutdated, ideaFingerprint, assessmentBases } from '../assets/criteria.js';
 
 class ReconsiderProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new ReconsiderProblem(message, status); };
@@ -36,7 +36,10 @@ export const reconsiderActions = {
   // after the idea's options went away.
   'set-criteria': { target: 'node', apply: ({ map, node, input, store }) => {
     // `expected`, optional: the criteria the edits started from. A save made on top of ones changed elsewhere is refused.
-    if (input.expected !== undefined) need(Array.isArray(input.expected) && criteriaKey(input.expected) === criteriaKey(node.criteria), 'Your criteria were changed elsewhere since you opened them. Use the saved criteria, then edit again.', 409);
+    if (input.expected !== undefined) {
+      need(Array.isArray(input.expected) && input.expected.every(item => item && typeof item === 'object'), 'Give expected as the list of criteria the edits started from.');
+      need(criteriaKey(input.expected) === criteriaKey(node.criteria), 'Your criteria were changed elsewhere since you opened them. Use the saved criteria, then edit again.', 409);
+    }
     const criteria = normalizeCriteria(input.criteria, node);
     need(!criteria.length || node.options?.length, 'This idea has no options to compare yet.', 409);
     need(criteriaKey(criteria) !== criteriaKey(node.criteria), 'Nothing changed.', 409);
@@ -51,9 +54,10 @@ export const reconsiderActions = {
     need(!node.stale, 'This idea\'s findings need review after a premise changed. Review them, then reconsider.', 409);
     need(!map.jobs.some(job => job.nodeId === node.id && isOpenJob(job) && isInvestigationJob(job)), 'Your agent is still exploring this idea. Reconsider once its result is in.', 409);
     need(!map.jobs.some(job => job.type === RECONSIDER && job.nodeId === node.id && isOpenJob(job)), 'A reconsideration is already waiting for your agent.', 409);
-    // What it is asked about, kept on the job: the criteria, the options and whether a limitation blocks a recommendation.
+    // What it is asked about, kept on the job: the criteria, a fingerprint of what it reads, the options' titles for the
+    // grid, and whether a limitation blocks a recommendation.
     store.enqueueJob(map, { type: RECONSIDER, nodeId: node.id, reason: 'The user asked to reconsider the recommendation with their criteria.',
-      input: { criteria: node.criteria, contentRevision: node.contentRevision, options: node.options.map(({ id, title }) => ({ id, title })), blocked: blocksRecommendation(node) } });
+      input: { criteria: node.criteria, fingerprint: ideaFingerprint(node), options: node.options.map(({ id, title }) => ({ id, title })), blocked: blocksRecommendation(node) } });
   } },
   // Use the revised comparison: at most one adopted per idea. Only a current proposal can be adopted.
   'adopt-reconsideration': { target: 'node', apply: ({ map, node, input, store }) => {
@@ -111,7 +115,6 @@ export function normalizeReconsideration(result, { optionIds, criteria, blocked 
 }
 
 const instruction = 'Reconsider the recommendation against the user\'s criteria. Do no new research: judge from the saved evidence in this packet. The priorities are the user\'s preferences, not facts, and a high priority cannot fill an evidence gap: keep optionId null with what is missing when the evidence does not settle it. Weigh each answer by how sure the user is of it. Return assessments (exactly one { optionId, criterionId, text, basis } per option and criterion; basis evidence, reasoning or unknown), a recommendation by the same rules as a comparison, and changed: what changed from the original recommendation and why, said plainly.';
-const sameOptions = (node, job) => !job.input?.options || JSON.stringify(node.options?.map(option => option.id)) === JSON.stringify(job.input.options.map(option => option.id));
 const retrieval = 'Use CLI read --map MAP --node NODE --section premise|options|limitations|claims|questions to read anything shortened or left out here.';
 
 export const reconsiderJobTypes = {
@@ -123,7 +126,7 @@ export const reconsiderJobTypes = {
     // own wording is shortened, then the premise, the recommendation and the limitations' summaries; what was left out
     // or shortened is listed. Work the idea moved past before it was claimed is not sent at all.
     packet: ({ job, node, budget }) => {
-      need(sameOptions(node, job) && !reconsiderationOutdated(job, node), 'The idea changed since you asked, so your agent was not sent this. Ask again.');
+      need(!reconsiderationOutdated(job, node), 'The idea changed since you asked, so your agent was not sent this. Ask again.');
       const packet = { node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 2400), summary: clip(node.summary, 700),
         answers: node.questions.filter(q => q.answer && !q.supersededAt).slice(-8).map(q => answerBrief(q, { question: 300, answer: 600 })) },
         options: node.options.map(({ suggestedAnswer, ...option }) => option), ...(node.optionsLimit ? { optionsLimit: node.optionsLimit } : {}), recommendation: node.recommendation, criteria: job.input.criteria,

@@ -10,7 +10,7 @@ import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { contextExcerpt } from '../skills/explore/scripts/context.mjs';
 import { reconsiderJobTypes, normalizeReconsideration } from '../skills/explore/scripts/reconsider.mjs';
 import { optionsHtml } from '../skills/explore/assets/workspace-view.js';
-import { reconsiderationsOf, proposalState, criteriaDialogHtml, reconsideredHtml, criteriaEntryHtml, adoptedReconsideration, criteriaKey } from '../skills/explore/assets/criteria.js';
+import { reconsiderationsOf, proposalState, criteriaDialogHtml, reconsideredHtml, criteriaEntryHtml, adoptedReconsideration, criteriaKey, ideaFingerprint } from '../skills/explore/assets/criteria.js';
 import { criteriaDialog } from '../skills/explore/assets/criteria-dialog.js';
 
 // Compare options with your own criteria (C9, #14). Illustrative fixtures only, never ideas/.
@@ -55,6 +55,7 @@ test('criteria save sorted by priority and queue no work; each label once, an id
   await assert.rejects(act({ type: 'set-criteria', criteria: saved.nodes[0].criteria }), error => error.status === 409 && /Nothing changed/.test(error.message), 'an identical save');
   await assert.rejects(act({ type: 'set-criteria', criteria: saved.nodes[0].criteria.map(item => ({ ...item, label: `${item.label} ` })) }), /Nothing changed/, 'labels are trimmed');
   await assert.rejects(act({ type: 'set-criteria', criteria: [list[0]], expected: [list[0]] }), error => error.status === 409 && /changed elsewhere/.test(error.message), 'edits made on top of criteria saved elsewhere');
+  await assert.rejects(act({ type: 'set-criteria', criteria: [list[0]], expected: null }), error => error.status === 400 && /Give expected as the list/.test(error.message), 'malformed input says so');
   const twice = (await act({ type: 'set-criteria', criteria: [list[0], { ...list[0], label: 'Easy to explain' }] })).nodes[0].criteria;
   assert.equal(twice[0].id, list[0].id); assert.notEqual(twice[1].id, list[0].id, 'a repeated id gets a new one');
   for (const [bad, message] of [[Array.from({ length: 9 }, (_, i) => ({ label: `C${i}`, priority: 'low' })), /at most 8/], [[{ label: 'x'.repeat(121), priority: 'low' }], /at most 120/], [[{ label: 'Fast', priority: 'urgent' }], /High, Normal or Low/],
@@ -82,7 +83,7 @@ test('reconsidering keeps what it was asked about, waits for the idea\'s own inv
   let saved = await act({ type: 'reconsider' });
   const job = saved.jobs.at(-1);
   assert.equal(job.type, 'reconsider');
-  assert.deepEqual(job.input, { criteria: finished.criteria, contentRevision: finished.contentRevision, options: [{ id: 'crdt', title: 'Merge edits automatically' }, { id: 'lock', title: 'One editor at a time' }], blocked: false });
+  assert.deepEqual(job.input, { criteria: finished.criteria, fingerprint: ideaFingerprint(finished), options: [{ id: 'crdt', title: 'Merge edits automatically' }, { id: 'lock', title: 'One editor at a time' }], blocked: false });
   await assert.rejects(act({ type: 'reconsider' }), error => error.status === 409 && /already/.test(error.message), 'one at a time');
   packet = await store.claim('agent', map.id);
   assert.equal(packet.jobType, 'reconsider'); assert.deepEqual(packet.options.map(option => option.id), ['crdt', 'lock']);
@@ -105,11 +106,12 @@ test('the packet carries claims and limitations, gives way in order when too lon
     questions: Array.from({ length: 8 }, (_, i) => ({ id: `q${i}`, text: long(300, `${i}`), answer: long(600), answerState: 'decided' })),
     claims: Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, text: long(300) })),
     limitations: [{ id: 'l0', kind: 'missing-evidence', summary: long(300), blocksRecommendation: true }, ...Array.from({ length: 7 }, (_, i) => ({ id: `l${i + 1}`, kind: 'missing-evidence', summary: long(300) }))] };
-  const job = { input: { criteria: eight, options: big.map(({ id, title }) => ({ id, title })) } };
-  const { packet } = reconsiderJobTypes.reconsider;
-  const small = packet({ job: { input: { criteria: eight.slice(0, 2), options: big.map(({ id, title }) => ({ id, title })) } }, node: { ...node, options: big.map(({ suggestedAnswer, pros, cons, ...rest }) => ({ ...rest, description: 'd', fit: 'f', pros: [], cons: [] })), questions: node.questions.slice(0, 2), claims: node.claims.slice(0, 2), limitations: node.limitations.slice(0, 2), prompt: 'p' }, budget: 15500 });
+  const asked = (idea, criteriaList = eight) => ({ input: { criteria: criteriaList, fingerprint: ideaFingerprint(idea), options: big.map(({ id, title }) => ({ id, title })) } });
+  const job = asked(node), { packet: build } = reconsiderJobTypes.reconsider;
+  const smallIdea = { ...node, options: big.map(({ suggestedAnswer, pros, cons, ...rest }) => ({ ...rest, description: 'd', fit: 'f', pros: [], cons: [] })), questions: node.questions.slice(0, 2), claims: node.claims.slice(0, 2), limitations: node.limitations.slice(0, 2), prompt: 'p' };
+  const small = build({ job: asked(smallIdea, eight.slice(0, 2)), node: smallIdea, budget: 15500 });
   assert.equal(small.node.answers.length, 2); assert.equal(small.claims.length, 2); assert.equal(small.limitations.length, 2); assert.equal(small.omitted, undefined, 'nothing left out when it fits');
-  const full = packet({ job, node, budget: 15500 });
+  const full = build({ job, node, budget: 15500 });
   assert.ok(JSON.stringify(full).length <= 15500 - 800, `${JSON.stringify(full).length} characters`);
   assert.equal(full.options.some(option => 'suggestedAnswer' in option), false);
   assert.deepEqual(full.omitted, { answers: 8, claims: 12, limitations: 7, shortened: ['options'] }, 'answers first, then claims, then limitations that block nothing, then wording');
@@ -117,12 +119,15 @@ test('the packet carries claims and limitations, gives way in order when too lon
   assert.deepEqual(full.limitations.map(record => record.id), ['l0'], 'a limitation that blocks a recommendation stays');
   assert.ok(full.options.every(option => option.description.length <= 240 && option.pros.every(item => item.length <= 100)), 'and last the options\' wording shortens');
   // Answers give way oldest first, and only as far as needed.
-  const some = packet({ job, node: { ...node, options: big.map(({ suggestedAnswer, ...rest }) => ({ ...rest, description: 'd', fit: 'f', pros: [], cons: [] })), claims: [], limitations: [] }, budget: 12000 });
+  const answersOnly = { ...node, options: big.map(({ suggestedAnswer, ...rest }) => ({ ...rest, description: 'd', fit: 'f', pros: [], cons: [] })), claims: [], limitations: [] };
+  const some = build({ job: asked(answersOnly), node: answersOnly, budget: 12000 });
   assert.ok(some.omitted.answers > 0 && some.node.answers.length > 0); assert.equal(some.node.answers.at(-1).question, node.questions.at(-1).text);
-  assert.throws(() => packet({ job: { input: { ...job.input, options: [{ id: 'other', title: 'Other' }] } }, node, budget: 15500 }), /idea changed since you asked/, 'other options');
-  assert.throws(() => packet({ job: { input: { ...job.input, contentRevision: 1 } }, node: { ...node, contentRevision: 2 }, budget: 15500 }), /idea changed since you asked/, 'an idea that moved on is not sent');
-  const tight = packet({ job, node: { ...node, prompt: long(2400), recommendation: { optionId: 'opta', rationale: long(800), mainTradeoff: long(600) } }, budget: 9000 });
+  assert.throws(() => build({ job, node: { ...node, options: [...big.slice(1), { ...big[0], id: 'other' }] }, budget: 15500 }), /idea changed since you asked/, 'other options are not sent');
+  assert.throws(() => build({ job, node: { ...node, summary: 'A new summary.' }, budget: 15500 }), /idea changed since you asked/, 'nor is an idea that moved on');
+  const tight = build({ job, node, budget: 9000 });
   assert.deepEqual(tight.omitted.shortened, ['options', 'premise', 'recommendation', 'limitations'], 'then the premise, the recommendation and the limitations');
+  assert.ok(tight.node.premise.length <= 1000 && tight.recommendation.rationale.length <= 300 && tight.recommendation.mainTradeoff.length <= 200, 'each is shortened');
+  assert.ok(tight.limitations.every(record => record.summary.length <= 120));
   // End to end: a comparison at C1's limits with eight long criteria is claimed, never failed for its size.
   const { store, map, act } = await setup();
   const raw = await store.get(map.id); Object.assign(raw.nodes[0], { options: big, recommendation: node.recommendation, prompt: node.prompt, summary: node.summary });
@@ -230,17 +235,37 @@ test('an adoption ends when the idea changes or the criteria are edited; one per
   await assert.rejects(act({ type: 'adopt-reconsideration', jobId: fourth }), error => error.status === 409 && /outdated/.test(error.message));
 });
 
-test('a stale idea cannot be reconsidered, and outdated covers a stale job, a stale idea, a new content revision and lost options', async () => {
+test('accepting the finding leaves a reconsideration in use; how sure an answer is, which it read, ends it', async () => {
+  const { store, map, act, node, reconsider, adoptedIds } = await setup({ questions: ['Which phones?'] });
+  await act({ type: 'set-criteria', criteria });
+  await act({ type: 'answer', questionId: (await node()).questions[0].id, answer: 'Older Android phones.', answerState: 'tentative' });
+  const investigation = await store.claim('agent', map.id);
+  await store.complete(map.id, investigation.jobId, investigation.claimKey, { summary: 'Two ways to sync.', body: 'Details again.', ...comparison });
+  const id = await reconsider();
+  await act({ type: 'adopt-reconsideration', jobId: id });
+  await act({ type: 'accept' });
+  assert.equal((await node()).reviewState, 'accepted');
+  assert.deepEqual(await adoptedIds(), [id], 'Accept finding is a review: nothing it read changed');
+  await act({ type: 'set-answer-state', questionId: (await node()).questions[0].id, answerState: 'decided' });
+  assert.deepEqual(await adoptedIds(), [], 'certainty alone ends it');
+});
+
+test('a stale idea cannot be reconsidered, and outdated means what it read changed: never a review alone', async () => {
   const { store, map, act } = await setup();
   await act({ type: 'set-criteria', criteria });
   // An earlier premise changed: the idea's findings need review, and reconsidering waits for that.
   const raw = await store.get(map.id); raw.nodes[0].stale = true;
   await writeFile(store.file(map.id), JSON.stringify(raw));
   await assert.rejects(act({ type: 'reconsider' }), error => error.status === 409 && /need review/.test(error.message));
-  const node = { id: 'n', contentRevision: 2, options, criteria: [{ id: 'crit-aaaaaaaa', label: 'Cheap', priority: 'low' }] };
-  const job = { input: { criteria: node.criteria, contentRevision: 2 } };
+  const node = { id: 'n', title: 'Root', prompt: 'Notes.', summary: 'Two ways.', contentRevision: 2, options, recommendation: comparison.recommendation, criteria: [{ id: 'crit-aaaaaaaa', label: 'Cheap', priority: 'low' }],
+    questions: [{ id: 'q1', text: 'Which phones?', answer: 'Older ones.', answerState: 'tentative' }] };
+  const job = { input: { criteria: node.criteria, fingerprint: ideaFingerprint(node) } };
   assert.equal(proposalState(node, job), 'current');
-  for (const [what, changed, asked] of [['a stale job', node, { ...job, stale: true }], ['a stale idea', { ...node, stale: true }, job], ['a new revision', { ...node, contentRevision: 3 }, job], ['no options', { ...node, options: [] }, job]]) assert.equal(proposalState(changed, asked), 'outdated', what);
+  assert.equal(proposalState({ ...node, contentRevision: 3, reviewState: 'accepted' }, job), 'current', 'accepting a finding changes nothing it read');
+  for (const [what, changed, asked] of [['a stale job', node, { ...job, stale: true }], ['a stale idea', { ...node, stale: true }, job], ['no options', { ...node, options: [] }, job],
+    ['how sure an answer is', { ...node, questions: [{ ...node.questions[0], answerState: 'decided' }] }, job], ['an answer', { ...node, questions: [{ ...node.questions[0], answer: 'Any.' }] }, job],
+    ['the premise', { ...node, prompt: 'Notes for crews.' }, job], ['the recommendation', { ...node, recommendation: { ...node.recommendation, optionId: 'lock' } }, job],
+    ['a limitation', { ...node, limitations: [{ id: 'gap', kind: 'missing-evidence', summary: 'No data.' }] }, job]]) assert.equal(proposalState(changed, asked), 'outdated', what);
   assert.equal(proposalState({ ...node, criteria: [{ ...node.criteria[0], label: 'Cheaper' }] }, job), 'earlier-criteria', 'a relabelled criterion');
 });
 
@@ -270,7 +295,7 @@ test('stopping, failing or restarting a reconsideration never changes the idea\'
 
 test('the dialog lists the criteria by priority, shows a proposal as a grid that names each cell\'s criterion, and says why it cannot be used', () => {
   const node = { id: 'root', title: 'Root', ...comparison, criteria: [{ id: 'crit-aaaaaaaa', label: 'No <signal>', priority: 'high' }, { id: 'crit-bbbbbbbb', label: 'Cheap', priority: 'low' }] };
-  const job = { id: 'job-1', type: 'reconsider', nodeId: 'root', status: 'completed', finishedAt: '2026-03-04T10:00:00.000Z', input: { criteria: node.criteria }, result: { ...revised(node), assessments: assessments(node, { text: 'Fine <here>.' }) } };
+  const job = { id: 'job-1', type: 'reconsider', nodeId: 'root', status: 'completed', finishedAt: '2026-03-04T10:00:00.000Z', input: { criteria: node.criteria, fingerprint: ideaFingerprint(node) }, result: { ...revised(node), assessments: assessments(node, { text: 'Fine <here>.' }) } };
   const map = { nodes: [node], jobs: [job] }, dialog = (jobs, extra = {}) => criteriaDialogHtml({ map: { nodes: [node], jobs }, node, esc, draft: node.criteria, ...extra });
   const html = criteriaDialogHtml({ map, node, esc, draft: node.criteria });
   assert.match(html, /<input id="criterion-0" data-criterion-label="0" maxlength="120" value="No &lt;signal&gt;"/); assert.match(html, /<option value="high" selected>High<\/option>/);
@@ -294,9 +319,13 @@ test('the dialog lists the criteria by priority, shows a proposal as a grid that
   assert.equal(criteriaEntryHtml({ id: 'x' }, { esc, live: true }), '', 'only an idea with options');
   assert.equal(criteriaEntryHtml(node, { esc, live: false }), '', 'only on the live map');
   // A map.json changed outside Explore (pulled through Git) is not saved until its next change, so readers check too.
-  const kept = { ...node, contentRevision: 3 }, inUse = { ...job, outcome: 'adopted', input: { ...job.input, contentRevision: 3 } };
+  const kept = node, inUse = { ...job, outcome: 'adopted' };
   assert.match(reconsideredHtml({ nodes: [kept], jobs: [inUse] }, kept, { esc }), /Reconsidered with your criteria/);
-  assert.equal(reconsideredHtml({ nodes: [kept], jobs: [inUse] }, { ...kept, contentRevision: 4 }, { esc }), '', 'not once the idea changed');
+  assert.equal(reconsideredHtml({ nodes: [kept], jobs: [inUse] }, { ...kept, summary: 'Changed.' }, { esc }), '', 'not once what it read changed');
+  // An adoption that no longer holds never says it stays in use beside a newer proposal.
+  const newer = { ...job, id: 'job-9' }, moved = { ...kept, summary: 'Changed.' };
+  assert.doesNotMatch(criteriaDialogHtml({ map: { nodes: [moved], jobs: [inUse, { ...newer, input: { ...newer.input, fingerprint: ideaFingerprint(moved) } }] }, node: moved, esc, draft: moved.criteria }), /stays in use/);
+  assert.match(criteriaDialogHtml({ map: { nodes: [kept], jobs: [inUse, newer] }, node: kept, esc, draft: kept.criteria }), /Your earlier reconsideration stays in use until you choose/);
   assert.equal(adoptedReconsideration({ nodes: [kept], jobs: [inUse] }, { ...kept, criteria: [node.criteria[0]] }), null, 'nor once the criteria were edited');
 });
 
@@ -364,7 +393,7 @@ test('the dialog edits, saves and asks; it keeps unsaved edits through polls, ke
     assert.deepEqual(calls.slice(-2), [['root', 'set-criteria', { criteria: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }], expected: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }, { id: 'crit-new00001', label: 'Cheap', priority: 'low' }] }], ['root', 'reconsider', {}]], 'unsaved edits are saved first');
     assert.equal(io.focused.at(-1), '[data-reconsider-ask]');
     // A finished proposal: typing the saved value back counts as unedited, so polls redraw again.
-    map = { nodes: [node], jobs: [{ id: 'job-1', type: 'reconsider', nodeId: 'root', status: 'completed', input: { criteria: node.criteria }, result: revised(node) }] };
+    map = { nodes: [node], jobs: [{ id: 'job-1', type: 'reconsider', nodeId: 'root', status: 'completed', input: { criteria: node.criteria, fingerprint: ideaFingerprint(node) }, result: revised(node) }] };
     await io.type(0, 'No signal at all');
     io.dialog.mapChanged(); assert.doesNotMatch(io.body.innerHTML, /Use revised comparison/);
     await io.type(0, 'No signal');
@@ -382,10 +411,14 @@ test('the dialog edits, saves and asks; it keeps unsaved edits through polls, ke
     io.dialog.mapChanged();
     assert.match(io.body.innerHTML, /value="Saved in another tab"/, 'an untouched dialog shows them');
     // Saved elsewhere while being edited: it says so, and nothing is overwritten.
+    const warning = io.body.querySelector('#criteria-elsewhere'); warning.hidden = true; // As the HTML writes it.
     await io.type(0, 'Mine');
+    io.dialog.mapChanged(); assert.equal(warning.hidden, true, 'nothing changed elsewhere yet');
     node.criteria = [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }, { id: 'crit-bbbbbbbb', label: 'From the other tab', priority: 'low' }];
     io.dialog.mapChanged();
-    assert.equal(io.body.querySelector('#criteria-elsewhere').hidden, false, 'it says so');
+    assert.equal(warning.hidden, false, 'it says so');
+    await io.click({ criterionAdd: '' });
+    assert.match(io.body.innerHTML, /<p class="state-note warning" id="criteria-elsewhere">Your criteria were changed elsewhere/, 'and a redraw keeps saying so');
     await io.click({ criteriaSave: '' });
     assert.deepEqual(calls.at(-1)[2].expected.map(item => item.label), ['No signal', 'Saved in another tab'], 'the save carries what the edits started from');
     assert.equal(node.criteria[1].label, 'From the other tab', 'and the criteria saved elsewhere stay');
