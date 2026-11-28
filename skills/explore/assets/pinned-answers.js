@@ -7,7 +7,8 @@ export const maxPins = 3;
 const isPin = pin => !!pin && typeof pin === 'object' && typeof pin.nodeId === 'string' && typeof pin.questionId === 'string';
 // The saved pins that are well formed, in pin order.
 export const pinsOf = map => (Array.isArray(map?.view?.pinnedAnswers) ? map.view.pinnedAnswers.filter(isPin) : []);
-export const isPinned = (pins, { nodeId, questionId }) => pins.some(pin => pin.nodeId === nodeId && pin.questionId === questionId);
+export const samePin = (a, b) => a.nodeId === b.nodeId && a.questionId === b.questionId;
+export const isPinned = (pins, ref) => pins.some(pin => samePin(pin, ref));
 export const canAddPin = pins => pins.length < maxPins;
 
 // Each pin as a row: its idea's title, question and answer in `map`, or unavailable when that idea or answer is not

@@ -216,8 +216,9 @@ function menuHtml(id, label, items) {
 }
 // The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
 // Help me answer, Explain this question, Tidy my wording (a later issue), Answer later, Regenerate,
-// Dismiss, Good question / Bad question. `kind` is 'open', 'waiting' (saved for later) or 'answered';
-// `completed` says the branch is finished, where nothing but the rating and Change answer applies. A question
+// Dismiss, Change answer, extra `items` (Pin answer), Good question / Bad question. `kind` is 'open', 'waiting' (saved
+// for later), 'answered' or 'superseded' (an answer from an earlier premise: only the extra items);
+// `completed` says the branch is finished, where nothing but the rating, Change answer and the extra items apply. A question
 // saved for later offers only what leaves a queued or running branch alone: research, an explanation, a rating.
 // Tidy my wording is marked data-needs-draft: opening the menu shows it only while the answer box has text.
 export function questionMenuHtml(question, { nodeId, kind, completed = false, lastBlocking = false, esc, items: extra = [] }) {
