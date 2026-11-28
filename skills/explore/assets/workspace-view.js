@@ -187,10 +187,10 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
 }
 
 // Options the agent compared (C1), as compact cards. Only the recommended one is labelled, and the
-// whole section says it is the agent's view: the user still decides.
-export function optionsHtml(node, esc) {
+// whole section says it is the agent's view: the user still decides. `extra(option)` adds to a card (C3's notes).
+export function optionsHtml(node, esc, extra = () => '') {
   if (!node.options?.length) return '';
-  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${optionCardsHtml(node, esc)}`;
+  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${optionCardsHtml(node, esc, extra)}`;
 }
 // The cards and the recommendation for any comparison; `extra(option)` adds controls to a card.
 function optionCardsHtml(comparison, esc, extra = () => '') {
@@ -373,6 +373,8 @@ export function nodeMenuHtml(node, { esc, live = false, items = [] }) {
   return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open>Add a connection</button>`] : []), ...items.filter(Boolean)]);
 }
 
+// Text compared the way people read it: case, repeated whitespace and trailing punctuation ignored.
+export const comparableText = value => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[\s?.!,;:…]+$/, '');
 // Text that reads as itself in Markdown, on one line.
 export const markdownText = value => String(value ?? '').replace(/[\r\n]+/g, ' ').replace(/[\\`*_{}\[\]<>#|]/g, '\\$&');
 // A portable reference to one idea (H2): its map and node IDs first, so a title can never redirect it, then
