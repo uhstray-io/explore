@@ -1,7 +1,7 @@
 import { isOpen, isBlocking, normalizeQuestion, canResearch, EXPLAIN, RESEARCH, TIDY } from '../assets/questions.js';
 import { normalizeComparison } from './options.mjs';
 import { textField, sourceList } from './fields.mjs';
-import { nearbyIdeas, nearbyBrief, answerBrief, ownFindings, signature } from './neighbourhood.mjs';
+import { nearbyIdeas, nearbyBrief, answerBrief, ownFindings, signatureMatches } from './neighbourhood.mjs';
 
 // The question ⋯ menu (B7): rate a question, dismiss it, bring it back, or ask for a better one.
 // Ratings and dismissals are the user's feedback, never content: they don't re-run research, and
@@ -130,7 +130,7 @@ const researchFields = new Set(['options', 'optionsLimit', 'recommendation', 'su
 // nearby, or a question set aside, makes it earlier research, whether that happened before or after it arrived.
 export function researchIsStale(map, job) {
   const node = map.nodes.find(n => n.id === job.nodeId), question = subjectOf(job, node);
-  return !question || !canResearch(question) || job.inputSignature !== signature(map, node);
+  return !question || !canResearch(question) || !signatureMatches(map, node, job.inputSignature);
 }
 
 const tidyInstruction = 'Tidy the user\'s draft answer: fix punctuation, spelling and grammar, make it clearer and remove repetition. Keep the meaning, any uncertainty, names, numbers and the user\'s voice. Add nothing and answer nothing new, and do no research or tool use. Return {"text": "…", "changes": "…"} through the CLI: text at most 12,000 characters, changes an optional short note of what you changed (at most 300).';

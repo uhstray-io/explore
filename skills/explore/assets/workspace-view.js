@@ -76,7 +76,7 @@ const versionWords = {
   activated: 'Exploration started', answered: 'Answer saved', result: 'Agent result', suggested: 'Direction added',
   accepted: 'Finding accepted', revised: 'Premise revised', 'revision-suggested': 'Changed premise added', cancelled: 'Exploration stopped',
   failed: 'Exploration could not finish', 'stale-result': 'Result kept for review', 'job-queued': 'Help requested', 'job-result': 'Help received',
-  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
+  'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'change-undone': 'Undid a change', linked: 'Connection added', unlinked: 'Connection removed', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
   'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
   'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported',
@@ -299,10 +299,34 @@ export function gitCheckDelay({ last, mapId, now, force = false, every = 10000 }
   return force || last?.mapId !== mapId ? 0 : Math.max(0, every - (now - last.at));
 }
 
+// How a connection reads from one idea's side (D1): "Depends on X" from the dependent, "Needed by X" from the other.
+const outgoing = { depends_on: 'Depends on', supports: 'Supports', contradicts: 'Contradicts', related_to: 'Related to' };
+const incoming = { depends_on: 'Needed by', supports: 'Supported by', contradicts: 'Contradicted by', related_to: 'Related to' };
+export const connectionLabel = (edge, nodeId) => (edge.from === nodeId ? outgoing : incoming)[edge.type];
+// Connected thinking: each link with its direction; one the user added shows its note and, while live, Remove.
+// Nothing at all when the idea has no links.
+export function connectionsHtml(node, map, { esc, live }) {
+  const html = map.edges.filter(edge => edge.type !== 'contains' && (edge.from === node.id || edge.to === node.id)).map(edge => {
+    const other = map.nodes.find(item => item.id === (edge.from === node.id ? edge.to : edge.from)); if (!other) return '';
+    const remove = live && edge.addedBy === 'user' ? `<button type="button" class="text-button" data-unlink data-from="${esc(edge.from)}" data-to="${esc(edge.to)}" data-relation="${esc(edge.type)}">Remove</button>` : '';
+    return `<div class="connection"><button class="relationship" data-select="${esc(other.id)}">${connectionLabel(edge, node.id)}<strong>${esc(other.title)}</strong></button>${edge.addedBy === 'user' && edge.note ? `<p class="form-note">${esc(edge.note)}</p>` : ''}${remove}</div>`;
+  }).join('');
+  return html ? `<h3 class="section-label">Connected thinking</h3>${html}` : '';
+}
+// Add a connection: what kind, to which idea (any other in the map), and an optional note. It is opened from the
+// idea's ⋯ menu (`shown`), keeps what the user typed across re-renders (`drafts`), and warns while any branch
+// investigation is running, since work that reads either idea would then come back for review.
+export function linkEditorHtml(node, map, { esc, drafts = {}, shown = false }) {
+  const working = map.jobs.some(job => job.status === 'running' && (!job.type || job.type === 'investigate'));
+  const others = map.nodes.filter(item => item.id !== node.id).sort((a, b) => a.title.localeCompare(b.title));
+  const id = esc(node.id), draft = key => drafts[`${key}-${node.id}`];
+  const option = (value, label, chosen) => `<option value="${esc(value)}"${chosen === value ? ' selected' : ''}>${label}</option>`;
+  return `<details data-editor="link"${shown ? ' open' : ' hidden'}><summary>Add a connection</summary><form id="link-form" data-node-id="${id}"><label for="link-relation-${id}">This idea</label><select id="link-relation-${id}" name="relation" data-draft="link-relation-${id}">${Object.entries(outgoing).map(([value, label]) => option(value, label.toLowerCase(), draft('link-relation') ?? 'depends_on')).join('')}</select><label for="link-to-${id}">Which idea</label><select id="link-to-${id}" name="to" data-draft="link-to-${id}" required><option value="">Choose an idea…</option>${others.map(other => option(other.id, esc(other.title), draft('link-to'))).join('')}</select><label for="link-note-${id}">Why (optional)</label><textarea id="link-note-${id}" name="note" rows="2" maxlength="1000" data-draft="link-note-${id}">${esc(draft('link-note') ?? '')}</textarea>${working ? '<p class="form-note">Your agent is exploring a branch now. If that work reads either idea, its result will come back for review instead of being applied.</p>' : ''}<button class="secondary" type="submit">Add connection</button></form></details>`;
+}
 // The idea ⋯ menu (H2): Copy link.
-export function nodeMenuHtml(node, { esc }) {
+export function nodeMenuHtml(node, { esc, live = false }) {
   const id = esc(node.id);
-  return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`]);
+  return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open>Add a connection</button>`] : [])]);
 }
 
 // Text that reads as itself in Markdown, on one line.

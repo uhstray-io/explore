@@ -91,7 +91,7 @@ const shapes = {
     stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }) },
   question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }) },
   source: { title: text({ unreadable: true }), url: rule(httpUrl, { code: 'source-url' }) },
-  edge: { from: anId(), to: anId(), type: oneOf(edgeTypes) },
+  edge: { from: anId(), to: anId(), type: oneOf(edgeTypes), addedBy: oneOf(new Set(['user']), { optional: true }), note: text({ optional: true }) },
   job: { id: anId(), status: oneOf(jobStates), nodeId: anId({ optional: true, nullable: true }) },
   batch: { sequence: rule(Number.isSafeInteger, { code: 'invalid-growth' }), at: text({ code: 'invalid-growth' }), nodeIds: list({ code: 'invalid-growth' }), edges: list({ code: 'invalid-growth' }) },
 };

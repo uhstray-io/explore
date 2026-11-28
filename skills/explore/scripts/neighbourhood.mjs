@@ -21,9 +21,19 @@ export function contextNodes(map, node) {
   const ids = neighbourhood(map, node);
   return map.nodes.filter(n => ids.has(n.id));
 }
-// Changes when any idea in the neighbourhood changes content (premise, findings or an answer).
+// Changes when any idea in the neighbourhood changes content (premise, findings or an answer), or when a link
+// touching the neighbourhood is added or removed: work reading it would then read a different map.
 export function signature(map, node) {
-  return createHash('sha256').update(JSON.stringify(contextNodes(map, node).map(n => [n.id, n.contentRevision]))).digest('hex');
+  const nodes = contextNodes(map, node), ids = new Set(nodes.map(n => n.id));
+  const links = map.edges.filter(e => e.type !== 'contains' && (ids.has(e.from) || ids.has(e.to))).map(e => `${e.from} ${e.type} ${e.to}`).sort();
+  return `v2:${createHash('sha256').update(JSON.stringify([nodes.map(n => [n.id, n.contentRevision]), links])).digest('hex')}`;
+}
+// The signature before links counted (stored without a prefix by earlier versions of Explore).
+const contentSignature = (map, node) => createHash('sha256').update(JSON.stringify(contextNodes(map, node).map(n => [n.id, n.contentRevision]))).digest('hex');
+// Whether `stored` still describes the neighbourhood, compared with the formula it was made with, so results
+// saved by an earlier version are not all suddenly out of date.
+export function signatureMatches(map, node, stored) {
+  return typeof stored === 'string' && (stored.startsWith('v2:') ? stored === signature(map, node) : stored === contentSignature(map, node));
 }
 // The other ideas in the neighbourhood for a packet: the root first, then nearest first by parent links and
 // connections, so trimming from the end leaves out the farthest.

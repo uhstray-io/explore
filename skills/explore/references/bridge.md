@@ -86,6 +86,10 @@ Before an investigation result is saved, it is checked against these exploration
 
 A repeated delivery of a saved result changes nothing and returns only the saved `{ code, field }` of its warnings. Run `result --job ID --file result.json --check` to get `{ ok, errors, warnings }` without saving or touching the job (it exits non-zero when `ok` is false, and a malformed result fails as it would on delivery), and reconsider warnings before the final `result`: a completed branch cannot change afterwards.
 
+### Connections the user records
+
+The user can record links themselves with the `link` action (`nodeId` is the dependent, `to` the other idea, `relation` one of `depends_on`, `supports`, `contradicts`, `related_to`, optional `note`) and remove any non-containment link with `unlink`. These edges carry `addedBy: "user"`. Use these actions only when the user explicitly asks; otherwise record links in a result.
+
 ## Other kinds of work
 
 Every packet from `next` carries `jobType`. `investigate` is the branch investigation above; a job saved without a `type` is one. Other types are registered in `scripts/job-types.mjs` by the features that need them. Each such packet carries `mapId`, `jobId`, `jobType`, `reason` and `instruction`, plus the type's own fields. Follow its `instruction`, then deliver the result it describes with the same `result --job ID --file result.json` command, or use `fail`. The result is kept on the job record. It never changes the idea's status, findings, questions or completion, and it never accepts anything for the user. If the idea or its context changed while the work ran, the result is kept but marked `stale`.
