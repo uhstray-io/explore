@@ -54,6 +54,18 @@ export function openMapChange(listed, shown) {
   return listed.fingerprint !== shown.fingerprint || listed.revision !== shown.revision ? 'changed' : null;
 }
 
+// The research guidance a result says it followed (C6), by its `topicProfile`.
+export const topicProfiles = { general: 'General', 'software-versions': 'Software and versions', 'products-services': 'Products and services', 'concepts-tradeoffs': 'Concepts and design trade-offs' };
+export const topicProfileLabel = value => (typeof value === 'string' && Object.hasOwn(topicProfiles, value) ? topicProfiles[value] : null);
+// Under an idea's findings: how much map context its last investigation used, and which guidance it followed.
+export function runNoteHtml(job) {
+  if (!job) return '';
+  // Numbers and fixed labels only: nothing from the file reaches the page as markup.
+  const characters = Number.isFinite(job.contextCharacters) ? job.contextCharacters : 0, guidance = topicProfileLabel(job.result?.topicProfile);
+  const parts = [characters ? `Last investigation used ${characters.toLocaleString()} characters of map context. Only relevant context is sent.` : '', guidance ? `Guidance: ${guidance}.` : ''].filter(Boolean);
+  return parts.length ? `<p class="run-note">${parts.join(' ')}</p>` : '';
+}
+
 // Plain words for a map Explore cannot open. They never quote the file.
 const unreadableReasons = {
   'invalid-utf8': 'the file is damaged', 'conflict-markers': 'unresolved Git conflict', 'invalid-json': 'the file is damaged',

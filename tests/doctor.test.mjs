@@ -188,7 +188,9 @@ test('a map is never saved larger than the server will open', async () => {
   assert.equal(await readFile(store.file(map.id), 'utf8'), before);
 });
 
-test('the doctor checks every script the skill ships, including the result checks', async () => {
+test('the doctor checks every script and reference the skill ships, including the result checks and topic profiles', async () => {
   const scripts = (await readdir(path.resolve('skills/explore/scripts'))).filter(name => name.endsWith('.mjs')).map(name => `scripts/${name}`);
   assert.deepEqual(scripts.filter(file => !packageFiles.includes(file)), []);
+  const references = (await readdir(path.resolve('skills/explore/references'), { recursive: true })).filter(name => name.endsWith('.md')).map(name => `references/${name.split(path.sep).join('/')}`);
+  assert.deepEqual(references.filter(file => !packageFiles.includes(file)), []);
 });

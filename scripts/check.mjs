@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readVersionFile } from '../skills/explore/scripts/package-version.mjs';
 import { versionProblems } from './version-check.mjs';
+import { brokenReferenceLinks } from './reference-links.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 async function walk(directory) {
@@ -18,7 +19,9 @@ for (const file of files.filter(file => /\.(mjs|js)$/.test(file))) {
 const skillFile = path.join(root, 'skills/explore/SKILL.md');
 const skill = await readFile(skillFile, 'utf8');
 if (!/^---\r?\nname: explore\r?\ndescription: [^\r\n]+\r?\n---/.test(skill)) throw new Error('Skill requires the supported plain name and description frontmatter.');
-for (const match of skill.matchAll(/\]\((references\/[^)]+)\)/g)) await access(path.join(path.dirname(skillFile), match[1]));
+// Links in SKILL.md and inside references/ (topic profiles included) must all resolve.
+const broken = await brokenReferenceLinks(path.dirname(skillFile));
+if (broken.length) throw new Error(`Broken reference links: ${broken.join('; ')}`);
 const versionErrors = versionProblems({ packageJson: JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')), versionJson: await readVersionFile(path.join(root, 'skills/explore')) });
 if (versionErrors.length) throw new Error(versionErrors.join(' '));
-console.log('JavaScript syntax, skill metadata, package version, and entrypoint reference paths passed.');
+console.log('JavaScript syntax, skill metadata, package version, and reference links in SKILL.md and references/ passed.');
