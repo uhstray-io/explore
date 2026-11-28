@@ -55,15 +55,13 @@ export function openMapChange(listed, shown) {
 }
 
 // Plain words for a map Explore cannot open. They never quote the file.
-const unreadableLabels = {
-  'invalid-utf8': "Can't open: the file is damaged",
-  'conflict-markers': "Can't open: unresolved Git conflict",
-  'invalid-json': "Can't open: the file is damaged",
-  'unsupported-version': "Can't open: saved by a newer Explore",
-  'invalid-map': "Can't open: the file is incomplete",
-  'too-large': "Can't open: the file is too large",
+const unreadableReasons = {
+  'invalid-utf8': 'the file is damaged', 'conflict-markers': 'unresolved Git conflict', 'invalid-json': 'the file is damaged',
+  'unsupported-version': 'saved by a newer Explore', 'invalid-map': 'the file is incomplete', 'too-large': 'the file is too large',
+  'invalid-version': 'the file is not a saved version', unreadable: 'the file cannot be read',
 };
-export function unreadableLabel(problem) { return Object.hasOwn(unreadableLabels, problem) ? unreadableLabels[problem] : "Can't open this map"; }
+export const unreadableReason = problem => (Object.hasOwn(unreadableReasons, problem) ? unreadableReasons[problem] : 'it cannot be read');
+export function unreadableLabel(problem) { return Object.hasOwn(unreadableReasons, problem) ? `Can't open: ${unreadableReasons[problem]}` : "Can't open this map"; }
 
 // A quiet, one-time note after a pull or branch switch replaced the open map.
 export function outsideChangeNote(change, seenAt) {
@@ -79,7 +77,7 @@ const versionWords = {
   'job-cancelled': 'Help stopped', 'version-restored': 'Restored an earlier version', 'branch-restored': 'Restored one branch', 'change-undone': 'Undid a change', linked: 'Connection added', unlinked: 'Connection removed', 'answer-state-set': 'Certainty changed', 'answer-deferred': 'Question saved for later', 'before-outside-change': 'Before a pull or branch switch',
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
   'answer-changed': 'Answer changed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
-  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported',
+  'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported', 'map-recovered': 'Recovered from a version',
 };
 export function versionLabel(version) {
   if (version.name) return version.name;

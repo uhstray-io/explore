@@ -13,9 +13,19 @@ export function presentation(node) {
 export function treeOrder(map) {
   const children = new Map(), out = [], seen = new Set();
   for (const node of map.nodes) { if (!children.has(node.parentId)) children.set(node.parentId, []); children.get(node.parentId).push(node); }
-  const visit = (node, depth) => { if (seen.has(node.id)) return; seen.add(node.id); out.push({ node, depth }); for (const child of children.get(node.id) ?? []) visit(child, depth + 1); };
-  for (const node of map.nodes) if (node.id === map.rootId) visit(node, 0);
-  for (const node of map.nodes) visit(node, 0);
+  // A stack rather than recursion, so a map thousands of ideas deep is still walked.
+  const walk = start => {
+    const stack = [[start, 0]];
+    while (stack.length) {
+      const [node, depth] = stack.pop();
+      if (seen.has(node.id)) continue;
+      seen.add(node.id); out.push({ node, depth });
+      const below = children.get(node.id) ?? [];
+      for (let index = below.length - 1; index >= 0; index--) stack.push([below[index], depth + 1]);
+    }
+  };
+  for (const node of map.nodes) if (node.id === map.rootId) walk(node);
+  for (const node of map.nodes) walk(node);
   return out;
 }
 // An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.

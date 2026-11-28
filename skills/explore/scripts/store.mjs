@@ -14,7 +14,7 @@ import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
 import { sourceList } from './fields.mjs';
 import { signature, signatureMatches, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
-import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap, unreadableReasons } from './map-validation.mjs';
 
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
@@ -32,6 +32,8 @@ export function hasFindings(map, node) {
 }
 // An idea a restart or restore deleted while work ran: a result's link to it is skipped, not refused.
 const onceExisted = (map, id) => !!map.growth?.batches.some(batch => batch.nodeIds?.includes(id));
+// A map file the server cannot open, as opposed to one that is missing or a request that is wrong.
+const unreadable = error => error instanceof Problem && Object.hasOwn(unreadableMessages, error.code);
 export class Problem extends Error {
   // `errors` lists each failed check when a result breaks the exploration rules (K3).
   constructor(message, status = 400, code, errors) { super(message); this.status = status; if (code) this.code = code; if (errors) this.errors = errors; }
@@ -86,7 +88,10 @@ export class Store {
     this.versions = new Versions(this.directory, versionLimits);
     // A preview compares a version with the map as it is now; it writes nothing.
     this.versions.preview = async (mapId, id) => {
-      const current = await this.get(mapId), { version, map } = await this.versions.get(mapId, id);
+      const { version, map } = await this.versions.get(mapId, id);
+      let current;
+      try { current = await this.get(mapId); }
+      catch (error) { if (unreadable(error)) return { version, map, damaged: true, problem: error.code }; throw error; }
       return { version, map, revision: current.revision, queuedCancelled: current.jobs.filter(job => job.status === 'queued').length, ...compareVersion(current, map, isCompleted) };
     };
   }
@@ -155,11 +160,14 @@ export class Store {
   }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
   // Every map folder, loaded or with the reason it could not be: one broken map never stops a reader (I1 search).
-  async eachMap() {
-    await mkdir(this.directory, { recursive: true });
+  // `adopt: false` only reads (J1 statistics): it creates no folder and keeps no version of an outside change.
+  async eachMap({ adopt = true } = {}) {
+    let entries = [];
+    if (adopt) await mkdir(this.directory, { recursive: true });
+    try { entries = await readdir(this.directory, { withFileTypes: true }); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     const out = [];
-    for (const entry of (await readdir(this.directory, { withFileTypes: true })).filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
-      try { out.push({ id: entry.name, map: await this.get(entry.name) }); }
+    for (const entry of entries.filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
+      try { out.push({ id: entry.name, map: adopt ? await this.get(entry.name) : (await this.read(entry.name)).map }); }
       catch (error) { if (!(error instanceof Problem && error.code === 'not-found')) out.push({ id: entry.name, error }); } // A folder left behind by a branch switch is not a map.
     }
     return out;
@@ -168,7 +176,7 @@ export class Store {
     const maps = [], readable = [];
     for (const { id, map: m, error } of await this.eachMap()) {
       if (error) {
-        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id, unreadable: true, problem: error.code }); continue; }
+        if (unreadable(error)) { maps.push({ id, unreadable: true, problem: error.code }); continue; }
         throw error;
       }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
@@ -812,18 +820,41 @@ export class Store {
         if (taken.map && contentHash(this.asImported(taken.map)) === contentHash(map)) return { existing: map.id };
         return { conflict: { mapId: map.id, existing: taken.map ? mapSummary(taken.map) : { unreadable: true }, incoming: mapSummary(map) } };
       }
-      if (asCopy || !mapFolderPattern.test(map.id)) Object.assign(map, { id: id('map'), title: `${map.title.slice(0, 93)} (copy)`, createdAt: now(), importedFrom: { mapId: incoming.id, revision: incoming.revision, exportedAt } });
-      try { this.renderViews(map); } catch { throw new Problem('This map has parts Explore cannot show, so it was not imported.'); }
-      await this.save(this.isNew(map), { labels: ['map-imported'] });
-      return { imported: map.id };
+      const saved = asCopy || !mapFolderPattern.test(map.id) ? this.asCopy(map, { suffix: ' (copy)', provenance: { importedFrom: { mapId: incoming.id, revision: incoming.revision, exportedAt } } }) : map;
+      return { imported: await this.saveNew(saved, { label: 'map-imported', refusal: 'This map has parts Explore cannot show, so it was not imported.' }) };
+    });
+  }
+  // Copy a saved version out as a new, separate map (J2), even when the map itself cannot be opened. The original
+  // folder, its map.json, Markdown and history are never touched; the copy opens only when the user chooses it.
+  recoverCopy(mapId, versionId) {
+    return this.serial(async () => {
+      need(typeof mapId === 'string' && mapFolderPattern.test(mapId), 'Map not found.', 404);
+      const { version, map: saved } = await this.versions.get(mapId, versionId);
+      // The rule that opens a map, as the list uses: what the list offers can be copied.
+      const problem = readProblem(saved, mapId);
+      need(!problem, `This version’s map ${unreadableReasons[problem]}, so it cannot be copied.`, 409);
+      const map = this.asCopy(this.asImported(saved, { error: 'Recovered while queued or running. Retry to continue.' }), { suffix: ' (recovered)', provenance: { recoveredFrom: { mapId, version: version.id, revision: saved.revision } } });
+      return { recovered: await this.saveNew(map, { label: 'map-recovered', refusal: 'This version has parts Explore cannot show, so it was not copied.' }) };
     });
   }
   // A map as an import would store it: without claim data, and with open work stopped but no timestamps added,
   // so the same map compares equal whether it was imported once, twice, or is the one it was exported from.
-  asImported(map) {
+  asImported(map, { error = 'Imported while queued or running. Retry to continue.' } = {}) {
     const copy = snapshotOf(map);
-    this.deactivateOpenWork(copy, { error: 'Imported while queued or running. Retry to continue.' });
+    this.deactivateOpenWork(copy, { error });
     return copy;
+  }
+  // A separate copy of a map (I2 import as a copy, J2 recovery): a new ID, a title that says it is a copy within the
+  // 100-character limit, and where it came from. Pin and archive state stay with the original.
+  asCopy(map, { suffix, provenance }) {
+    const { library, ...rest } = map;
+    return { ...rest, id: id('map'), title: `${map.title.slice(0, 100 - suffix.length)}${suffix}`, createdAt: now(), ...provenance };
+  }
+  // Saves a map that is new here, refusing first if its views cannot be generated.
+  async saveNew(map, { label, refusal }) {
+    try { this.renderViews(map); } catch { throw new Problem(refusal); }
+    await this.save(this.isNew(map), { labels: [label] });
+    return map.id;
   }
   // Whether a map ID is in use here: { map } when it opens, { map: null } for a folder that exists but cannot
   // be opened, false when it is free.
@@ -831,7 +862,8 @@ export class Store {
     try { return { map: await this.get(mapId) }; }
     catch (error) {
       if (!(error instanceof Problem)) throw error;
-      if (error.code !== 'not-found') return { map: null };
+      if (unreadable(error)) return { map: null };
+      if (error.code !== 'not-found') return false;
       return access(path.dirname(this.file(mapId))).then(() => ({ map: null }), () => false);
     }
   }
