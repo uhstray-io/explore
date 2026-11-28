@@ -7,7 +7,7 @@ import { normalizeDoneWhen, doneWhenMax } from '../assets/done-when.js';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
 import { topicProfiles, topicProfileLabel } from '../assets/workspace-view.js';
-import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
+import { Versions, presentationOnly, compareVersion, restorableHash, restorableContent, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { downstreamOf } from '../assets/graph.js';
@@ -449,7 +449,7 @@ export class Store {
           need(!readProblem(snapshot, map.id), 'This version is damaged and cannot be restored. Choose another version.', 409);
           need(restorableHash(snapshot) !== restorableHash(map), 'The map already matches this version.', 409);
           const positions = map.view?.positions || {};
-          Object.assign(map, { title: snapshot.title, originalIdea: snapshot.originalIdea, rootId: snapshot.rootId, nodes: snapshot.nodes, edges: snapshot.edges, jobs: snapshot.jobs });
+          Object.assign(map, restorableContent(snapshot));
           this.deactivateOpenWork(map, { at: now(), error: 'Interrupted by restoring an earlier version. Retry to continue.' });
           // Today's layout wins for ideas that still exist; the event log and growth history only grow.
           map.view = { ...map.view, positions: Object.fromEntries(map.nodes.map(node => [node.id, positions[node.id] ?? snapshot.view?.positions?.[node.id]]).filter(([, point]) => point)) };
@@ -615,6 +615,7 @@ export class Store {
     // The user's question feedback is trimmed first, then context.
     while (JSON.stringify(packet).length > budget && packet.questionFeedback.length) { packet.questionFeedback.pop(); packet.omittedFeedback++; }
     while (JSON.stringify(packet).length > budget && packet.context.length) { packet.context.pop(); packet.omittedContext++; }
+    while (JSON.stringify(packet).length > budget && packet.glossary.length) { packet.glossary.pop(); packet.omittedGlossaryTerms++; } // Unused terms go first.
     if (JSON.stringify(packet).length > budget) { delete selected.options; delete selected.recommendation; delete selected.limitations; } // Trimmed before questions.
     if (JSON.stringify(packet).length > budget) { selected.body = clip(selected.body, 1800); selected.sources = []; selected.questions = selected.questions.slice(-3); }
     while (JSON.stringify(packet).length > budget && selected.questions.length) selected.questions.shift();
@@ -627,8 +628,8 @@ export class Store {
   }
   // Packet for a registered job type: shared identifying fields plus the type's own fields.
   async typedPacket(map, job, definition, node, { claimKey, budget = 15500 } = {}) {
-    // Map-level work reads the agreed glossary too (K9); the type fits its own fields into the room left.
-    const glossary = definition.target === 'map' ? glossaryForPacket(map) : null;
+    // Typed work reads the agreed glossary too (K9), unless its type opts out; the type fits its fields into the room left.
+    const glossary = definition.glossary === false ? null : glossaryForPacket(map, node);
     const packet = { ...await definition.packet({ map, job, node, budget: glossary ? budget - JSON.stringify(glossary).length : budget }), ...glossary, mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
       jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
     need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);

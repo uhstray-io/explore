@@ -93,12 +93,13 @@ const shapes = {
   map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
-    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
+    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
     prompt: text({ optional: true }), doneWhen: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
     stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }) },
   question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }) },
+  term: { id: anId(), term: text({ unreadable: true }), definition: text({ unreadable: true }), status: oneOf(new Set(['agreed', 'proposed'])) },
   source: { title: text({ unreadable: true }), url: rule(httpUrl, { code: 'source-url' }) },
   edge: { from: anId(), to: anId(), type: oneOf(edgeTypes), addedBy: oneOf(new Set(['user']), { optional: true }), note: text({ optional: true }) },
   job: { id: anId(), status: oneOf(jobStates), nodeId: anId({ optional: true, nullable: true }) },
@@ -125,6 +126,7 @@ export function validateMap(map, { folderId } = {}) {
   check(map, shapes.map, '');
   if (folderId && isText(map.id) && map.id !== folderId) report('id-mismatch', 'id', true);
   const nodes = Array.isArray(map.nodes) ? map.nodes : [], edges = Array.isArray(map.edges) ? map.edges : [], jobs = Array.isArray(map.jobs) ? map.jobs : [];
+  if (Array.isArray(map.glossary)) map.glossary.forEach((entry, i) => check(entry, shapes.term, `glossary[${i}]`, { unreadable: true }));
   nodes.forEach((node, i) => {
     if (!check(node, shapes.node, `nodes[${i}]`, { unreadable: true })) return;
     if (Array.isArray(node.questions)) node.questions.forEach((question, j) => check(question, shapes.question, `nodes[${i}].questions[${j}]`));

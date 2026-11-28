@@ -1,24 +1,24 @@
 // The glossary dialog (K9), opened from Map tools: agreed terms with Edit and Remove, an Add form, and the agent's
 // proposed terms with Accept, Edit and accept, and Dismiss. A proposal that would replace a term shows both.
-const entries = (map, status) => (Array.isArray(map?.glossary) ? map.glossary : []).filter(entry => entry.status === status);
+import { agreedTerms, proposedTerms, replacedTerm } from './glossary.js';
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
 // The line in Map tools.
 export function glossarySummary(map) {
-  const agreed = entries(map, 'agreed').length, proposed = entries(map, 'proposed').length;
+  const agreed = agreedTerms(map).length, proposed = proposedTerms(map).length;
   const parts = [agreed ? `${plural(agreed, 'agreed term')}` : 'No agreed terms yet', ...(proposed ? [`${plural(proposed, 'term')} proposed by your agent`] : [])];
   return `${parts.join(' · ')}. Every research job gets the agreed terms, so your agent keeps your words.`;
 }
 
 // The dialog body. `editing` is the id being edited: an agreed term, or a proposal being edited before accepting.
 export function glossaryHtml(map, { esc, editing = null }) {
-  const agreed = entries(map, 'agreed'), proposed = entries(map, 'proposed');
+  const agreed = agreedTerms(map), proposed = proposedTerms(map);
   const field = (id, label, value, max, rows = 0) => `<label for="${id}">${label}</label>${rows ? `<textarea id="${id}" maxlength="${max}" rows="${rows}">${esc(value)}</textarea>` : `<input id="${id}" maxlength="${max}" value="${esc(value)}">`}`;
   const term = entry => editing === entry.id
     ? `<div class="glossary-entry editing">${field('glossary-edit-term', 'Term', entry.term, 80)}${field('glossary-edit-definition', 'Definition', entry.definition, 600, 3)}<div class="glossary-actions"><button type="button" class="primary" data-glossary-save="${esc(entry.id)}">Save</button><button type="button" class="text-button" data-glossary-cancel>Cancel</button></div></div>`
     : `<div class="glossary-entry"><dt>${esc(entry.term)}</dt><dd>${esc(entry.definition)}</dd><div class="glossary-actions"><button type="button" class="text-button" data-glossary-edit="${esc(entry.id)}">Edit</button><button type="button" class="text-button" data-glossary-remove="${esc(entry.id)}">Remove</button></div></div>`;
   const proposal = entry => {
-    const current = agreed.find(item => item.id === entry.replaces);
+    const current = replacedTerm(map, entry); // The term Accept would change.
     const meaning = editing === entry.id
       ? `${field('glossary-accept-definition', 'Definition to accept', entry.definition, 600, 3)}<div class="glossary-actions"><button type="button" class="primary" data-glossary-accept-edited="${esc(entry.id)}">Accept</button><button type="button" class="text-button" data-glossary-cancel>Cancel</button></div>`
       : `${current ? `<div class="glossary-compare"><p><small>Agreed now</small>${esc(current.definition)}</p><p><small>Proposed</small>${esc(entry.definition)}</p></div>` : `<dd>${esc(entry.definition)}</dd>`}`
@@ -53,6 +53,6 @@ export function glossaryDialog({ act, map, esc, toast }) {
   });
   return {
     // The map moved on: refresh the summary, and the open dialog unless the user is editing in it.
-    mapChanged() { const open = map(); if (!open) return; $('#glossary-summary').textContent = glossarySummary(open); if (dialog.open && !editing) body.innerHTML = glossaryHtml(open, { esc }); },
+    mapChanged() { const open = map(); if (!open) return; if (dialog.open && !editing) render(); else $('#glossary-summary').textContent = glossarySummary(open); },
   };
 }

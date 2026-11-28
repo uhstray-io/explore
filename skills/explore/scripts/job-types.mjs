@@ -7,6 +7,7 @@
 //     It is the only type that may change an idea's status, findings, questions,
 //     completion or growth history.
 //   Other types: { label, target: 'node' | 'map', packet(context), validate(result, context) }
+//     glossary: false keeps the map's agreed glossary (K9) out of this type's packets; every other type gets it.
 //     packet  returns the type-specific fields of the work packet, including `instruction`. The Store adds the
 //             identifying fields and appends searchPrivacy to the instruction, so write an instruction that reads
 //             well followed by it, and keep 800 characters of `budget` free for both.

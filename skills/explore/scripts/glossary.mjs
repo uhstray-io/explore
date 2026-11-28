@@ -1,20 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { textField } from './fields.mjs';
-import { comparableText, markdownText } from '../assets/workspace-view.js';
+import { markdownText } from '../assets/workspace-view.js';
+import { glossaryOf, agreedTerms, proposedTerms, sameTerm, replacedTerm } from '../assets/glossary.js';
 
 // Map glossary (K9): terms and definitions agreed during the exploration. The user adds and edits them; the agent
-// may propose terms, which count only once the user accepts them. Agreed terms go to every research packet so the
-// agent keeps the user's vocabulary. Stored in map.glossary; editing it changes no idea, so nothing goes stale.
+// may propose terms, which count only once the user accepts them. Agreed terms go to research packets so the agent
+// keeps the user's vocabulary. Stored in map.glossary; editing it changes no idea, so nothing goes stale.
 const limits = { term: 80, definition: 600, agreed: 100, perResult: 5, packetCharacters: 3000 };
 class GlossaryProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const fail = message => { throw new GlossaryProblem(message); };
 const need = (condition, message, status) => { if (!condition) throw new GlossaryProblem(message, status); };
 const now = () => new Date().toISOString();
-
-export const glossaryOf = map => (Array.isArray(map.glossary) ? map.glossary : []);
-export const agreedTerms = map => glossaryOf(map).filter(entry => entry.status === 'agreed');
-export const proposedTerms = map => glossaryOf(map).filter(entry => entry.status === 'proposed');
-const sameTerm = (a, b) => comparableText(a) === comparableText(b);
+const newTermId = () => `term-${randomUUID().slice(0, 8)}`;
 const term = value => textField(value, 'Term', limits.term, fail);
 const definition = value => textField(value, 'Definition', limits.definition, fail);
 const find = (map, termId, status) => {
@@ -23,15 +20,15 @@ const find = (map, termId, status) => {
   return entry;
 };
 const unique = (map, value, except = null) => need(!agreedTerms(map).some(entry => entry !== except && sameTerm(entry.term, value)), 'This term is already in the glossary.', 409);
+const room = map => need(agreedTerms(map).length < limits.agreed, `The glossary holds at most ${limits.agreed} terms. Remove one to add another.`, 409);
 
 export const glossaryActions = {
   // User-only. `term`, `definition`.
   'glossary-add': { target: 'map', apply: ({ map, input, store }) => {
     const entry = { term: term(input.term), definition: definition(input.definition) };
-    unique(map, entry.term);
-    need(agreedTerms(map).length < limits.agreed, `The glossary holds at most ${limits.agreed} terms. Remove one to add another.`, 409);
+    unique(map, entry.term); room(map);
     const at = now();
-    map.glossary = [...glossaryOf(map), { id: `term-${randomUUID().slice(0, 8)}`, ...entry, status: 'agreed', origin: 'user', createdAt: at, updatedAt: at }];
+    map.glossary = [...glossaryOf(map), { id: newTermId(), ...entry, status: 'agreed', origin: 'user', createdAt: at, updatedAt: at }];
     store.event(map, 'glossary-added', null, entry.term);
   } },
   // User-only. `termId`, and `term` and/or `definition`.
@@ -43,24 +40,26 @@ export const glossaryActions = {
     Object.assign(entry, next, { updatedAt: now() });
     store.event(map, 'glossary-edited', null, entry.term);
   } },
+  // A proposal for the same term stays: the user decides about it separately.
   'glossary-remove': { target: 'map', apply: ({ map, input, store }) => {
     const entry = find(map, input.termId, 'agreed');
-    // A proposal to replace it has nothing left to replace.
-    map.glossary = glossaryOf(map).filter(item => item !== entry && item.replaces !== entry.id);
+    map.glossary = glossaryOf(map).filter(item => item !== entry);
     store.event(map, 'glossary-removed', null, entry.term);
   } },
-  // `termId`, and optionally the user's own `definition`. A replacement updates the term it replaces.
+  // `termId`, and optionally the user's own `definition`. A proposal for an agreed term changes that term's
+  // definition; any other becomes a new agreed term.
   'glossary-accept': { target: 'map', apply: ({ map, input, store }) => {
     const proposal = find(map, input.termId, 'proposed');
     const chosen = input.definition === undefined ? proposal.definition : definition(input.definition);
-    const target = agreedTerms(map).find(entry => entry.id === proposal.replaces || sameTerm(entry.term, proposal.term));
+    const target = replacedTerm(map, proposal);
+    const rest = glossaryOf(map).filter(item => item !== proposal);
     if (target) Object.assign(target, { definition: chosen, updatedAt: now() });
     else {
-      need(agreedTerms(map).length < limits.agreed, `The glossary holds at most ${limits.agreed} terms. Remove one to add another.`, 409);
-      map.glossary.push({ ...proposal, definition: chosen, status: 'agreed', updatedAt: now() });
-      delete map.glossary.at(-1).replaces;
+      room(map);
+      const { replaces, ...accepted } = proposal;
+      rest.push({ ...accepted, definition: chosen, status: 'agreed', updatedAt: now() });
     }
-    map.glossary = map.glossary.filter(item => item !== proposal);
+    map.glossary = rest;
     store.event(map, 'glossary-accepted', null, (target ?? proposal).term);
   } },
   'glossary-dismiss': { target: 'map', apply: ({ map, input, store }) => {
@@ -80,23 +79,26 @@ export function normalizeGlossaryProposals(result, fail) {
   }) };
 }
 // Stores a current result's proposals. One identical to the agreed entry, or to a waiting proposal, is dropped; one
-// for an agreed term records which entry it would replace.
+// for an agreed term records that term in `replaces`.
 export function addProposals(map, proposals, { jobId, store }) {
   for (const { term: proposed, definition: meaning } of proposals ?? []) {
-    const agreed = agreedTerms(map).find(entry => sameTerm(entry.term, proposed));
+    const agreed = replacedTerm(map, { term: proposed });
     if (agreed?.definition === meaning) continue;
     if (proposedTerms(map).some(entry => sameTerm(entry.term, proposed) && entry.definition === meaning)) continue;
     const at = now();
-    map.glossary = [...glossaryOf(map), { id: `term-${randomUUID().slice(0, 8)}`, term: proposed, definition: meaning, status: 'proposed', origin: 'agent', ...(agreed ? { replaces: agreed.id } : {}), jobId, createdAt: at, updatedAt: at }];
+    map.glossary = [...glossaryOf(map), { id: newTermId(), term: proposed, definition: meaning, status: 'proposed', origin: 'agent', ...(agreed ? { replaces: agreed.id } : {}), jobId, createdAt: at, updatedAt: at }];
     store.event(map, 'glossary-proposed', null, proposed);
   }
 }
 
+// Whether `text` uses `name` as a whole word ("ant" is not in "important"), ignoring case.
+const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const mentions = (text, name) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 // Agreed terms for a packet, within 3,000 characters: the ones the idea's title, premise or findings use first,
-// then alphabetical. Proposed terms never go.
+// then alphabetical. Proposed terms never go. An investigation drops the rest first when it is over budget.
 export function glossaryForPacket(map, node = null) {
-  const text = node ? `${node.title} ${node.prompt ?? ''} ${node.body ?? ''} ${node.summary ?? ''}`.toLowerCase() : '';
-  const used = entry => (text.includes(entry.term.toLowerCase()) ? 0 : 1);
+  const text = node ? `${node.title} ${node.prompt ?? ''} ${node.body ?? ''} ${node.summary ?? ''}` : '';
+  const used = entry => (text && mentions(text, entry.term) ? 0 : 1);
   const ordered = agreedTerms(map).map(({ term: name, definition: meaning }) => ({ term: name, definition: meaning }))
     .sort((a, b) => used(a) - used(b) || a.term.localeCompare(b.term));
   const glossary = [];
@@ -116,3 +118,4 @@ export function glossaryLines(map) {
   const agreed = agreedTerms(map);
   return agreed.length ? ['', '## Glossary', '', ...agreed.map(entry => `- **${markdownText(entry.term)}**: ${markdownText(entry.definition)}`)] : [];
 }
+export { agreedTerms, proposedTerms };

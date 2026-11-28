@@ -83,7 +83,7 @@ export function mapBrief(map, nodeId = null) {
       const { items, omitted } = brief.glossary[part];
       lines.push('', `## ${label}`, '', ...items.map(item => `- **${line(item.term)}**: ${line(item.definition)}`));
       if (!items.length) lines.push('_None recorded._');
-      if (omitted) lines.push(`_${omitted} more terms omitted. Open the glossary in Map tools to see them all._`);
+      if (omitted) lines.push(`_${omitted} more terms omitted. ${part === 'agreed' ? "README.md's Glossary section lists every agreed term" : 'map.json holds every proposal'}._`);
     }
     lines.push('', '## Continue from here', '',
       `Use the Explore skill with this workspace. Run \`brief --map ${map.id}\` to refresh this index; use \`read --map ${map.id} --node NODE --section questions|sources|findings\` for detail. These are CLI arguments; resolve the installed scripts/cli.mjs first.`,
@@ -94,7 +94,7 @@ export function mapBrief(map, nodeId = null) {
   render();
   // Bound both representations together, including JSON escaping, with explicit omissions.
   while (JSON.stringify(brief, null, 2).length > 24000) {
-    const largest = brief.sections.filter(s => s.items.length).sort((a, b) => b.items.length - a.items.length)[0];
+    const largest = [...brief.sections, brief.glossary.agreed, brief.glossary.proposed].filter(s => s.items.length).sort((a, b) => b.items.length - a.items.length)[0];
     if (!largest) break;
     largest.items.pop(); largest.omitted++; render();
   }

@@ -183,6 +183,7 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
     counts.nodesChanged && `changes ${count(counts.nodesChanged, 'idea')}`,
     counts.linksRemoved && `removes ${count(counts.linksRemoved, 'connection')}`,
     counts.linksAdded && `brings back ${count(counts.linksAdded, 'connection')}`,
+    counts.termsChanged && `changes the glossary`,
   ].filter(Boolean);
   const changes = parts.length ? `${verb} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}.` : `${verb} changes no ideas or connections.`;
   const reopens = reopened.length ? ` It reopens ${count(reopened.length, 'finished branch', 'finished branches')}.` : '';
