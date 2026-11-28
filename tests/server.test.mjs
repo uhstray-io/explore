@@ -87,11 +87,11 @@ test('shared settings are authenticated, validated, revision-checked and saved b
       headers: { ...(authorized ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     assert.equal((await call(undefined, false)).status, 401);
     assert.equal((await call({ expectedRevision: 0, 'test-minutes': 10 }, false)).status, 401);
-    assert.deepEqual(await (await call()).json(), { version: 1, revision: 0, listenMinutes: 2, 'test-minutes': 2 });
+    assert.deepEqual(await (await call()).json(), { version: 1, revision: 0, listenMinutes: 2, researchModelHint: '', 'test-minutes': 2 });
     assert.equal((await call({ expectedRevision: 0, 'test-minutes': 7 })).status, 400);
     assert.equal((await call({ expectedRevision: 0, colour: 'blue' })).status, 400);
     const saved = await (await call({ expectedRevision: 0, 'test-minutes': 10 })).json();
-    assert.deepEqual(saved, { version: 1, revision: 1, listenMinutes: 2, 'test-minutes': 10 });
+    assert.deepEqual(saved, { version: 1, revision: 1, listenMinutes: 2, researchModelHint: '', 'test-minutes': 10 });
     assert.equal((await call({ expectedRevision: 0, 'test-minutes': 2 })).status, 409);
     assert.equal(JSON.parse(await readFile(path.join(workspace, 'ideas', 'settings.json'), 'utf8'))['test-minutes'], 10);
     assert.deepEqual((await readdir(path.join(workspace, '.explore'))).filter(name => /settings|preferences/.test(name)), []);
