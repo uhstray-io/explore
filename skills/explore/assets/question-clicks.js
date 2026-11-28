@@ -89,8 +89,9 @@ export async function questionClick(event, app) {
     closeMenus();
     const query = new URLSearchParams({ type: kind.type, node: nodeId, question: questionId });
     const found = again || !state.map ? null : await api(`/maps/${state.map.id}/reusable?${query}`).catch(() => null);
-    const shown = () => state.visibleMap?.jobs.find(job => job.id === found.jobId);
-    const earlier = found?.jobId ? (shown() ?? (await refresh?.(), shown())) : null; // It may have arrived since the last poll.
+    // The result the browser shows, finished: it may have arrived, or finished, since the last poll.
+    const shown = () => state.visibleMap?.jobs.find(job => job.id === found.jobId && job.status === 'completed');
+    const earlier = found?.jobId ? (shown() ?? (await refresh?.(), shown())) : null;
     if (earlier) { // Read-only: nothing is written.
       state.helpSeen?.delete(earlier.id); renderDetail(true);
       const details = document.querySelector(`[data-help="${earlier.id}"]`);

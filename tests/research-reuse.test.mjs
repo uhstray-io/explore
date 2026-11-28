@@ -228,6 +228,15 @@ test('asking again opens and focuses the earlier result and writes nothing; Ask 
     globalThis.document = { querySelector: selector => (selector === '[data-help="job-r2"]' ? later : selector === '[data-menu="q1"]' ? { focus() {} } : null) };
     await click({ qResearch: '', nodeId: 'n1', questionId: 'q1' });
     assert.equal(calls.length, before, 'nothing queued'); assert.equal(later.open, true, 'the new result opens');
+    // One the browser still shows as queued, finished since the last poll: refreshed too, then opened.
+    const finished = { ...job, id: 'job-r3' }, third = { ...details, open: false };
+    answer = { jobId: 'job-r3' }; state.visibleMap = { jobs: [job, { ...finished, status: 'queued', result: undefined }] };
+    let refreshes = 0;
+    app.refresh = async () => { refreshes++; state.visibleMap = { jobs: [job, finished] }; };
+    // As the page renders it: a queued job shows its status, not a result to open.
+    globalThis.document = { querySelector: selector => (selector === '[data-help="job-r3"]' && state.visibleMap.jobs.find(item => item.id === 'job-r3')?.status === 'completed' ? third : selector === '[data-menu="q1"]' ? { focus() {} } : null) };
+    await click({ qResearch: '', nodeId: 'n1', questionId: 'q1' });
+    assert.equal(refreshes, 1, 'the queued copy is refreshed'); assert.equal(calls.length, before, 'still nothing queued'); assert.equal(third.open, true, 'the finished result opens');
     answer = { jobId: null };
     await click({ qHelp: '', nodeId: 'n1', questionId: 'q1' });
     assert.match(asked.at(-1), /type=question-help/); assert.deepEqual(calls.at(-1).slice(0, 3), ['n1', 'request-help', { questionId: 'q1' }], 'nothing to reuse: it queues as before');
