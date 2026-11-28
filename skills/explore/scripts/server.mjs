@@ -81,7 +81,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           return send(res, 200, await store.previewMapJob(previewRoute[1], url.searchParams.get('type'), selection));
         }
         // Usage across saved maps (J1): read only; a map that cannot be read is listed, not counted.
-        if (req.method === 'GET' && url.pathname === '/api/stats') return send(res, 200, usageStats(await store.eachMap(), { archived: url.searchParams.get('archived') === 'include' ? 'include' : 'exclude' }));
+        if (req.method === 'GET' && url.pathname === '/api/stats') return send(res, 200, usageStats(await store.eachMap({ adopt: false }), { archived: url.searchParams.get('archived') === 'include' ? 'include' : 'exclude' }));
         // Version history: listing and previewing never write anything. A branch preview (E2) shows what
         // restoring one idea and everything below it from that version would change.
         const branchRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions\/([A-Za-z0-9-]+)\/branch$/);

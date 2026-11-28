@@ -155,11 +155,14 @@ export class Store {
   }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
   // Every map folder, loaded or with the reason it could not be: one broken map never stops a reader (I1 search).
-  async eachMap() {
-    await mkdir(this.directory, { recursive: true });
+  // `adopt: false` only reads (J1 statistics): it creates no folder and keeps no version of an outside change.
+  async eachMap({ adopt = true } = {}) {
+    let entries = [];
+    if (adopt) await mkdir(this.directory, { recursive: true });
+    try { entries = await readdir(this.directory, { withFileTypes: true }); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     const out = [];
-    for (const entry of (await readdir(this.directory, { withFileTypes: true })).filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
-      try { out.push({ id: entry.name, map: await this.get(entry.name) }); }
+    for (const entry of entries.filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
+      try { out.push({ id: entry.name, map: adopt ? await this.get(entry.name) : (await this.read(entry.name)).map }); }
       catch (error) { if (!(error instanceof Problem && error.code === 'not-found')) out.push({ id: entry.name, error }); } // A folder left behind by a branch switch is not a map.
     }
     return out;
