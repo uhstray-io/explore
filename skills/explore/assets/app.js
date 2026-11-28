@@ -275,10 +275,12 @@ function focusNode(nodeId) {
   centerSelected();
   $(`[data-node="${nodeId}"]`)?.focus({ preventScroll: true });
 }
-// Explore this as a direction (F2): Add a direction on that idea, opened once it is shown and chosen; prefilled only
-// where the user has no draft of their own there.
+// Explore this as a direction (F2): Add a direction on that idea, opened once it is shown and chosen. It is prefilled
+// unless the user has a draft of their own there; an earlier hypothesis's prefill they left as it was is replaced.
 async function exploreAsDirection({ nodeId, title, body }) {
-  if (!state.drafts[`${nodeId}-title`] && !state.drafts[`${nodeId}-branch`]) Object.assign(state.drafts, { [`${nodeId}-title`]: title, [`${nodeId}-branch`]: body });
+  const [titleKey, bodyKey] = [`${nodeId}-title`, `${nodeId}-branch`], last = state.prefilled?.[nodeId];
+  if ((!state.drafts[titleKey] && !state.drafts[bodyKey]) || (state.drafts[titleKey] === last?.title && state.drafts[bodyKey] === last?.body)) Object.assign(state.drafts, { [titleKey]: title, [bodyKey]: body }), (state.prefilled ??= {})[nodeId] = { title, body };
+  else toast('Your own draft there is kept. Clear it to use this hypothesis instead.');
   await focusNode(nodeId); if (state.selected === nodeId) openEditor('suggest');
 }
 function centerSelected() {

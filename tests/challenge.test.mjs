@@ -7,6 +7,8 @@ import { startServer } from '../skills/explore/scripts/server.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { challengeDialogHtml, challengesOf, directionFrom, CHALLENGE } from '../skills/explore/assets/challenge.js';
 import { challengeDialog } from '../skills/explore/assets/challenge-dialog.js';
+import { proposalOutdated, CHECK_ANSWERS } from '../skills/explore/scripts/map-jobs.mjs';
+import { toolsDialog } from '../skills/explore/assets/tools-dialog.js';
 
 // Challenge decisions (F2, #25). Illustrative fixtures only, never ideas/.
 const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
@@ -295,4 +297,72 @@ test('a direction from a hypothesis is added only when the user submits Add a di
   const saved = await act({ type: 'suggest', title: direction.title, body: direction.body });
   const added = saved.nodes.at(-1);
   assert.deepEqual([added.title, added.status, added.parentId], ['Overlooked alternative: Paper backup.', 'suggested', map.rootId]); assert.equal(saved.jobs.length, jobs, 'no job queued');
+});
+
+test('revising the idea of a challenged answer outdates the challenge; a whole-map check is outdated only by a question it read', async () => {
+  const { store } = await memoryStore(), { map, act, questions, raw } = await setup(store);
+  const run = async (jobType, input) => { await act({ type: 'request-map-job', jobType, ...input }); const job = await store.claim('agent', map.id); return (await store.complete(map.id, job.jobId, job.claimKey, { findings: [] })).proposals.at(-1); };
+  const stale = async proposal => store.view(await store.get(map.id)).proposals.find(entry => entry.id === proposal.id).stale === true;
+  const check = await run(CHECK_ANSWERS, {});
+  await act({ type: 'answer', questionId: questions[3].id, answer: 'The county.' });
+  assert.equal(await stale(check), true, 'an open question it read was answered');
+  const round = await store.claim('agent', map.id); // That answer continued the idea.
+  await store.complete(map.id, round.jobId, round.claimKey, { summary: 'More.', body: 'More.', questions: ['Who backs up the phones?', 'Where are backups kept?'] });
+  const whole = await run(CHECK_ANSWERS, {}); // Reads those two open questions too.
+  await raw(current => { current.nodes[0].contentRevision++; }); // The idea changed, but no question it read did.
+  assert.equal(await stale(whole), false, 'an open question it read is keyed by itself, not by its idea');
+  const challenge = await run(CHALLENGE, { selection: [{ nodeId: map.rootId, questionId: questions[0].id }] });
+  const newer = (await store.get(map.id)).nodes[0].questions.at(-1);
+  await act({ type: 'answer', questionId: newer.id, answer: 'In the van.' });
+  assert.equal(await stale(challenge), false, 'a question the challenge did not read');
+  await act({ type: 'revise', body: 'Notes for one field team.' });
+  assert.equal(await stale(challenge), true, 'a changed premise sets the challenged answer aside');
+  // A record saved before questions were keyed falls back to its idea's revision.
+  const old = { nodes: [{ id: 'n', contentRevision: 2, questions: [{ id: 'q', text: 'Q?', answer: 'A.' }] }] };
+  assert.equal(proposalOutdated(old, { included: [{ nodeId: 'n', questionId: 'q', contentRevision: 1 }] }), true);
+  assert.equal(proposalOutdated(old, { included: [{ nodeId: 'n', questionId: 'q', contentRevision: 2 }] }), false);
+});
+
+test('a changed choice drops its preview, ticks survive a redraw, Keep moves focus to the new direction, and an earlier kept point can be explored', async () => {
+  let map = fixture();
+  map.proposals.push({ id: 'proposal-2', type: CHALLENGE, items: [{ id: 'item-9', category: 'alternative', explanation: 'Newest.', resolution: 'R.', refs: [{ nodeId: 'root', questionId: 'q-2' }], review: 'unreviewed' }] });
+  map.proposals.unshift({ id: 'proposal-0', type: CHALLENGE, items: [{ id: 'item-0', category: 'alternative', explanation: 'Oldest kept.', resolution: 'R.', refs: [{ nodeId: 'root', questionId: 'q-1' }], review: 'accepted' }] });
+  assert.deepEqual(challengesOf(map).earlier.map(proposal => proposal.id), ['proposal-1', 'proposal-0'], 'earlier challenges newest first');
+  const explored = [];
+  const act = async (_, type, input) => { if (type === 'review-proposal') { map = structuredClone(map); map.proposals.find(p => p.id === input.proposalId).items.find(i => i.id === input.itemId).review = input.decision; } return true; };
+  const io = fakeDialog({ map: () => map, act, explored, api: async () => ({ records: [{ kind: 'idea' }, { kind: 'answer', question: 'Q', answer: 'A' }], mapRevision: map.revision }) });
+  try {
+    await io.element('challenge-open').fire('click');
+    await io.tick('root', 'q-1'); await io.click({ challengePreview: '' });
+    assert.match(io.body.innerHTML, /data-challenge-question="q-1" checked>/, 'a ticked answer stays ticked through the redraw');
+    await io.tick('root', 'q-2');
+    assert.doesNotMatch(io.body.innerHTML, /data-challenge-send/, 'a changed choice needs a new preview');
+    await io.click({ reviewItem: 'item-9', proposal: 'proposal-2', decision: 'accepted' });
+    assert.equal(io.focused.at(-1), '[data-challenge-direction="item-9"]', 'focus moves to what Keep offers next');
+    await io.click({ challengeDirection: 'item-0', proposal: 'proposal-0' });
+    assert.deepEqual(explored, [{ nodeId: 'root', title: 'Overlooked alternative: Oldest kept.', body: 'Oldest kept.\n\nWhat would settle it: R.' }]);
+  } finally { delete globalThis.document; }
+});
+
+test('Map tools checks chosen answers, stops and reviews through the app, and redraws only while open', async () => {
+  const elements = {}, element = id => (elements[id] ??= { id, innerHTML: '', open: false, handlers: {}, addEventListener(type, fn) { (this.handlers[type] ??= []).push(fn); }, showModal() { this.open = true; }, close() { this.open = false; } });
+  const boxes = [{ dataset: { choiceNode: 'root', choiceQuestion: 'q-1' } }];
+  globalThis.document = { querySelector: selector => element(selector.replace(/^#/, '')), querySelectorAll: () => boxes };
+  const calls = [], routes = [], map = fixture(); let opened = 0;
+  try {
+    const tools = toolsDialog({ map: () => map, act: async (...args) => { calls.push(args); return true; }, api: async route => { routes.push(route); return { records: [], omittedRecords: [] }; }, esc, toast: () => {}, listening: () => false, onOpen: () => opened++ });
+    await tools.mapChanged();
+    assert.equal(routes.length, 0, 'nothing drawn while closed');
+    element('show-tools').handlers.click[0]();
+    assert.equal(element('tools-dialog').open, true); assert.equal(opened, 1);
+    assert.match(element('tools-choices').innerHTML, /<input type="checkbox" data-choice-node="root" data-choice-question="q-1"> Who &lt;edits&gt;\?/);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(routes, ['/maps/map-1/job-preview?type=check-answers']); assert.match(element('tools-body').innerHTML, /data-check-answers/);
+    const click = dataset => element('tools-dialog').handlers.click[0]({ target: { closest: () => ({ dataset, disabled: false }) } });
+    await click({ checkAnswers: '' });
+    assert.deepEqual(calls.at(-1), [null, 'request-map-job', { jobType: 'check-answers', selection: [{ nodeId: 'root', questionId: 'q-1' }] }]);
+    await click({ cancelJob: 'job-1' }); assert.deepEqual(calls.at(-1), [null, 'cancel-job', { jobId: 'job-1' }]);
+    await click({ reviewItem: 'item-1', proposal: 'proposal-1', decision: 'dismissed' }); assert.deepEqual(calls.at(-1), [null, 'review-proposal', { proposalId: 'proposal-1', itemId: 'item-1', decision: 'dismissed' }]);
+    await click({ select: 'root' }); assert.equal(element('tools-dialog').open, false, 'a reference closes it for the page to open that idea');
+  } finally { delete globalThis.document; }
 });

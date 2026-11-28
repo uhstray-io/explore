@@ -55,19 +55,20 @@ export function answerRecords(map, selection = []) {
   }
   return { records, omitted };
 }
-// An answer as a review read it: its text and how sure the user was. Kept on the record, so a review is outdated when
-// that answer changes, and not when another question on the same idea is answered.
-const answerKey = question => createHash('sha256').update(`${certaintyText(question)}\n${question.answer}`).digest('hex').slice(0, 16);
+// A question as a review read it: an answer's text and how sure the user was, or that it was still open. Kept on the
+// record, so a review is outdated when that question changes, and not when another one on the same idea does.
+const answerKey = question => createHash('sha256').update(question.answer ? `${certaintyText(question)}\n${question.answer}` : `open\n${question.text}`).digest('hex').slice(0, 16);
 // What a claimed job read, for checking its result and its staleness later.
 export function includedRecords(map, records) {
   return records.filter(record => record.nodeId).map(record => {
     const node = map.nodes.find(n => n.id === record.nodeId), question = record.questionId ? node.questions.find(q => q.id === record.questionId) : null;
-    return { nodeId: record.nodeId, ...(question ? { questionId: question.id } : {}), contentRevision: node.contentRevision, ...(question?.answer ? { answer: answerKey(question) } : {}) };
+    return { nodeId: record.nodeId, ...(question ? { questionId: question.id, answer: answerKey(question) } : {}), contentRevision: node.contentRevision };
   });
 }
 
-// A review is outdated once anything it read has changed: a chosen answer (its text or how sure the user is) or, for
-// an idea's findings, the idea itself. A record saved before answers were kept falls back to the idea's revision.
+// A review is outdated once anything it read has changed: an answer (its text or how sure the user is), an open
+// question (answered since), or, for an idea's findings, the idea itself. A record saved before questions were keyed
+// falls back to the idea's revision.
 export function proposalOutdated(map, proposal) {
   return (proposal.included || []).some(record => {
     const node = map.nodes.find(n => n.id === record.nodeId);
@@ -75,7 +76,7 @@ export function proposalOutdated(map, proposal) {
     if (!record.questionId) return node.contentRevision !== record.contentRevision;
     const question = node.questions.find(q => q.id === record.questionId);
     if (!question || question.supersededAt) return true;
-    return record.answer === undefined ? node.contentRevision !== record.contentRevision : !question.answer || answerKey(question) !== record.answer;
+    return record.answer === undefined ? node.contentRevision !== record.contentRevision : answerKey(question) !== record.answer;
   });
 }
 
