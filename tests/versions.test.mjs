@@ -154,7 +154,7 @@ test('the preview shows the version exactly, counts the differences and lists re
   const before = await readFile(store.file(map.id), 'utf8');
   const preview = await store.versions.preview(map.id, queued.id);
   assert.equal(preview.map.nodes.length, 1); assert.equal(preview.map.nodes[0].status, 'queued');
-  assert.deepEqual(preview.counts, { nodesAdded: 0, nodesRemoved: 1, nodesChanged: 1, linksAdded: 0, linksRemoved: 1, termsChanged: 0, thoughtsChanged: 0, assignmentsChanged: 0, reviewsChanged: 0, guidanceChanged: false });
+  assert.deepEqual(preview.counts, { nodesAdded: 0, nodesRemoved: 1, nodesChanged: 1, linksAdded: 0, linksRemoved: 1, termsChanged: 0, thoughtsChanged: 0, assignmentsChanged: 0, discussionsChanged: 0, reviewsChanged: 0, guidanceChanged: false });
   assert.deepEqual(preview.reopened, [map.rootId]);
   assert.equal(await readFile(store.file(map.id), 'utf8'), before, 'previewing writes nothing');
 });

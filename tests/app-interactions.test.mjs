@@ -13,6 +13,7 @@ import { goalSectionHtml, goalEditorHtml, goalInput, goalEdits } from '../skills
 import { branchComplete } from '../skills/explore/assets/graph.js';
 import { notesHtml } from '../skills/explore/assets/inbox.js';
 import { assignmentCardHtml, assignFormHtml, assignmentRequest, assignmentClick } from '../skills/explore/assets/assignments.js';
+import { discussionHtml, discussionRequest, discussionClick } from '../skills/explore/assets/discussions.js';
 import { criteriaEntryHtml, reconsideredHtml } from '../skills/explore/assets/criteria.js';
 import { hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload } from '../skills/explore/assets/hypothesis.js';
 import { readOnlyNote } from '../skills/explore/assets/history.js';
@@ -72,7 +73,7 @@ function harness({ question = false, hypothesis = false, formAs = null } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, notesHtml, assignmentCardHtml, assignFormHtml, assignmentRequest, criteriaEntryHtml, reconsideredHtml, hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload, readOnlyNote, isInvestigationJob, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, foldMenuItems, goalSectionHtml, goalEditorHtml, goalEdits, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, notesHtml, assignmentCardHtml, assignFormHtml, assignmentRequest, discussionHtml, discussionRequest, criteriaEntryHtml, reconsideredHtml, hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload, readOnlyNote, isInvestigationJob, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, foldMenuItems, goalSectionHtml, goalEditorHtml, goalEdits, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: (...args) => { actCalls.push(args); return pending; }, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -799,7 +800,25 @@ test('the inspector shows the Assign form, then the request; Pass on opens its f
   } finally { delete globalThis.document; }
 });
 
-test('the inspector hands Take it, Pass on and Mark done to the assignment module, and the overview offers the Assigned filter (H7)', () => {
-  assert.match(app, /if \(await assignmentClick\(event, \{ state, act, toast, renderDetail \}\)\) \{ closeMenus\(\); return; \}/);
-  assert.match(app, /mapOverview\(state\.visibleMap, \{ filters: \[.*, assignedFilter\(state\.visibleMap\)\] \}\)/);
+test('the inspector hands request and discussion clicks to their modules, and the overview offers the Assigned and Open discussions filters (H7, H6)', () => {
+  assert.match(app, /if \(await assignmentClick\(event, \{ state, act, toast, renderDetail \}\) \|\| await discussionClick\(event, \{ act, toast, renderDetail \}\)\) \{ closeMenus\(\); return; \}/);
+  assert.match(app, /mapOverview\(state\.visibleMap, \{ filters: \[.*, assignedFilter\(state\.visibleMap\), openDiscussionsFilter\(state\.visibleMap\)\] \}\)/);
+});
+
+test('a reply typed in a discussion survives a background refresh, and a reply sent goes to its thread (H6)', async () => {
+  const thread = { id: 'thread-1', nodeId: 'node-a', createdAt: '2026-11-04T10:00:00.000Z', status: 'open', messages: [{ id: 'message-1', at: '2026-11-04T10:00:00.000Z', text: 'Is this right?' }] };
+  const replyFields = [{ name: 'text', value: 'Yes, see the notes.', dataset: { draft: 'discussion-reply:thread-1' } }];
+  const h = harness({ formAs: { id: '', dataset: { nodeId: 'node-a', replyForm: 'thread-1' }, querySelectorAll: () => replyFields } });
+  h.state.visibleMap.discussions = { version: 1, threads: [thread] };
+  h.document.activeElement = null; h.render(true);
+  assert.match(h.markup(), /<form class="discussion-reply" data-reply-form="thread-1"/);
+  const typing = h.focusDraft('discussion-reply:thread-1', 'Half typed');
+  const writes = h.writes(); h.render();
+  assert.equal(h.writes(), writes, 'a poll never redraws away the reply being typed'); assert.equal(h.document.activeElement, typing);
+  h.document.activeElement = null; h.render();
+  assert.match(h.markup(), /data-draft="discussion-reply:thread-1">Half typed<\/textarea>/, 'and it comes back once focus leaves');
+  const saving = h.submit(); h.complete(true); await saving;
+  assert.deepEqual(h.actCalls.at(-1), ['node-a', 'comment', { text: 'Yes, see the notes.', threadId: 'thread-1' }]);
+  h.state.historyStep = 0; h.render();
+  assert.match(h.markup(), /Is this right\?/); assert.doesNotMatch(h.markup(), /data-reply-form|data-discussion-|id="discussion-form"/, 'history shows the thread with nothing to do');
 });

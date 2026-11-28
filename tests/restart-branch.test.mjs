@@ -300,3 +300,20 @@ test('restarting drops the requests to look at the ideas it deletes, says so fir
   map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
   assert.deepEqual(map.assignments.items.map(item => item.requestedFor), ['Cy'], 'only the request on an idea that is still there');
 });
+
+test('restarting drops the discussions on the ideas it deletes, counts the open ones first, and keeps the others (H6)', async () => {
+  const f = await fixture(), venue = f.find('Venue'), actor = { actor: { name: 'Ben' } };
+  const say = async (title, text, threadId) => { const map = await f.refresh(); return f.store.action(map.id, { expectedRevision: map.revision, nodeId: f.find(title).id, type: 'comment', text, ...(threadId ? { threadId } : {}) }, actor); };
+  await say('Permit', 'Who signs it?'); await say('Budget', 'Kept.');
+  let map = await say('Green', 'Settled.');
+  const settled = map.discussions.threads.at(-1);
+  map = await f.store.action(map.id, { expectedRevision: map.revision, nodeId: settled.nodeId, type: 'resolve-discussion', threadId: settled.id }, actor);
+  const earlier = await previewRestart(f.store, map.id, { nodeId: venue.id, questionId: f.firstId });
+  assert.equal(earlier.discussionsRemoved, 1, 'the open one; the resolved one goes too');
+  assert.match(restartPreviewHtml(earlier, { esc: String }), /with 4 links and 1 open discussion./);
+  await say('Permit', 'A reply since.', map.discussions.threads[0].id);
+  await assert.rejects(f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: earlier.hash }), /Preview the restart again/, 'a reply since the preview changes what it deletes');
+  const preview = await previewRestart(f.store, map.id, { nodeId: venue.id, questionId: f.firstId });
+  map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
+  assert.deepEqual(map.discussions.threads.map(thread => thread.messages[0].text), ['Kept.']);
+});

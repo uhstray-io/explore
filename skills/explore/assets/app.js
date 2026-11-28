@@ -20,6 +20,7 @@ import { importDialog } from './import-dialog.js';
 import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, pinClick } from './pinned-answers.js';
 import { doneWhenSection, doneWhenClick, doneWhenKey, doneWhenMenuItem, canExplore } from './done-when.js';
 import { assignmentCardHtml, assignFormHtml, assignmentRequest, assignmentClick, assignedFilter } from './assignments.js';
+import { discussionHtml, discussionRequest, discussionClick, openDiscussionsFilter } from './discussions.js';
 import { branchRestorePanel } from './branch-restore.js';
 import { exportPanel } from './export-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
@@ -325,7 +326,7 @@ function closeOverview() {
 }
 function renderOverview() {
   if (!state.visibleMap) return;
-  const overview = mapOverview(state.visibleMap, { filters: [...(state.historyStep === null ? [impactFilter(state.visibleMap)] : []), assignedFilter(state.visibleMap)] }), focusedFilter = document.activeElement?.dataset.filter;
+  const overview = mapOverview(state.visibleMap, { filters: [...(state.historyStep === null ? [impactFilter(state.visibleMap)] : []), assignedFilter(state.visibleMap), openDiscussionsFilter(state.visibleMap)] }), focusedFilter = document.activeElement?.dataset.filter;
   const focusedIdea = $('#overview-list').contains(document.activeElement) ? document.activeElement.dataset.focusNode : null;
   const html = overview.groups.filter(group => group.kind === 'progress').map(group => `<button type="button" data-filter="${group.id}" data-command="filter" data-command-label="Show: ${group.label}" aria-expanded="${state.filter === group.id}" aria-controls="overview-panel"><span>${group.label}</span><strong>${group.nodes.length}</strong></button>`).join('');
   if ($('#overview-filters').innerHTML !== html) $('#overview-filters').innerHTML = html;
@@ -653,7 +654,7 @@ function renderDetail(force = false) {
     ${!historic ? `<div class="detail-actions">${canExplore(n, completed) ? `<button class="primary" data-explore="${n.id}" data-command="explore" data-node-id="${n.id}">${n.status === 'suggested' ? 'Explore this branch' : 'Retry exploration'}</button>` : ''}${!completed && ['queued', 'running'].includes(n.status) ? `<button class="secondary" data-cancel="${n.id}" data-command="cancel" data-node-id="${n.id}">Stop exploration</button>` : ''}${n.status === 'explored' && n.reviewState !== 'accepted' && !n.stale ? `<button class="secondary" data-accept="${n.id}" data-command="accept" data-node-id="${n.id}">Accept finding</button>` : ''}<button class="secondary" data-branch-brief="${n.id}" data-command="branch-brief" data-node-id="${n.id}">Branch brief</button></div>` : ''}
     ${doneWhenSection(n, { esc, completed, live: !historic, editing: state.doneWhenEditing === n.id, drafts: state.drafts })}
     ${assignmentCardHtml(state.visibleMap, n, { esc, live: !historic, drafts: state.drafts, passing: state.assignmentPassing })}${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
-    ${questionHtml}
+    ${questionHtml}${discussionHtml(state.visibleMap, n, { esc, live: !historic, drafts: state.drafts })}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
     ${hypothesisHtml(n, { esc, live: !historic, drafts: state.drafts })}
     ${!historic ? impactHtml(state.visibleMap, n, { esc }) : ''}
@@ -864,7 +865,7 @@ document.addEventListener('click', async event => {
   if (await pinClick(event, { act, focusNode, toast, closeMenus })) return;
   if (await folds.click(event)) return; // The idea's ⋯ menu and the branch bar.
   if (await doneWhenClick(event, { state, act, toast, renderDetail })) { closeMenus(); return; } // Also Explore and Retry.
-  if (await assignmentClick(event, { state, act, toast, renderDetail })) { closeMenus(); return; } // Take it, Pass on, Mark done (H7).
+  if (await assignmentClick(event, { state, act, toast, renderDetail }) || await discussionClick(event, { act, toast, renderDetail })) { closeMenus(); return; } // Take it, Pass on, Mark done (H7).
   for (const [attribute, action, message] of [['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
     const button = event.target.closest(`[data-${attribute}]`);
     if (button) { button.disabled = true; if (await act(button.dataset[attribute], action)) toast(message); button.disabled = false; return; }
@@ -896,7 +897,7 @@ $('#detail').addEventListener('submit', async event => {
       if (!success) renderDetail(true);
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', suggestPayload(data));
-    const asked = assignmentRequest(form, data); if (asked) success = await act(node, asked.type, asked.input); // Ask someone, or pass it on (H7).
+    const asked = assignmentRequest(form, data) ?? discussionRequest(form, data); if (asked) success = await act(node, asked.type, asked.input); // Ask someone, pass it on (H7), or comment (H6).
     if (success && asked?.type === 'pass-assignment') state.assignmentPassing = null;
     if ('outcomeForm' in form.dataset) success = await act(node, 'record-outcome', outcomePayload(data));
     if (form.id === 'guidance-form') {

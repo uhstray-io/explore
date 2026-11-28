@@ -228,15 +228,17 @@ test('Undo and restore name assignment changes; restarting or restoring a branch
   let saved = await store.complete(map.id, run.jobId, run.claimKey, { summary: 'Phones hold a week.', body: 'Fixture.', suggestions: [{ title: 'Cache', body: 'What to keep.' }] });
   const cache = saved.nodes.find(node => node.title === 'Cache');
   saved = await store.action(map.id, { expectedRevision: saved.revision, nodeId: cache.id, type: 'assign', to: 'Cy' }, { actor: ben });
+  saved = await store.action(map.id, { expectedRevision: saved.revision, nodeId: cache.id, type: 'comment', text: 'About the cache.' }, { actor: ben }); // H6: a discussion goes with it too.
   const earlier = await previewBranchRestore(store, map.id, version.id, { nodeId: branch.id });
   saved = await store.action(map.id, { expectedRevision: saved.revision, nodeId: cache.id, type: 'take-assignment', assignmentId: openAssignment(saved, cache.id).id }, { actor: ana });
   await assert.rejects(store.action(map.id, { expectedRevision: saved.revision, type: 'restore-branch', nodeId: branch.id, version: version.id, previewHash: earlier.hash }, { actor: ben }), /Preview the restore again/, 'a request taken since the preview changes what it removes');
   const preview = await previewBranchRestore(store, map.id, version.id, { nodeId: branch.id });
-  assert.equal(preview.counts.requestsRemoved, 1);
-  assert.match(branchRestoreHtml(preview, { esc }), /1 idea added since this version removed, with 1 open request to look at them/);
+  assert.deepEqual([preview.counts.requestsRemoved, preview.counts.discussionsRemoved], [1, 1]);
+  assert.match(branchRestoreHtml(preview, { esc }), /1 idea added since this version removed, with 1 open request to look at them and 1 open discussion/);
   const restored = await store.action(map.id, { expectedRevision: saved.revision, type: 'restore-branch', nodeId: branch.id, version: version.id, previewHash: preview.hash }, { actor: ben });
   assert.equal(restored.nodes.some(node => node.id === cache.id), false);
   assert.equal(assignmentsOf(restored).some(item => item.nodeId === cache.id), false, 'its request went with it');
+  assert.equal((restored.discussions?.threads ?? []).some(thread => thread.nodeId === cache.id), false, 'and its discussion');
   assert.equal(assignmentsOf(restored).filter(item => item.nodeId === branch.id).length, 1, 'requests elsewhere stay as they are now');
   assert.deepEqual(validateMap(restored).errors, []);
 });

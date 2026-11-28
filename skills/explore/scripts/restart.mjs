@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import { answerStates, hasCurrentAnswer, isBlocking, laterQuestions, replaceAnswer } from '../assets/questions.js';
 import { isOpenJob } from './map-validation.mjs';
 import { tidyFolds } from './folds.mjs';
-import { requestsOn } from '../assets/assignments.js';
-import { openRequestsOn, dropRequestsOn } from './assignments.mjs';
+import { openOnIdeas, peopleOnIdeas, dropOnIdeas } from './people.mjs';
 
 // Restart a finished branch from a changed answer (Z2). The user previews what would be deleted; the
 // action recomputes the same plan, refuses if anything changed since, and saves a named checkpoint
@@ -34,7 +33,7 @@ function restartPlan(store, map, node, questionId) {
   const links = map.edges.filter(edge => below.has(edge.from) || below.has(edge.to));
   const hash = createHash('sha256').update(JSON.stringify([node.id, question.id, question.answer,
     [node, ...deleted].map(other => [other.id, other.contentRevision, other.status].join(' ')).sort(), superseded.map(q => q.id), flagged.map(other => other.id).sort(),
-    links.map(edge => [edge.from, edge.to, edge.type].join(' ')).sort(), requestsOn(map, below).map(item => `${item.id} ${item.status}`).sort()])).digest('hex');
+    links.map(edge => [edge.from, edge.to, edge.type].join(' ')).sort(), peopleOnIdeas(map, below)])).digest('hex');
   return { question, below, deleted, superseded, flagged, links, hash };
 }
 
@@ -59,7 +58,7 @@ export async function previewRestart(store, mapId, { nodeId, questionId, offset,
     deleteCount: plan.deleted.length, deleted: plan.deleted.slice(from, from + size).map(n => ({ id: n.id, title: n.title })), offset: from,
     nextOffset: from + size < plan.deleted.length ? from + size : null,
     superseded: plan.superseded.map(q => ({ id: q.id, text: q.text })), flagged: plan.flagged.map(n => ({ id: n.id, title: n.title })),
-    linksRemoved: plan.links.length, requestsRemoved: openRequestsOn(map, plan.below), checkpointName: await checkpointName(store, map, node) };
+    linksRemoved: plan.links.length, ...openOnIdeas(map, plan.below), checkpointName: await checkpointName(store, map, node) };
 }
 
 export const restartActions = {
@@ -81,7 +80,7 @@ export const restartActions = {
     map.nodes = map.nodes.filter(other => !plan.below.has(other.id));
     map.edges = map.edges.filter(edge => !plan.below.has(edge.from) && !plan.below.has(edge.to));
     map.jobs = map.jobs.filter(job => !plan.below.has(job.nodeId));
-    dropRequestsOn(map, plan.below); // H7: requests to look at deleted ideas go with them.
+    dropOnIdeas(map, plan.below); // Requests to look at deleted ideas (H7) and discussions on them (H6) go with them.
     for (const id of plan.below) delete map.view?.positions?.[id];
     tidyFolds(map); // A restarted idea's directions are new: none arrive hidden.
     replaceAnswer(plan.question, { answer, answerState: input.answerState, actor, at, mark: { restart: true } });
