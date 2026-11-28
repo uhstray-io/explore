@@ -12,7 +12,7 @@ const basisWords = { evidence: 'Evidence', reasoning: 'Reasoning', unknown: 'Unk
 // Criteria in priority order, keeping the user's order within a priority.
 export const sortCriteria = list => [...list].sort((a, b) => priorities.indexOf(a.priority) - priorities.indexOf(b.priority));
 // Two lists of criteria are the same when every id, label and priority is, in order.
-export const criteriaKey = list => JSON.stringify((list ?? []).map(({ id, label, priority }) => [id, label, priority]));
+export const criteriaKey = list => JSON.stringify((list ?? []).map(({ id, label, priority }) => [id, String(label ?? '').trim(), priority]));
 
 // An idea's reconsiderations: `pending` (waiting or running), `latest` (the newest finished with a result), `adopted`
 // (the one marked in use) and `failed` (the newest attempt, when it failed or was interrupted).
@@ -50,19 +50,21 @@ export function reconsideredHtml(map, node, { esc }) {
 
 // The dialog: the criteria being edited (`draft`, `edited` when it differs from what is saved), the request's state,
 // and the newest proposal not set aside, as a grid. It is opened only on the live map.
-export function criteriaDialogHtml({ map, node, esc, draft, edited = false, listening = false }) {
-  const { pending, latest, adopted, failed } = reconsiderationsOf(map, node.id);
+export function criteriaDialogHtml({ map, node, esc, draft, edited = false, changedElsewhere = false, listening = false }) {
+  const { pending, latest, failed } = reconsiderationsOf(map, node.id), inUseNow = adoptedReconsideration(map, node);
   const rows = draft.map((item, i) => `<li><label for="criterion-${i}" class="visually-hidden">Criterion ${i + 1}</label><input id="criterion-${i}" data-criterion-label="${i}" maxlength="${criterionMax}" value="${esc(item.label)}">`
     + `<label for="criterion-priority-${i}" class="visually-hidden">Priority of criterion ${i + 1}</label><select id="criterion-priority-${i}" data-criterion-priority="${i}">${priorities.map(value => `<option value="${value}"${item.priority === value ? ' selected' : ''}>${priorityWords[value]}</option>`).join('')}</select>`
     + `<button type="button" class="text-button" data-criterion-remove="${i}" aria-label="Remove criterion ${i + 1}">Remove</button></li>`).join('');
-  const editor = `<h3 class="section-label">Your criteria</h3><p class="form-note">What matters to you, each with a priority. They sort by priority; nothing is sent until you ask.</p>`
+  // Criteria saved elsewhere (another tab, or a pull) while these were being edited: never overwritten silently.
+  const elsewhere = `<p class="state-note warning" id="criteria-elsewhere"${changedElsewhere ? '' : ' hidden'}>Your criteria were changed elsewhere since you opened this. <button type="button" class="text-button" data-criteria-reload="">Use the saved criteria</button></p>`;
+  const editor = `<h3 class="section-label">Your criteria</h3><p class="form-note">What matters to you, each with a priority. They sort by priority; nothing is sent until you ask.</p>${elsewhere}`
     + (draft.length ? `<ol class="criteria-rows">${rows}</ol>` : '<p class="form-note">No criteria yet.</p>')
     + `${draft.length < maxCriteria ? '<button type="button" class="text-button" data-criterion-add="">Add a criterion</button>' : ''}<div class="brief-actions"><button type="button" class="secondary" data-criteria-save="">Save criteria</button>`
     + `<button type="button" class="primary" data-reconsider-ask=""${!draft.length || pending ? ' disabled' : ''}>Ask the agent to reconsider</button></div>`;
   const status = pending ? `<p class="question-help-status" id="criteria-status" tabindex="-1" role="status">${pending.status === 'running' ? 'Your agent is reconsidering.' : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.'} <button type="button" class="text-button" data-reconsider-stop="${esc(pending.id)}">Stop</button></p>`
     : failed ? `<p class="state-note warning" id="criteria-status" tabindex="-1">Your agent could not reconsider this time. ${esc(failed.error ?? 'It stopped before it finished.')}</p>` : '';
   const shown = latest && latest.outcome !== 'dismissed' ? latest : null;
-  const inUse = adopted && adopted !== shown && proposalState(node, adopted) === 'current' ? '<p class="state-note">Your earlier reconsideration stays in use until you choose.</p>' : '';
+  const inUse = inUseNow && inUseNow !== shown ? '<p class="state-note">Your earlier reconsideration stays in use until you choose.</p>' : '';
   return editor + status + inUse + (shown ? proposalHtml(node, shown, { esc, edited }) : '');
 }
 function proposalHtml(node, job, { esc, edited }) {
@@ -73,7 +75,7 @@ function proposalHtml(node, job, { esc, edited }) {
     + `<tbody>${options.map(option => `<tr><th scope="row">${esc(option.title)}</th>${criteria.map(item => cell(option, item)).join('')}</tr>`).join('')}</tbody></table>`;
   const note = state === 'earlier-criteria' ? '<p class="state-note warning">Based on earlier criteria: ask again with your current ones to use it.</p>'
     : state === 'outdated' ? '<p class="state-note warning">Outdated: the idea changed since you asked.</p>' : job.outcome === 'adopted' ? '<p class="state-note">In use: the inspector shows it first.</p>' : '';
-  const adopt = state === 'current' && job.outcome !== 'adopted' ? `<button type="button" class="primary" data-reconsider-adopt="${esc(job.id)}"${edited ? ' disabled' : ''} aria-describedby="criteria-adopt-note">Use revised comparison</button>` : '';
+  const adopt = state === 'current' && job.outcome !== 'adopted' ? `<button type="button" class="primary" data-reconsider-adopt="${esc(job.id)}"${edited ? ' disabled aria-describedby="criteria-adopt-note"' : ''}>Use revised comparison</button>` : '';
   const adoptNote = adopt ? `<p class="form-note" id="criteria-adopt-note"${edited ? '' : ' hidden'}>Save or undo your criteria edits first to use it.</p>` : '';
   return `<h3 class="section-label" id="criteria-proposal" tabindex="-1">Your agent's reconsideration</h3>${note}<div class="criteria-grid-wrap">${grid}</div>`
     + `<div class="option-advice"><p class="reconsidered-label">Revised recommendation</p>${adviceHtml(options, recommendation, esc)}</div><p class="form-note">What changed: ${esc(changed)}</p>`

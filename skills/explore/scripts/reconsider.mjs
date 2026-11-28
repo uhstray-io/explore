@@ -35,6 +35,8 @@ export const reconsiderActions = {
   // Criteria are the user's: saving them queues nothing and changes no findings. They can always be cleared, even
   // after the idea's options went away.
   'set-criteria': { target: 'node', apply: ({ map, node, input, store }) => {
+    // `expected`, optional: the criteria the edits started from. A save made on top of ones changed elsewhere is refused.
+    if (input.expected !== undefined) need(Array.isArray(input.expected) && criteriaKey(input.expected) === criteriaKey(node.criteria), 'Your criteria were changed elsewhere since you opened them. Use the saved criteria, then edit again.', 409);
     const criteria = normalizeCriteria(input.criteria, node);
     need(!criteria.length || node.options?.length, 'This idea has no options to compare yet.', 409);
     need(criteriaKey(criteria) !== criteriaKey(node.criteria), 'Nothing changed.', 409);
@@ -110,6 +112,7 @@ export function normalizeReconsideration(result, { optionIds, criteria, blocked 
 
 const instruction = 'Reconsider the recommendation against the user\'s criteria. Do no new research: judge from the saved evidence in this packet. The priorities are the user\'s preferences, not facts, and a high priority cannot fill an evidence gap: keep optionId null with what is missing when the evidence does not settle it. Weigh each answer by how sure the user is of it. Return assessments (exactly one { optionId, criterionId, text, basis } per option and criterion; basis evidence, reasoning or unknown), a recommendation by the same rules as a comparison, and changed: what changed from the original recommendation and why, said plainly.';
 const sameOptions = (node, job) => !job.input?.options || JSON.stringify(node.options?.map(option => option.id)) === JSON.stringify(job.input.options.map(option => option.id));
+const retrieval = 'Use CLI read --map MAP --node NODE --section premise|options|limitations|claims|questions to read anything shortened or left out here.';
 
 export const reconsiderJobTypes = {
   [RECONSIDER]: {
@@ -117,9 +120,10 @@ export const reconsiderJobTypes = {
     // The idea, its answers with how sure each is, its options (without suggested answers), the original recommendation,
     // the criteria as the user saved them, and the claims and limitations a comparison rests on. When the packet would
     // be too long, the oldest answers go first, then claims, then limitations that block nothing, and last the options'
-    // own wording is shortened; what was left out is counted.
+    // own wording is shortened, then the premise, the recommendation and the limitations' summaries; what was left out
+    // or shortened is listed. Work the idea moved past before it was claimed is not sent at all.
     packet: ({ job, node, budget }) => {
-      need(sameOptions(node, job), 'The idea\'s options changed since the user asked, so this reconsideration was not sent. Ask again.');
+      need(sameOptions(node, job) && !reconsiderationOutdated(job, node), 'The idea changed since you asked, so your agent was not sent this. Ask again.');
       const packet = { node: { id: node.id, title: clip(node.title, 100), premise: clip(node.prompt || node.body, 2400), summary: clip(node.summary, 700),
         answers: node.questions.filter(q => q.answer && !q.supersededAt).slice(-8).map(q => answerBrief(q, { question: 300, answer: 600 })) },
         options: node.options.map(({ suggestedAnswer, ...option }) => option), ...(node.optionsLimit ? { optionsLimit: node.optionsLimit } : {}), recommendation: node.recommendation, criteria: job.input.criteria,
@@ -130,9 +134,12 @@ export const reconsiderJobTypes = {
       while (size() > limit && packet.node.answers.length) { packet.node.answers.shift(); omitted.answers++; }
       while (size() > limit && packet.claims?.length) { packet.claims.pop(); omitted.claims++; }
       while (size() > limit && packet.limitations?.some(record => !record.blocksRecommendation)) { packet.limitations.splice(packet.limitations.findLastIndex(record => !record.blocksRecommendation), 1); omitted.limitations++; }
-      if (size() > limit) packet.options = packet.options.map(option => ({ ...option, description: clip(option.description, 240), fit: clip(option.fit, 160), pros: option.pros.map(item => clip(item, 100)), cons: option.cons.map(item => clip(item, 100)) }));
-      if (size() > limit) packet.node.premise = clip(packet.node.premise, 1000);
-      if (Object.values(omitted).some(Boolean)) packet.omitted = omitted;
+      const shortened = [], shorten = (part, change) => { if (size() > limit) { change(); shortened.push(part); } };
+      shorten('options', () => { packet.options = packet.options.map(option => ({ ...option, description: clip(option.description, 240), fit: clip(option.fit, 160), pros: option.pros.map(item => clip(item, 100)), cons: option.cons.map(item => clip(item, 100)) })); });
+      shorten('premise', () => { packet.node.premise = clip(packet.node.premise, 1000); });
+      shorten('recommendation', () => { packet.recommendation = { ...packet.recommendation, ...(packet.recommendation?.rationale ? { rationale: clip(packet.recommendation.rationale, 300) } : {}), ...(packet.recommendation?.mainTradeoff ? { mainTradeoff: clip(packet.recommendation.mainTradeoff, 200) } : {}) }; });
+      shorten('limitations', () => { packet.limitations = packet.limitations?.map(record => ({ ...record, summary: clip(record.summary, 120) })); });
+      if (Object.values(omitted).some(Boolean) || shortened.length) Object.assign(packet, { omitted: { ...omitted, ...(shortened.length ? { shortened } : {}) }, retrieval });
       return packet;
     },
     // Checked against what it was asked about, so a result for options that changed since is kept and marked outdated.

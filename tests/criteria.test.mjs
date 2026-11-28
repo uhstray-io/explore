@@ -10,7 +10,7 @@ import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { contextExcerpt } from '../skills/explore/scripts/context.mjs';
 import { reconsiderJobTypes, normalizeReconsideration } from '../skills/explore/scripts/reconsider.mjs';
 import { optionsHtml } from '../skills/explore/assets/workspace-view.js';
-import { reconsiderationsOf, proposalState, criteriaDialogHtml, reconsideredHtml, criteriaEntryHtml, adoptedReconsideration } from '../skills/explore/assets/criteria.js';
+import { reconsiderationsOf, proposalState, criteriaDialogHtml, reconsideredHtml, criteriaEntryHtml, adoptedReconsideration, criteriaKey } from '../skills/explore/assets/criteria.js';
 import { criteriaDialog } from '../skills/explore/assets/criteria-dialog.js';
 
 // Compare options with your own criteria (C9, #14). Illustrative fixtures only, never ideas/.
@@ -53,6 +53,8 @@ test('criteria save sorted by priority and queue no work; each label once, an id
   saved = await act({ type: 'set-criteria', criteria: [{ id: list[1].id, label: 'Cheap to run', priority: 'normal' }, list[0]] });
   assert.deepEqual(saved.nodes[0].criteria.map(item => item.id), [list[0].id, list[1].id], 'ids are kept');
   await assert.rejects(act({ type: 'set-criteria', criteria: saved.nodes[0].criteria }), error => error.status === 409 && /Nothing changed/.test(error.message), 'an identical save');
+  await assert.rejects(act({ type: 'set-criteria', criteria: saved.nodes[0].criteria.map(item => ({ ...item, label: `${item.label} ` })) }), /Nothing changed/, 'labels are trimmed');
+  await assert.rejects(act({ type: 'set-criteria', criteria: [list[0]], expected: [list[0]] }), error => error.status === 409 && /changed elsewhere/.test(error.message), 'edits made on top of criteria saved elsewhere');
   const twice = (await act({ type: 'set-criteria', criteria: [list[0], { ...list[0], label: 'Easy to explain' }] })).nodes[0].criteria;
   assert.equal(twice[0].id, list[0].id); assert.notEqual(twice[1].id, list[0].id, 'a repeated id gets a new one');
   for (const [bad, message] of [[Array.from({ length: 9 }, (_, i) => ({ label: `C${i}`, priority: 'low' })), /at most 8/], [[{ label: 'x'.repeat(121), priority: 'low' }], /at most 120/], [[{ label: 'Fast', priority: 'urgent' }], /High, Normal or Low/],
@@ -110,13 +112,17 @@ test('the packet carries claims and limitations, gives way in order when too lon
   const full = packet({ job, node, budget: 15500 });
   assert.ok(JSON.stringify(full).length <= 15500 - 800, `${JSON.stringify(full).length} characters`);
   assert.equal(full.options.some(option => 'suggestedAnswer' in option), false);
-  assert.deepEqual(full.omitted, { answers: 8, claims: 12, limitations: 7 }, 'answers first, then claims, then limitations that block nothing');
+  assert.deepEqual(full.omitted, { answers: 8, claims: 12, limitations: 7, shortened: ['options'] }, 'answers first, then claims, then limitations that block nothing, then wording');
+  assert.match(full.retrieval, /read --map MAP --node NODE --section premise\|options/);
   assert.deepEqual(full.limitations.map(record => record.id), ['l0'], 'a limitation that blocks a recommendation stays');
   assert.ok(full.options.every(option => option.description.length <= 240 && option.pros.every(item => item.length <= 100)), 'and last the options\' wording shortens');
   // Answers give way oldest first, and only as far as needed.
   const some = packet({ job, node: { ...node, options: big.map(({ suggestedAnswer, ...rest }) => ({ ...rest, description: 'd', fit: 'f', pros: [], cons: [] })), claims: [], limitations: [] }, budget: 12000 });
   assert.ok(some.omitted.answers > 0 && some.node.answers.length > 0); assert.equal(some.node.answers.at(-1).question, node.questions.at(-1).text);
-  assert.throws(() => packet({ job: { input: { ...job.input, options: [{ id: 'other', title: 'Other' }] } }, node, budget: 15500 }), /options changed since the user asked/);
+  assert.throws(() => packet({ job: { input: { ...job.input, options: [{ id: 'other', title: 'Other' }] } }, node, budget: 15500 }), /idea changed since you asked/, 'other options');
+  assert.throws(() => packet({ job: { input: { ...job.input, contentRevision: 1 } }, node: { ...node, contentRevision: 2 }, budget: 15500 }), /idea changed since you asked/, 'an idea that moved on is not sent');
+  const tight = packet({ job, node: { ...node, prompt: long(2400), recommendation: { optionId: 'opta', rationale: long(800), mainTradeoff: long(600) } }, budget: 9000 });
+  assert.deepEqual(tight.omitted.shortened, ['options', 'premise', 'recommendation', 'limitations'], 'then the premise, the recommendation and the limitations');
   // End to end: a comparison at C1's limits with eight long criteria is claimed, never failed for its size.
   const { store, map, act } = await setup();
   const raw = await store.get(map.id); Object.assign(raw.nodes[0], { options: big, recommendation: node.recommendation, prompt: node.prompt, summary: node.summary });
@@ -153,8 +159,10 @@ test('a result is checked against what was asked: criteria edited and options ch
   await act({ type: 'set-criteria', criteria: [...asked.criteria, { label: 'Easy to explain', priority: 'normal' }] });
   await act({ type: 'answer', questionId: asked.questions[0].id, answer: 'Older Android phones.' }); // Queues the idea's own investigation.
   const investigation = await store.claim('agent', map.id);
-  await store.complete(map.id, investigation.jobId, investigation.claimKey, { summary: 'Three ways now.', body: 'Details.', options: [{ id: 'p2p', title: 'Peer to peer', description: 'Devices sync directly.', fit: 'No server.' }, ...options], recommendation: { optionId: 'p2p', rationale: 'No server.', mainTradeoff: 'Harder discovery.' } });
-  await store.complete(map.id, packet.jobId, packet.claimKey, revised(asked)); // For the two options and two criteria it was asked about.
+  await store.complete(map.id, investigation.jobId, investigation.claimKey, { summary: 'Three ways now.', body: 'Details.', options: [{ id: 'p2p', title: 'Peer to peer', description: 'Devices sync directly.', fit: 'No server.' }, ...options], recommendation: { optionId: null, missing: 'Field data.' },
+    limitations: [{ id: 'pilot', kind: 'missing-evidence', summary: 'No field data yet.', nextStep: 'Run a pilot.', blocksRecommendation: true }] });
+  // For the two options and two criteria it was asked about, with nothing blocking a recommendation then.
+  await store.complete(map.id, packet.jobId, packet.claimKey, revised(asked));
   const shown = await view(), job = reconsiderationsOf(shown, map.rootId).latest;
   assert.equal(job.id, packet.jobId); assert.equal(proposalState(shown.nodes[0], job), 'outdated');
   const html = criteriaDialogHtml({ map: shown, node: shown.nodes[0], esc, draft: shown.nodes[0].criteria });
@@ -166,7 +174,7 @@ test('a result is checked against what was asked: criteria edited and options ch
 test('adopting leads with the revised advice beside the original, in the inspector, Markdown, read and the brief', async () => {
   const { store, map, act, reconsider, view, adoptedIds } = await setup();
   await act({ type: 'set-criteria', criteria: [{ label: 'Works *offline*', priority: 'high' }, { label: 'Cheap to run', priority: 'low' }] });
-  const id = await reconsider(node => ({ ...revised(node), changed: 'Your <high> priority on working offline favours locking.' }));
+  const id = await reconsider(node => ({ ...revised(node), recommendation: { ...revised(node).recommendation, rationale: 'Offline matters most to you, and *locking* is simpler offline.' }, changed: 'Your <high> priority on working offline favours locking.' }));
   await act({ type: 'adopt-reconsideration', jobId: id });
   await assert.rejects(act({ type: 'adopt-reconsideration', jobId: id }), error => error.status === 409 && /Nothing changed/.test(error.message));
   const shown = await view(), lead = reconsideredHtml(shown, shown.nodes[0], { esc });
@@ -179,7 +187,7 @@ test('adopting leads with the revised advice beside the original, in the inspect
   assert.match(optionsHtml(shown.nodes[0], esc), /<span class="option-badge">Recommended<\/span>/, 'without a reconsideration in use');
   const markdown = await markdownOf(store, map);
   assert.match(markdown, /### Your criteria\n\n- High: Works \\\*offline\\\*\n- Low: Cheap to run/, 'criteria are escaped');
-  assert.match(markdown, /### Reconsidered with your criteria\n\n_The agent's judgement against your priorities, not a decision\._\n\nRecommended: One editor at a time \(lock\)\nWhy: Offline matters most to you, and locking is simpler offline\.\nMain trade-off: Less concurrent editing\.\nReconsider if: A second team joins\.\n\nWhat changed: Your \\<high\\> priority/);
+  assert.match(markdown, /### Reconsidered with your criteria\n\n_The agent's judgement against your priorities, not a decision\._\n\nRecommended: One editor at a time \(lock\)\nWhy: Offline matters most to you, and \\\*locking\\\* is simpler offline\.\nMain trade-off: Less concurrent editing\.\nReconsider if: A second team joins\.\n\nWhat changed: Your \\<high\\> priority/);
   assert.match(markdown, /Recommended: Merge edits automatically/, 'the original stays');
   const item = mapBrief(await store.get(map.id)).sections.find(s => s.id === 'recommendations').items[0];
   assert.match(item.text, /^Reconsidered with your criteria: One editor at a time\. Original: Merge edits automatically\./); assert.equal(Object.hasOwn(item, 'reconsidered'), false);
@@ -208,11 +216,13 @@ test('an adoption ends when the idea changes or the criteria are edited; one per
   await act({ type: 'adopt-reconsideration', jobId: third });
   await act({ type: 'set-criteria', criteria: [...(await node()).criteria, { label: 'Easy to explain', priority: 'normal' }] });
   assert.deepEqual(await adoptedIds(), [], 'edited criteria');
+  await assert.rejects(act({ type: 'adopt-reconsideration', jobId: third }), error => error.status === 409 && /earlier criteria/.test(error.message), 'nor can it be adopted again');
   // So does a change to the idea: here, an answer.
   const fourth = await reconsider();
   await act({ type: 'adopt-reconsideration', jobId: fourth });
   await act({ type: 'answer', questionId: (await node()).questions[0].id, answer: 'Older Android phones.' });
   assert.deepEqual(await adoptedIds(), [], 'the idea changed');
+  assert.equal((await view()).jobs.find(job => job.id === fourth).stale, true, 'views mark it stale for every reader');
   shown = await view();
   assert.equal(reconsideredHtml(shown, shown.nodes[0], { esc }), '');
   assert.doesNotMatch(await markdownOf(store, map), /Reconsidered with your criteria/);
@@ -267,8 +277,9 @@ test('the dialog lists the criteria by priority, shows a proposal as a grid that
   assert.match(html, /<table class="criteria-grid">/); assert.match(html, /<th scope="col">No &lt;signal&gt; <small>High<\/small><\/th>/);
   assert.match(html, /<td><span class="criteria-cell-label">No &lt;signal&gt; · High<\/span>Fine &lt;here&gt;\. <small>Reasoning<\/small><\/td>/);
   assert.match(html, /<p class="reconsidered-label">Revised recommendation<\/p><p><strong>Why One editor at a time:<\/strong>/); assert.match(html, /<strong>Reconsider if:<\/strong> A second team joins\./);
-  assert.match(html, /data-reconsider-adopt="job-1" aria-describedby="criteria-adopt-note">Use revised comparison<\/button>/); assert.match(html, /data-reconsider-dismiss="job-1">Keep original<\/button>/);
-  assert.match(html, /<p class="form-note" id="criteria-adopt-note" hidden>/);
+  assert.match(html, /data-reconsider-adopt="job-1">Use revised comparison<\/button>/); assert.match(html, /data-reconsider-dismiss="job-1">Keep original<\/button>/);
+  assert.match(html, /<p class="form-note" id="criteria-adopt-note" hidden>/); assert.match(html, /<p class="state-note warning" id="criteria-elsewhere" hidden>/);
+  assert.match(dialog([job], { edited: true, changedElsewhere: true }), /<p class="state-note warning" id="criteria-elsewhere">Your criteria were changed elsewhere since you opened this\. <button type="button" class="text-button" data-criteria-reload="">Use the saved criteria<\/button><\/p>/);
   assert.match(dialog([job], { edited: true }), /data-reconsider-adopt="job-1" disabled aria-describedby="criteria-adopt-note">[\s\S]*<p class="form-note" id="criteria-adopt-note">Save or undo/, 'unsaved edits first');
   const edited = { ...node, criteria: [...node.criteria, { id: 'crit-cccccccc', label: 'New', priority: 'normal' }] };
   const earlier = criteriaDialogHtml({ map: { nodes: [edited], jobs: [job] }, node: edited, esc, draft: edited.criteria });
@@ -301,7 +312,7 @@ function fakeDialog({ map, act }) {
         querySelector(selector) {
           const present = selector.startsWith('#') ? this.innerHTML.includes(`id="${selector.slice(1)}"`) : this.innerHTML.includes(`${selector.slice(1, -1)}=`);
           if (!present) return null;
-          if (!found.has(selector)) found.set(selector, { disabled: false, hidden: false, focus() { focused.push(selector); } });
+          if (!found.has(selector)) found.set(selector, { disabled: false, hidden: false, attributes: {}, focus() { focused.push(selector); }, setAttribute(name, value) { this.attributes[name] = value; }, removeAttribute(name) { delete this.attributes[name]; } });
           return found.get(selector);
         } });
     }
@@ -321,7 +332,10 @@ test('the dialog edits, saves and asks; it keeps unsaved edits through polls, ke
   const calls = [];
   const act = async (...args) => {
     calls.push(args);
-    if (args[1] === 'set-criteria') { if (failSave) return false; node.criteria = args[2].criteria.map((item, i) => ({ ...item, id: item.id ?? `crit-new0000${i}` })); }
+    if (args[1] === 'set-criteria') { // As the Store does: refused on top of criteria saved elsewhere.
+      if (failSave || criteriaKey(args[2].expected) !== criteriaKey(node.criteria)) return false;
+      node.criteria = args[2].criteria.map((item, i) => ({ ...item, id: item.id ?? `crit-new0000${i}` }));
+    }
     return true;
   };
   const io = fakeDialog({ map: () => map, act });
@@ -337,7 +351,7 @@ test('the dialog edits, saves and asks; it keeps unsaved edits through polls, ke
     assert.doesNotMatch(io.body.innerHTML, /Queued for your agent/, 'a poll never overwrites unsaved edits');
     map = { nodes: [node], jobs: [] };
     await io.click({ criteriaSave: '' });
-    assert.deepEqual(calls.at(-1), ['root', 'set-criteria', { criteria: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }, { label: 'Cheap', priority: 'low' }] }]);
+    assert.deepEqual(calls.at(-1), ['root', 'set-criteria', { criteria: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }, { label: 'Cheap', priority: 'low' }], expected: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }] }]);
     assert.equal(io.focused.at(-1), '[data-criteria-save]'); assert.equal(io.toasts.at(-1), 'Criteria saved.');
     await io.click({ criterionRemove: '1' });
     assert.equal(io.focused.at(-1), '#criterion-0', 'focus moves to the row before');
@@ -347,7 +361,7 @@ test('the dialog edits, saves and asks; it keeps unsaved edits through polls, ke
     assert.equal(asked.disabled, false);
     failSave = false;
     await io.click({ reconsiderAsk: '' });
-    assert.deepEqual(calls.slice(-2), [['root', 'set-criteria', { criteria: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }] }], ['root', 'reconsider', {}]], 'unsaved edits are saved first');
+    assert.deepEqual(calls.slice(-2), [['root', 'set-criteria', { criteria: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }], expected: [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }, { id: 'crit-new00001', label: 'Cheap', priority: 'low' }] }], ['root', 'reconsider', {}]], 'unsaved edits are saved first');
     assert.equal(io.focused.at(-1), '[data-reconsider-ask]');
     // A finished proposal: typing the saved value back counts as unedited, so polls redraw again.
     map = { nodes: [node], jobs: [{ id: 'job-1', type: 'reconsider', nodeId: 'root', status: 'completed', input: { criteria: node.criteria }, result: revised(node) }] };
@@ -358,10 +372,31 @@ test('the dialog edits, saves and asks; it keeps unsaved edits through polls, ke
     const adopt = io.body.querySelector('[data-reconsider-adopt]'), note = io.body.querySelector('#criteria-adopt-note');
     await io.type(0, 'Edited');
     assert.equal(adopt.disabled, true); assert.equal(note.hidden, false, 'Use revised comparison waits for the edits');
-    await io.type(0, 'No signal');
-    assert.equal(adopt.disabled, false); assert.equal(note.hidden, true);
+    assert.equal(adopt.attributes['aria-describedby'], 'criteria-adopt-note', 'and says why');
+    await io.type(0, 'No signal ');
+    assert.equal(adopt.disabled, false, 'a trailing space is no edit, as in the Store'); assert.equal(note.hidden, true); assert.equal(adopt.attributes['aria-describedby'], undefined);
     await io.click({ reconsiderAdopt: 'job-1' }); assert.deepEqual(calls.at(-1), ['root', 'adopt-reconsideration', { jobId: 'job-1' }]); assert.equal(io.focused.at(-1), '#criteria-proposal');
     await io.click({ reconsiderDismiss: 'job-1' }); assert.deepEqual(calls.at(-1), ['root', 'dismiss-reconsideration', { jobId: 'job-1' }]); assert.equal(io.focused.at(-1), '[data-reconsider-ask]');
+    // Untouched, the dialog follows criteria saved elsewhere (another tab, or a pull).
+    node.criteria = [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }, { id: 'crit-cccccccc', label: 'Saved in another tab', priority: 'normal' }];
+    io.dialog.mapChanged();
+    assert.match(io.body.innerHTML, /value="Saved in another tab"/, 'an untouched dialog shows them');
+    // Saved elsewhere while being edited: it says so, and nothing is overwritten.
+    await io.type(0, 'Mine');
+    node.criteria = [{ id: 'crit-aaaaaaaa', label: 'No signal', priority: 'high' }, { id: 'crit-bbbbbbbb', label: 'From the other tab', priority: 'low' }];
+    io.dialog.mapChanged();
+    assert.equal(io.body.querySelector('#criteria-elsewhere').hidden, false, 'it says so');
+    await io.click({ criteriaSave: '' });
+    assert.deepEqual(calls.at(-1)[2].expected.map(item => item.label), ['No signal', 'Saved in another tab'], 'the save carries what the edits started from');
+    assert.equal(node.criteria[1].label, 'From the other tab', 'and the criteria saved elsewhere stay');
+    await io.click({ criteriaReload: '' });
+    assert.match(io.body.innerHTML, /value="From the other tab"/); assert.equal(io.focused.at(-1), '#criterion-0');
+    // Focus never lands on a disabled control: with work waiting, Stop leaves Ask disabled, so the heading takes it.
+    map = { nodes: [node], jobs: [{ id: 'job-2', type: 'reconsider', nodeId: 'root', status: 'queued' }, { id: 'job-3', type: 'reconsider', nodeId: 'root', status: 'queued' }] };
+    io.dialog.mapChanged();
+    io.body.querySelector('[data-reconsider-ask]').disabled = true;
+    await io.click({ reconsiderStop: 'job-2' });
+    assert.equal(io.focused.at(-1), '#criteria-title');
   } finally { delete globalThis.document; }
 });
 

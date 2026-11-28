@@ -148,7 +148,7 @@ Options and a recommendation are required; when the evidence does not settle it,
 
 ## Reconsidering with the user's criteria
 
-Only the user asks for this (`reconsider`); never request it on their behalf. A `reconsider` packet carries an idea's comparison (C1) and the criteria the user gave it, each `{ id, label, priority }` with priority `high`, `normal` or `low`: `node` (premise, summary and the user's answers, each with how sure the user is), `options` (without suggested answers), the original `recommendation`, `criteria`, and the idea's `claims` and `limitations` if any. If the packet would be too long, the oldest answers, then claims, then limitations that block nothing are left out (counted in `omitted`), and last the options' wording is shortened. Do no new research: judge from the saved evidence. Return:
+Only the user asks for this (`reconsider`); never request it on their behalf. A `reconsider` packet carries an idea's comparison (C1) and the criteria the user gave it, each `{ id, label, priority }` with priority `high`, `normal` or `low`: `node` (premise, summary and the user's answers, each with how sure the user is), `options` (without suggested answers), the original `recommendation`, `criteria`, and the idea's `claims` and `limitations` if any. If the packet would be too long, the oldest answers, then claims, then limitations that block nothing are left out (counted in `omitted`), and then the options' wording, the premise, the recommendation and the limitations' summaries are shortened, in that order (listed in `omitted.shortened`); `retrieval` says how to read them in full. Work on an idea that changed after the user asked is not sent. Do no new research: judge from the saved evidence. Return:
 
 ```json
 {
