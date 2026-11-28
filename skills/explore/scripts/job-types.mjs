@@ -37,6 +37,7 @@ import { doneWhenActions } from './done-when.mjs';
 import { branchRestoreActions } from './branch-restore.mjs';
 import { libraryActions } from './library.mjs';
 import { linkActions } from './links.mjs';
+import { inboxJobTypes, inboxActions } from './inbox.mjs';
 import { reconsiderJobTypes, reconsiderActions } from './reconsider.mjs';
 import { hypothesisActions } from './hypotheses.mjs';
 import { assumptionActions } from './assumptions.mjs';
@@ -72,7 +73,7 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes, ...reconsiderJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions, ...doneWhenActions, ...pinnedAnswerActions, ...glossaryActions, ...foldActions, ...goalActions, ...branchRestoreActions, ...linkActions, ...libraryActions, ...assumptionActions, ...hypothesisActions, ...reconsiderActions } });
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes, ...reconsiderJobTypes, ...inboxJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions, ...doneWhenActions, ...pinnedAnswerActions, ...glossaryActions, ...foldActions, ...goalActions, ...branchRestoreActions, ...linkActions, ...libraryActions, ...assumptionActions, ...hypothesisActions, ...reconsiderActions, ...inboxActions } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }
