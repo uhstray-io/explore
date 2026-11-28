@@ -85,7 +85,6 @@ test('search and navigation work from the file alone', () => {
   assert.deepEqual([...model.search('storage')], ['later'], 'questions');
   const around = model.neighbours('power');
   assert.deepEqual([around.parent, [...around.children], around.previous, around.next], ['sync', [], 'sync', 'later']);
-
 });
 
 test('a stale revision, a bad selection and an oversized one are refused, never cut short', () => {
@@ -141,7 +140,13 @@ test('a Windows checkout’s CRLF assets still match their hashes, because the b
   const { html } = viewerFile(fixture(), { expectedRevision: 4, nodes: selection }, { parts: crlf });
   assert.ok(!html.includes('\r'), 'the inline code is LF only');
   const policy = html.match(/content="(default-src[^"]+)"/)[1], hash = text => `'sha256-${createHash('sha256').update(text, 'utf8').digest('base64')}'`;
-  assert.ok(policy.includes(hash(viewerScript(html))));
+  assert.ok(policy.includes(hash(viewerScript(html)))); assert.ok(policy.includes(hash(html.match(/<style>([\s\S]*?)<\/style>/)[1])), 'the style too');
+});
+
+test('an idea saved before premises were kept apart keeps its findings', () => {
+  const map = fixture(); delete map.nodes[2].prompt; // Power: explored, with only a body.
+  const power = viewerData(map, [{ id: 'power', answers: false, findings: true }]).nodes[0];
+  assert.equal(power.premise, undefined); assert.equal(power.findings, 'Batteries last a day in the field.'); assert.equal(power.summary, 'Batteries last a day.');
 });
 
 test('ideas come in tree order, and findings that were researched stay labelled even when work is queued again', () => {

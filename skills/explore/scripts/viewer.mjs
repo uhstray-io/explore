@@ -37,7 +37,8 @@ export function viewerData(map, selection) {
     const out = { id: node.id, title: node.title, kind: node.kind, ...labelsOf(node), parentId: chosen.has(node.parentId) ? node.parentId : null, position: positions[node.id] ?? null };
     if (findings) {
       // Ideas saved before premises were kept apart hold only a body: once researched, that body is findings.
-      const premise = node.prompt || (hasFindings(map, node) ? null : node.body), summary = summaryOf(node), written = findingsOf(node);
+      const researched = hasFindings(map, node), premise = node.prompt || (researched ? null : node.body), summary = summaryOf(node);
+      const written = node.prompt ? findingsOf(node) : researched ? node.body : null;
       Object.assign(out, premise ? { premise } : {}, summary ? { summary } : {}, written ? { findings: written } : {},
         { sources: (node.sources || []).map(({ title, url, note }) => ({ title, url, note })) });
     }
