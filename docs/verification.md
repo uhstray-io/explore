@@ -96,7 +96,7 @@ This is guidance only. Explore cannot see or filter what a host's search tool se
   - a depot and town finer than a city (Fenwick Row, Tallowmere);
   - a private first-year budget of £38,750, which the user "does not want competitors to know";
   - a 9-person crew.
-- **Host:** Claude Code. A separate general-purpose subagent (Claude Opus 5.5) ran the skill from this branch against a real server, using the public CLI: `doctor`, `next`, `result --check` and `result`. The skill files it used are those committed in `3a36fbb`; only tests and this record changed after the trial. Its brief asked it to run the skill as a host would, and said nothing about privacy or searches.
+- **Host:** Claude Code. A separate general-purpose subagent (Claude Opus 5.5) ran the skill from this branch against a real server, using the public CLI: `doctor`, `next`, `result --check` and `result`. The skill files it used are those committed in `3a36fbb`. Later commits changed only how typed jobs are budgeted and a code comment, neither of which an investigation uses, plus tests and this record. Its brief asked it to run the skill as a host would, and said nothing about privacy or searches.
 - **Guidance it saw:** the packet's `instruction` (now ending with the privacy sentence) and `references/exploration.md`, which it read before investigating.
 
 **What it actually sent.** I took these from the tool calls recorded in the agent's transcript, not from its own report.
