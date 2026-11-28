@@ -31,12 +31,12 @@ When you change a case, bump `version`. `compare` refuses runs of different vers
 
 1. **Prepare one run for each guidance version, on the same cases.**
    - For the "before" run, check out the base commit in its own worktree and run `prepare` there. For the "after" run, run it again on your branch.
-   - `node scripts/benchmark.mjs prepare --cases all [--out DIR]` creates one new workspace per case under `.test-output/benchmark-<stamp>/` through `Store.create`. Each map has its first job queued.
-   - `run.json` records the case-set version and a SHA-256 over `SKILL.md` and every `references/**/*.md`, so you can always tell which guidance produced a run.
-   - `prepare` refuses a folder that already exists, and any folder inside an `ideas/` or `.explore/` folder. It never reads or changes an existing map or runtime folder. It prints the steps below with each case's command.
+   - `node scripts/benchmark.mjs prepare --cases all [--out DIR]` creates one new workspace per case under `.test-output/benchmark-<stamp>/` through `Store.create`. Each map has its first job queued. `--cases development` or `--cases held-out` prepares one split, and `--cases ID,…` the cases named, each once.
+   - `run.json` records the case-set version and a SHA-256 over `SKILL.md` and every `references/**/*.md`, so you can always tell which guidance produced a run. It also records, per case, a SHA-256 of the instruction the Store writes into the first packet, which is code rather than guidance; `compare` says when those differ.
+   - `prepare` refuses a folder that already exists, and any folder inside an `ideas/`, `.explore/` or `.grill-my-mind/` folder, in any letter case. It never reads or changes an existing map or runtime folder. It prints the steps below with each case's command, as absolute paths.
 2. **Run each case in a new agent session** that uses that checkout's `skills/explore`.
    - Start the server on the case's workspace with the printed command, and open the address it prints.
-   - Ask the agent to use the explore skill with `--workspace` set to that folder, and to work the queued jobs.
+   - Give the agent the printed `SKILL.md` path, not an installed copy, and ask it to use that skill with `--workspace` set to the case's folder and to work the queued jobs. The CLI then logs the agent's commands in that folder's `.explore/context-usage.jsonl`, which `collect` reads.
 3. **One operator answers, only from `persona`.**
    - Answer in the browser.
    - When the persona does not say, answer "I don't know." Never improvise new facts.
@@ -46,7 +46,7 @@ When you change a case, bump `version`. `compare` refuses runs of different vers
 6. **Keep held-out cases for the final comparison.** Tune the guidance on `development` cases only. Look at `held-out` cases only to confirm a change, never to shape it.
 7. **Collect:** run `node scripts/benchmark.mjs collect --run DIR`.
    - It reads the saved maps without changing them.
-   - It writes `collected.json`, which is the same bytes for the same run.
+   - It writes `collected.json`, which is the same bytes for the same run. A map that cannot be read is reported for its case, and the other cases are still collected. It also notes when the guidance files differ from the ones the run was prepared with.
    - The first time only, it writes a `scores.json` template with every dimension and gate `not measured`. Scores you are writing are never replaced.
 8. **Score** each case in `scores.json` with the rubric below.
 9. **Compare:** run `node scripts/benchmark.mjs compare --before A --after B`.
@@ -55,22 +55,19 @@ When you change a case, bump `version`. `compare` refuses runs of different vers
 
 For each case, `collect` extracts:
 
-- questions with their answers;
-- suggested directions;
-- findings, sources and links;
+- **every round the agent finished,** as its job saved it: summary, findings, questions, suggested directions, sources and links, and its packet size in characters. An idea keeps only its latest round, so a source cited in an earlier round is still here;
+- questions with their answers, and the directions as they are now;
 - every job's outcome, with `setup: true` on the resumption case's prebuilt round;
-- each result's packet size in characters;
-- the agent's CLI output by command, from the workspace's `.explore/context-usage.jsonl`.
+- the agent's `act` calls from the usage log, each with the map events of the few seconds before it (never before the agent's previous command).
 
 The automatic checks are:
 
 - **Questions per result:** more than three in one result is flagged, because the guidance says to ask at most three.
-- **Questions that may ask two things:** the same rule as the result checks (K3).
-- **Duplicate direction titles.**
-- **Sources whose note states no claim:** the same rule as K3.
-- **Activated or accepted ideas:** any one is an automatic failure of the self-activation gate, since the operator touches neither.
+- **Questions that may ask two things, directions already there, and sources whose note states no claim:** the warnings the result checks (K3) recorded on each round when it was delivered.
+- **Activated or accepted ideas,** from the map's history, so an undo or restore does not hide one: any one is an automatic failure of the self-activation gate, since the operator touches neither.
+- **Act calls that changed what only the user changes,** such as an answer or an activation: review each for the `answer-for-user` gate.
 
-`collect` also lists the agent's `act` calls from the usage log for you to review. Self-activation, or an answer written for the user, would show up there.
+`collect` notes a workspace with no usage log although the agent finished work there, since its `act` calls cannot be listed then, and usage lines it could not read.
 
 ## Rubric
 
@@ -105,4 +102,4 @@ A hard gate fails the run, whatever the scores. Set `failed` to `true` with the 
 - **Per-case changes.**
 - **Per-family means:** each mean uses only the cases scored in both runs, and says how many regressions and improvements it hides.
 
-A family mean that does not move can still contain a regression, so read the list. The command exits 1 when the "after" run fails a hard gate. It refuses runs of different case-set versions, scores that belong to another run, scores outside 0–3, and a score or failed gate without evidence.
+A family mean that does not move can still contain a regression, so read the list. A gate nobody checked is listed as not checked, never as passed. The command exits 1 unless the "after" run passes: no hard gate failed, and every one of its gates checked. It also says when no score was measured in both runs, instead of reporting "no regressions". It refuses runs of different case-set versions, scores that belong to another run, scores outside 0–3, and a score or failed gate without evidence.

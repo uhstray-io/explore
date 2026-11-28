@@ -10,15 +10,14 @@ const quote = value => { const text = String(value).replace(/\s+/g, ' ').trim();
 export const existingChild = (map, node, title) => map.nodes.find(n => n.parentId === node.id && normal(n.title) === normal(title)) ?? null;
 
 const questionWord = /^(what|which|who|whom|whose|when|where|why|how)\b/i;
-// More than one question mark, or two clauses joined by "and"/"or" that each start with a question word. The
-// benchmark (scripts/benchmark.mjs) reuses this and the note check on saved maps.
-export function compoundQuestion(text) {
+// More than one question mark, or two clauses joined by "and"/"or" that each start with a question word.
+function compound(text) {
   if ((text.match(/\?/g) || []).length > 1) return true;
   const [first, ...rest] = text.split(/,?\s+\b(?:and|or)\b\s+/i).map(part => part.trim());
   return questionWord.test(first) && rest.some(part => questionWord.test(part));
 }
 // A note that only repeats the title, or is too short to state a claim. Notes arrive trimmed.
-export const weakSourceNote = source => normal(source.note) === normal(source.title) || source.note.split(/\s+/).length < 5;
+const weakNote = source => normal(source.note) === normal(source.title) || source.note.split(/\s+/).length < 5;
 
 // `result` is a structurally valid, normalized investigation result for `node`. Each finding is
 // { code, field, message }; `field` names the item, such as `questions[1]`.
@@ -37,7 +36,7 @@ export function checkAgainstMap(result, map, node) {
     else if (dismissedElsewhere.has(key)) warnings.push({ code: 'dismissed-elsewhere', field, message: `${quote(question.text)} was dismissed on another idea. Ask it here only if it matters for this one.` });
     else if (superseded.has(key)) warnings.push({ code: 'superseded-question', field, message: `${quote(question.text)} was answered under an earlier premise. Ask again only if the change makes that answer doubtful.` });
     if (seenQuestions.has(key)) errors.push({ code: 'duplicate-question', field, message: `${quote(question.text)} appears twice in this result.` });
-    if (compoundQuestion(question.text)) warnings.push({ code: 'compound-question', field, message: `${quote(question.text)} may ask two things. Ask one thing per question.` });
+    if (compound(question.text)) warnings.push({ code: 'compound-question', field, message: `${quote(question.text)} may ask two things. Ask one thing per question.` });
     seenQuestions.add(key);
   });
   result.suggestions.forEach((suggestion, i) => {
@@ -48,7 +47,7 @@ export function checkAgainstMap(result, map, node) {
     seenTitles.add(key);
   });
   result.sources.forEach((source, i) => {
-    if (weakSourceNote(source)) warnings.push({ code: 'weak-source-note', field: `sources[${i}]`, message: `The note for ${quote(source.title)} states no claim. Say what the source supports or challenges.` });
+    if (weakNote(source)) warnings.push({ code: 'weak-source-note', field: `sources[${i}]`, message: `The note for ${quote(source.title)} states no claim. Say what the source supports or challenges.` });
   });
   return { errors, warnings };
 }
