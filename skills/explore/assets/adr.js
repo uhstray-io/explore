@@ -1,12 +1,12 @@
 // Lightweight ADR (F5): an architecture decision record drafted by the agent from chosen answers and findings, edited
 // and accepted by the user, and saved by the user to docs/adr/ in the workspace. Explore renders the file from a fixed
 // template: Status is always Proposed, and saving it approves nothing. Shared by the Store and the app.
-import { answerChooserHtml, draftsOf, draftStatusHtml, plural } from './workspace-view.js';
+import { draftsOf, draftStatusHtml, draftReviewHtml, draftAskHtml, readsWords, localDay, oneLineText, recordIds } from './record-drafts.js';
 
 export const ADR_DRAFT = 'adr-draft';
 export const maxAdrRecords = 40, adrTitleMax = 120, adrSectionMax = 6000, adrFileMax = 64 * 1024;
 export const adrSections = [['context', 'Context'], ['decision', 'Decision'], ['consequences', 'Consequences'], ['alternatives', 'Alternatives considered'], ['openQuestions', 'Open questions']];
-const clip = (value, limit) => { const text = String(value ?? '').replace(/\s+/g, ' ').trim(); return text.length > limit ? `${text.slice(0, limit - 1)}…` : text; };
+const clip = oneLineText;
 
 // The file's name, from a path under docs/adr/: four digits, then lowercase words joined by hyphens (at most 60), .md;
 // null for anything else, so the folder is never left.
@@ -15,11 +15,11 @@ export function adrName(relative) {
   return name && name.length <= 4 + 1 + 60 + 3 ? name : null;
 }
 // Today in the user's own time zone, as the file's date.
-export const adrToday = (at = new Date()) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+export const adrToday = localDay;
 // A source line: what it is, a short excerpt, and the IDs that find it again.
 export function adrSourceLine(map, ref) {
   const node = map.nodes.find(item => item.id === ref.nodeId), question = ref.questionId ? node?.questions.find(item => item.id === ref.questionId) : null;
-  const ids = [map.id, ref.nodeId, ...(ref.questionId ? [ref.questionId] : [])].join(', ');
+  const ids = recordIds(map, ref);
   if (ref.questionId) return `- ${clip(question?.text ?? 'A removed question', 200)}: ${clip(question?.answer ?? 'Not recorded', 200)} (${ids})`;
   return `- ${clip(node?.title ?? 'A removed idea', 120)} (findings): ${clip(node?.summary ?? 'Not recorded', 200)} (${ids})`;
 }
@@ -60,21 +60,20 @@ export function adrPathNote({ number, slug, free }) {
 // text, sha256 }; `live` false (history) shows the records read-only.
 export function adrDialogHtml({ map, esc, listening, live = true, chosen = [], preview = null, edits = {}, hint = '', save = null }) {
   const drafts = adrDrafts(map), { pending, items } = drafts;
-  const status = draftStatusHtml(drafts, { esc, listening, live, prefix: 'adr', doing: 'Your agent is drafting the record.', failure: 'Your agent could not draft this record.', earlier: 'An earlier view of the map: return to the live map to draft, accept or save records.' });
+  const status = draftStatusHtml(drafts, { esc, listening, live, prefix: 'adr', doing: 'drafting the record', failure: 'Your agent could not draft this record.', earlier: 'An earlier view of the map: return to the live map to draft, accept or save records.' });
   const draft = live ? items.find(entry => entry.item.review === 'unreviewed') : null;
-  const review = draft ? `<h3 class="section-label" id="adr-draft-heading" tabindex="-1">Draft for review: ${esc(draft.item.title)}</h3>${draft.proposal.stale ? '<p class="state-note warning">Some of what it was drafted from changed since. Check it before you accept it.</p>' : ''}`
-    + `<p class="form-note">Edit it as you like. Accepting keeps it here; nothing is written to your project until you save it.</p><label for="adr-text" class="visually-hidden">The draft, as Markdown</label><textarea id="adr-text" class="adr-text" rows="16" data-adr-text="${esc(draft.item.id)}">${esc(edits[draft.item.id] ?? draft.item.text)}</textarea>`
-    + `<div class="brief-actions"><button type="button" class="primary" data-adr-accept="${esc(draft.item.id)}" data-proposal="${esc(draft.proposal.id)}">Accept</button><button type="button" class="text-button" data-adr-dismiss="${esc(draft.item.id)}" data-proposal="${esc(draft.proposal.id)}">Dismiss</button></div>` : '';
+  const review = draft ? draftReviewHtml({ esc, prefix: 'adr', draft, edits, heading: `Draft for review: ${esc(draft.item.title)}`, label: 'The draft, as Markdown',
+    warning: draft.proposal.stale ? '<p class="state-note warning">Some of what it was drafted from changed since. Check it before you accept it.</p>' : '',
+    note: 'Edit it as you like. Accepting keeps it here; nothing is written to your project until you save it.' }) : '';
   const accepted = items.filter(entry => entry.item.review === 'accepted').map(({ proposal, item }) => {
     const done = item.file ? `<p class="state-note">Saved to <code>${esc(item.file.path)}</code>.</p>` : live ? `<button type="button" class="secondary" data-adr-save="${esc(item.id)}" data-proposal="${esc(proposal.id)}">Save to docs/adr/</button>` : '';
     const body = live && save?.itemId === item.id ? saveHtml(save, esc) : `<div class="brief-actions">${done}<button type="button" class="text-button" data-adr-copy="${esc(item.id)}">Copy</button></div>`;
     return `<li class="adr-item" id="adr-item-${esc(item.id)}"><p class="adr-title"><strong>${esc(item.title)}</strong></p>${body}</li>`;
   }).join('');
-  const list = answerChooserHtml(map, { esc, prefix: 'adr', chosen, findings: true });
-  const reads = preview ? `<p class="form-note" id="adr-preview">Your agent will read ${plural(preview.records.filter(record => record.questionId).length, 'answer')} and the findings of ${plural(preview.records.filter(record => !record.questionId).length, 'idea')}, and draft from those alone. Nothing is written to your project until you save the accepted record.</p>` : '';
-  const ask = !live || pending || draft ? '' : `<h3 class="section-label">Draft a new record</h3>${list ? `<p class="form-note">Choose up to ${maxAdrRecords} answers or findings the decision rests on.</p><div class="answer-choices">${list}</div>`
-    + `<label for="adr-title-hint">Title, if you have one in mind</label><input id="adr-title-hint" maxlength="${adrTitleMax}" value="${esc(hint)}">${reads}<div class="brief-actions">${preview ? `<button type="button" class="primary" data-adr-send="">Send to your agent</button><button type="button" class="text-button" data-adr-cancel="">Change the choice</button>` : `<button type="button" class="secondary" data-adr-preview=""${chosen.length ? '' : ' disabled'}>Preview what it reads</button>`}</div>`
-    : '<p class="form-note">Answer some questions or explore an idea first: a record is drafted from saved answers and findings.</p>'}`;
+  const ask = !live || pending || draft ? '' : draftAskHtml({ map, esc, prefix: 'adr', chosen, preview, heading: 'Draft a new record', intro: `Choose up to ${maxAdrRecords} answers or findings the decision rests on.`,
+    after: `<label for="adr-title-hint">Title, if you have one in mind</label><input id="adr-title-hint" maxlength="${adrTitleMax}" value="${esc(hint)}">`,
+    reads: shown => `<p class="form-note" id="adr-preview">Your agent will read ${readsWords(shown)}, and draft from those alone. Nothing is written to your project until you save the accepted record.</p>`,
+    empty: 'Answer some questions or explore an idea first: a record is drafted from saved answers and findings.' });
   return status + review + (accepted ? `<h3 class="section-label">Accepted records</h3><ul class="adr-items">${accepted}</ul>` : '') + ask;
 }
 function saveHtml(save, esc) {

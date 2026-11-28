@@ -1,69 +1,31 @@
 import { handoffDialogHtml, handoffFileText, handoffFilename, HANDOFF } from './handoff.js';
-import { controlKey, cssQuote as quote } from './dialog-focus.js';
+import { recordDraftDialog } from './record-drafts.js';
+import { cssQuote as quote } from './dialog-focus.js';
 
-// The Implementation handoff dialog (F4), opened from Map tools: pick what to write and the records it rests on, preview
-// what the agent reads (F1's job preview), queue it, edit and accept the result, then copy or download it with Explore's
-// footer. `act` and `api` come from the app, and `download(text, type, name)` saves a file. `map()` is the map shown;
-// `live()` is false in history, which is read-only. A poll never redraws away an edit in progress, and focus stays on
-// the same control through a redraw.
+// The Implementation handoff dialog (F4), opened from Map tools, on the shared draft dialog (record-drafts.js): pick what
+// to write and the records it rests on, preview what the agent reads, queue it, edit and accept the result. Its own
+// part: the format, and Copy and Download, which give the accepted text with Explore's footer, on the live map only.
+// `download(text, type, name)` saves a file.
 export function handoffDialog({ map, act, api, esc, toast, live, listening, download }) {
-  const $ = selector => document.querySelector(selector), dialog = $('#handoff-dialog'), body = $('#handoff-body');
-  let chosen = [], format = 'brief', preview = null, edits = {}, written = null;
-  // Focus stays in the dialog: on the first of `selectors` found and enabled, else a heading.
-  const focus = (...selectors) => { (selectors.filter(Boolean).map(selector => body.querySelector(selector)).find(target => target && !target.disabled) ?? body.querySelector('#handoff-draft-heading') ?? $('#handoff-title'))?.focus(); };
-  const render = () => {
-    const shown = map(); if (!shown) return;
-    if (preview && preview.mapRevision !== shown.revision) preview = null; // A preview describes the map it was made for.
-    const html = handoffDialogHtml({ map: shown, esc, listening: listening(), live: live(), chosen, format, preview, edits });
-    if (html === written) return; // Never compare with innerHTML read back.
-    const active = document.activeElement, kept = active && body.contains?.(active) ? controlKey(active) : null;
-    body.innerHTML = written = html;
-    if (kept) focus(kept, '#handoff-status', '[data-handoff-node]');
-  };
-  const find = (proposalId, itemId) => { const proposal = (map()?.proposals ?? []).find(entry => entry.id === proposalId && entry.type === HANDOFF), item = proposal?.items.find(entry => entry.id === itemId); return item ? { proposal, item } : null; };
-  $('#handoff-open').addEventListener('click', () => { chosen = []; preview = null; written = null; render(); $('#tools-dialog').close(); dialog.showModal(); focus('#handoff-text', '#handoff-format'); });
-  body.addEventListener('change', event => {
-    if (event.target.id === 'handoff-format') { format = event.target.value; if (preview) { preview = null; render(); } return; } // A new format needs a new preview.
-    const box = event.target.closest?.('[data-handoff-node]'); if (!box) return;
-    const record = { nodeId: box.dataset.handoffNode, ...(box.dataset.handoffQuestion ? { questionId: box.dataset.handoffQuestion } : {}) };
-    chosen = chosen.filter(entry => entry.nodeId !== record.nodeId || (entry.questionId ?? null) !== (record.questionId ?? null));
-    if (box.checked) chosen.push(record);
-    if (preview) { preview = null; render(); return; } // A changed choice needs a new preview; focus stays on the box.
-    const ask = body.querySelector('[data-handoff-preview]'); if (ask) ask.disabled = !chosen.length;
-  });
-  body.addEventListener('input', event => { if (event.target.dataset?.handoffText) edits[event.target.dataset.handoffText] = event.target.value; });
-  body.addEventListener('click', async event => {
-    const target = event.target.closest('button'); if (!target) return;
-    const data = target.dataset, shown = map();
-    if (data.handoffPreview !== undefined) {
-      const asked = JSON.stringify([chosen, format]);
-      target.disabled = true;
-      try {
-        const answer = await api(`/maps/${shown.id}/job-preview?type=${HANDOFF}&selection=${encodeURIComponent(JSON.stringify(chosen))}&options=${encodeURIComponent(JSON.stringify({ format }))}`);
-        if (JSON.stringify([chosen, format]) === asked) preview = answer; // Never a preview of a choice the user has since changed.
-      } catch (error) { toast(error.message); }
-      target.disabled = false; render(); focus('[data-handoff-send]', '[data-handoff-preview]'); return;
-    }
-    if (data.handoffCancel !== undefined) { preview = null; render(); focus('[data-handoff-node]'); return; }
-    if (data.handoffSend !== undefined) {
-      if (await act(null, 'request-map-job', { jobType: HANDOFF, selection: chosen, options: { format } })) { chosen = []; preview = null; toast(listening() ? 'Your agent will write the handoff next.' : 'Queued. Connect your agent to write the handoff.'); }
-      render(); focus('#handoff-status', '[data-handoff-preview]'); return;
-    }
-    if (data.handoffStop) { if (await act(null, 'cancel-job', { jobId: data.handoffStop })) toast('Stopped.'); render(); focus('[data-handoff-node]'); return; }
-    if (data.handoffAccept) {
-      const text = edits[data.handoffAccept] ?? find(data.proposal, data.handoffAccept)?.item.text;
-      if (await act(null, 'review-proposal', { proposalId: data.proposal, itemId: data.handoffAccept, decision: 'accepted', text })) { delete edits[data.handoffAccept]; toast('Accepted. Copy or download it when you are ready.'); }
-      render(); focus(`[data-handoff-copy="${quote(data.handoffAccept)}"]`); return;
-    }
-    if (data.handoffDismiss) { if (await act(null, 'review-proposal', { proposalId: data.proposal, itemId: data.handoffDismiss, decision: 'dismissed' })) { delete edits[data.handoffDismiss]; toast('Dismissed.'); } render(); focus('[data-handoff-node]', '#handoff-format'); return; }
-    const itemId = data.handoffCopy || data.handoffDownload;
-    if (itemId) {
-      const found = find(data.proposal, itemId);
-      if (found?.item.review !== 'accepted') return; // Only an accepted handoff leaves Explore.
-      const text = handoffFileText(shown, found.proposal, found.item);
-      if (data.handoffDownload) { download(text, 'text/markdown;charset=utf-8', handoffFilename(found.item.title)); toast('Downloaded as Markdown.'); return; }
+  return recordDraftDialog({ prefix: 'handoff', type: HANDOFF, map, act, api, esc, toast, live, listening, html: handoffDialogHtml, extra: {
+    initial: () => ({ format: 'brief' }),
+    request: state => ({ options: { format: state.format } }),
+    openFocus: ['#handoff-format'],
+    words: { queued: listening => (listening ? 'Your agent will write the handoff next.' : 'Queued. Connect your agent to write the handoff.'), accepted: 'Accepted. Copy or download it when you are ready.' },
+    acceptedFocus: itemId => `[data-handoff-copy="${quote(itemId)}"]`,
+    change: (event, ctx) => {
+      if (event.target.id !== 'handoff-format') return false;
+      ctx.state.format = event.target.value;
+      if (ctx.state.preview) { ctx.state.preview = null; ctx.render(); } // A new format needs a new preview.
+      return true;
+    },
+    click: async (event, target, ctx) => {
+      const itemId = target.dataset.handoffCopy || target.dataset.handoffDownload; if (!itemId) return;
+      const shown = ctx.map(), proposal = (shown.proposals ?? []).find(entry => entry.id === target.dataset.proposal && entry.type === HANDOFF), item = proposal?.items.find(entry => entry.id === itemId);
+      if (!live() || item?.review !== 'accepted') return; // Only an accepted handoff leaves Explore, from the live map.
+      const text = handoffFileText(shown, proposal, item);
+      if (target.dataset.handoffDownload) { download(text, 'text/markdown;charset=utf-8', handoffFilename(item.title)); toast('Downloaded as Markdown.'); return; }
       try { await navigator.clipboard.writeText(text); toast('Copied.'); } catch { toast('Copying is not available here.'); }
-    }
-  });
-  return { mapChanged() { if (dialog.open && !body.contains?.(document.activeElement?.closest?.('textarea, input:not([type=checkbox])') ?? null)) render(); } };
+    },
+  } });
 }

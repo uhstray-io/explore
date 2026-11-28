@@ -4,13 +4,12 @@
 import { textField } from './fields.mjs';
 import { packetBudget } from './guidance.mjs';
 import { outdatedRecords, proposalOutdated } from './map-jobs.mjs';
-import { chosenRecords, recordsPacket, citedRecords, editableReview, oneLine } from './record-drafts.mjs';
+import { chosenRecords, recordsPacket, citedRecords, editableReview, oneLine, clip } from './record-drafts.mjs';
 import { HANDOFF, handoffFormats, maxHandoffRecords, handoffTitleMax, handoffTextMax } from '../assets/handoff.js';
 
 class HandoffProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message) => { if (!condition) throw new HandoffProblem(message); };
 const fail = message => need(false, message);
-const clip = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit - 1)}…` : text; };
 
 const formatOf = options => {
   need(options === undefined || (options && typeof options === 'object' && !Array.isArray(options)), 'Options must be an object.');
@@ -49,7 +48,7 @@ export const handoffJobTypes = {
     packet: handoffPacket,
     validate: validateHandoff,
     isStale: ({ map, job }) => proposalOutdated(map, { included: job.included }),
-    proposalOutdated, outdatedRecords,
+    outdatedRecords,
     // One editable item, with the agent's own text kept as `original`.
     store: ({ map, job, result, stale, makeId, at }) => {
       map.proposals = [...(map.proposals || []), { id: makeId('proposal'), jobId: job.id, type: HANDOFF, createdAt: at, included: job.included || [], ...(stale ? { stale: true } : {}),

@@ -253,20 +253,6 @@ export function answerChooserHtml(map, { esc, prefix, chosen = [], findings = fa
   const box = (nodeId, questionId, label) => `<label class="tools-choice"><input type="checkbox" data-${prefix}-node="${esc(nodeId)}"${questionId ? ` data-${prefix}-question="${esc(questionId)}"` : ''}${isChosen(nodeId, questionId) ? ' checked' : ''}> ${esc(label)}</label>`;
   return answerChoices(map, { findings }).map(group => `<fieldset class="tools-group"><legend>${esc(group.title)}</legend>${group.findings ? box(group.nodeId, null, 'Its findings') : ''}${group.answers.map(answer => box(group.nodeId, answer.questionId, answer.question)).join('')}</fieldset>`).join('');
 }
-// A map's drafts of one type (F4 handoff, F5 decision record): `pending` (waiting or running), `failed` (the newest
-// attempt, failed or interrupted), and every proposal's item, newest first.
-export function draftsOf(map, type) {
-  const jobs = (map.jobs ?? []).filter(job => job.type === type), last = jobs.at(-1);
-  const items = (map.proposals ?? []).filter(proposal => proposal.type === type).flatMap(proposal => proposal.items.map(item => ({ proposal, item }))).reverse();
-  return { pending: jobs.find(job => job.status === 'queued' || job.status === 'running') ?? null, failed: last && (last.status === 'failed' || last.status === 'interrupted') ? last : null, items };
-}
-// Their progress line: waiting (with Stop), running, failed, or nothing; in history, `earlier`. `prefix` names its
-// controls (#<prefix>-status, data-<prefix>-stop); `doing` and `failure` are its words.
-export function draftStatusHtml({ pending, failed }, { esc, listening, live, prefix, doing, failure, earlier }) {
-  if (!live) return `<p class="form-note">${earlier}</p>`;
-  if (pending) return `<p class="question-help-status" id="${prefix}-status" tabindex="-1" role="status">${pending.status === 'running' ? doing : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.'} <button type="button" class="text-button" data-${prefix}-stop="${esc(pending.id)}">Stop</button></p>`;
-  return failed ? `<p class="state-note warning" id="${prefix}-status" tabindex="-1">${failure} ${esc(failed.error ?? 'It stopped before it finished.')}</p>` : '';
-}
 // What a review point cites, as a label: its idea, then the question.
 export function answerRefLabel(map, ref) {
   const node = map.nodes.find(n => n.id === ref.nodeId), question = node?.questions.find(q => q.id === ref.questionId);

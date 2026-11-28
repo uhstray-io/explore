@@ -26,7 +26,7 @@ import { normalizeGoal, goalForPacket, goalUse, goalLines, packetBudget } from '
 import { goalOf } from '../assets/guidance.js';
 import { findingsBasis, reasoningLabel } from '../assets/claims.js';
 import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryRoom, glossaryLines } from './glossary.mjs';
-import { includedKey, proposalOutdated } from './map-jobs.mjs';
+import { includedKey } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
 import { linkSuffix } from './links.mjs';
@@ -959,8 +959,7 @@ export class Store {
   }
   // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
   view(map) {
-    const type = proposal => this.jobType(proposal.type ?? 'check-answers');
-    const clone = publicMap(map, { resultIsStale: job => this.resultIsStale(map, job), proposalIsStale: proposal => !!type(proposal)?.proposalOutdated?.(map, proposal), proposalChanges: proposal => type(proposal)?.outdatedRecords?.(map, proposal) });
+    const clone = publicMap(map, { resultIsStale: job => this.resultIsStale(map, job), jobType: type => this.jobType(type) });
     for (const job of clone.jobs) if (!this.jobType(jobTypeOf(job))) job.unsupported = true;
     return Object.assign(clone, this.tracking(map.id));
   }
@@ -982,10 +981,14 @@ export class Store {
 
 // `resultIsStale(job)` lets the Store mark results that became stale after they arrived, before the input
 // signature it needs is removed.
-export function publicMap(map, { resultIsStale = () => false, proposalIsStale = proposal => !!defaultRegistry.jobTypes[proposal.type ?? 'check-answers']?.proposalOutdated?.(map, proposal), proposalChanges = proposal => defaultRegistry.jobTypes[proposal.type ?? 'check-answers']?.outdatedRecords?.(map, proposal) } = {}) {
+export function publicMap(map, { resultIsStale = () => false, jobType = type => defaultRegistry.jobTypes[type] } = {}) {
   const clone = structuredClone(map);
   for (const node of clone.nodes) Object.assign(node, { completed: isCompleted(map, node), hasFindings: hasFindings(map, node) });
   for (const job of clone.jobs) { if (resultIsStale(job)) job.stale = true; delete job.claimKey; delete job.claimHash; delete job.inputSignature; delete job.reuseKey; }
-  for (const proposal of clone.proposals || []) { proposal.stale = !!proposal.stale || proposalIsStale(proposal); const changed = proposalChanges(proposal); if (changed?.length) proposal.changed = changed; } // Which sources, for a type that names them (F4).
+  for (const proposal of clone.proposals || []) { // A type that records what it read names the records that changed (F4); others say only whether.
+    const definition = jobType(proposal.type ?? 'check-answers'), changed = definition?.outdatedRecords?.(map, proposal);
+    proposal.stale = !!proposal.stale || (changed ? changed.length > 0 : !!definition?.proposalOutdated?.(map, proposal));
+    if (changed?.length) proposal.changed = changed;
+  }
   return clone;
 }

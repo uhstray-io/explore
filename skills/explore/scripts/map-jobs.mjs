@@ -143,7 +143,7 @@ export function answerReviewJob({ label, reason, categories: kinds, instruction,
     },
     packet, validate,
     isStale: ({ map, job }) => proposalOutdated(map, { included: job.included }),
-    proposalOutdated,
+    outdatedRecords,
     store: ({ map, job, result, stale, makeId, at }) => {
       map.proposals = [...(map.proposals || []), { id: makeId('proposal'), jobId: job.id, type: job.type, createdAt: at, included: job.included || [],
         ...(stale ? { stale: true } : {}), ...(result.summary ? { summary: result.summary } : {}),

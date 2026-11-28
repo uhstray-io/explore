@@ -6,7 +6,7 @@ import { lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { textField } from './fields.mjs';
 import { packetBudget } from './guidance.mjs';
-import { proposalOutdated } from './map-jobs.mjs';
+import { proposalOutdated, outdatedRecords } from './map-jobs.mjs';
 import { chosenRecords, recordsPacket, citedRecords, editableReview, oneLine } from './record-drafts.mjs';
 import { ADR_DRAFT, maxAdrRecords, adrTitleMax, adrSectionMax, adrFileMax, adrSections, adrName, renderAdr, adrFileText, adrSlug, adrToday } from '../assets/adr.js';
 
@@ -42,7 +42,7 @@ export const adrJobTypes = {
     packet: adrPacket,
     validate: validateAdr,
     isStale: ({ map, job }) => proposalOutdated(map, { included: job.included }),
-    proposalOutdated,
+    outdatedRecords,
     // One editable item: the record as Explore renders it from the fixed template.
     store: ({ map, job, result, stale, makeId, at }) => {
       map.proposals = [...(map.proposals || []), { id: makeId('proposal'), jobId: job.id, type: ADR_DRAFT, createdAt: at, included: job.included || [], ...(stale ? { stale: true } : {}),

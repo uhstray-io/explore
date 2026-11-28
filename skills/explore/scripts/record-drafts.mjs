@@ -8,7 +8,7 @@ import { answerChoices } from '../assets/workspace-view.js';
 
 class DraftProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new DraftProblem(message, status); };
-const clip = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit - 1)}…` : text; };
+export const clip = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit - 1)}…` : text; };
 // A field that must be one line, such as a title.
 export const oneLine = (value, field, max, fail, options) => { const text = textField(value, field, max, fail, options); if (text !== undefined && /[\r\n]/.test(text)) fail(`${field} must be one line.`); return text; };
 
