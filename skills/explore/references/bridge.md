@@ -227,6 +227,20 @@ Only the user asks for this (`request-map-job` with `adr-draft`); never request 
 ```
 
 The title is at most 120 characters and each section at most 6,000. Where the user never gave a reason, write "Not recorded"; never invent one. The title is one line. `refs` names at least one record you were given, each once; anything else rejects the result. Records that would not fit are shortened and marked `shortened`, with `retrieval` saying how to read them in full. Explore renders the record from a fixed template (Status: Proposed, the date it is saved, and a sources section with map, node and question IDs) and keeps it as one proposal item. The user edits and accepts it (`review-proposal` with `decision` and the edited `text`, user-only), and only the browser's Save file writes it to `docs/adr/`, never over an existing file. You only draft: never write an ADR file yourself, and never call the ADR file route, which is the browser's.
+## Map jobs: Implementation handoff
+
+Only the user asks for this (`request-map-job` with `handoff` and `options.format`); never request it on their behalf. `next` returns it with `jobType: "handoff"` and `nodeId: null`. The packet carries `records`, the 1–40 the user chose, as for an ADR draft (saved answers with their certainty, and explored ideas' findings, each with its review state and staleness, shortened and marked when they would not fit), with `idea` (the original idea), `format` (`brief`, `spec`, `plan`, `prompt` or `tasks`) and an instruction for that format, plus the map's title, goal and agreed terms as every map job has. The browser shows the user that packet first, through `GET /api/maps/ID/job-preview?type=handoff&selection=[…]&options={"format":"…"}`. Write the document for whoever implements the work:
+
+```json
+{
+  "title": "Offline notes: a plan",
+  "markdown": "# Plan\n\n1. Store notes on each phone.\n\n## Open questions\n\n…",
+  "refs": [{"nodeId": "node-…", "questionId": "q-…"}, {"nodeId": "node-…"}]
+}
+```
+
+The title is one line of at most 120 characters, and the markdown at most 24,000. `refs` names at least one record you were given, each once, with `questionId` only for an answer; anything else rejects the result. Owners, estimates and acceptance criteria the records never give stay "Not recorded"; an answer that is not Decided, a finding that is unreviewed or stale, and anything the records disagree on go under "Open questions", never under "Decisions". You only write the document: never start implementing, run commands, open issues or send it anywhere. The user edits and accepts it, and only then copies or downloads it, with a footer Explore adds (the map, each record it was written from, and whether its sources changed since).
+
 ## Map jobs: Sort thoughts
 
 The user jots rough thoughts into the map's inbox and, when they ask, a `sort-thoughts` packet carries them: `thoughts` (`{ id, text }`, whole thoughts only, at most 20, those never sorted before first; `remainingThoughts` counts the open ones left for a later sort) and `ideas`, an index of the map in reading order (`{ id, title, kind, status, completed, summary }`, summaries shortened), with `omittedIdeas` counted; use `read --map ID --query TEXT` for more. Propose a place for each thought; never activate anything:

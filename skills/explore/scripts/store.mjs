@@ -949,17 +949,18 @@ export class Store {
     });
   }
   // Exactly what a map job would send the agent, without starting it or any claim data.
-  async previewMapJob(mapId, type, selection) {
+  async previewMapJob(mapId, type, selection, options) {
     const map = await this.get(mapId), definition = this.jobType(type);
     need(definition && definition.target === 'map' && typeof definition.prepare === 'function', 'This kind of review cannot be previewed.');
-    const job = { id: null, type, input: definition.prepare({ map, input: { selection } }), reason: definition.reason };
+    const job = { id: null, type, input: definition.prepare({ map, input: { selection, ...(options !== undefined ? { options } : {}) } }), reason: definition.reason };
     const packet = await this.typedPacket(map, job, definition, null); // A preview is never a claim: no key.
     delete packet.jobId;
     return packet;
   }
   // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
   view(map) {
-    const clone = publicMap(map, { resultIsStale: job => this.resultIsStale(map, job), proposalIsStale: proposal => !!this.jobType(proposal.type ?? 'check-answers')?.proposalOutdated?.(map, proposal) });
+    const type = proposal => this.jobType(proposal.type ?? 'check-answers');
+    const clone = publicMap(map, { resultIsStale: job => this.resultIsStale(map, job), proposalIsStale: proposal => !!type(proposal)?.proposalOutdated?.(map, proposal), proposalChanges: proposal => type(proposal)?.outdatedRecords?.(map, proposal) });
     for (const job of clone.jobs) if (!this.jobType(jobTypeOf(job))) job.unsupported = true;
     return Object.assign(clone, this.tracking(map.id));
   }
@@ -981,10 +982,10 @@ export class Store {
 
 // `resultIsStale(job)` lets the Store mark results that became stale after they arrived, before the input
 // signature it needs is removed.
-export function publicMap(map, { resultIsStale = () => false, proposalIsStale = proposal => !!defaultRegistry.jobTypes[proposal.type ?? 'check-answers']?.proposalOutdated?.(map, proposal) } = {}) {
+export function publicMap(map, { resultIsStale = () => false, proposalIsStale = proposal => !!defaultRegistry.jobTypes[proposal.type ?? 'check-answers']?.proposalOutdated?.(map, proposal), proposalChanges = proposal => defaultRegistry.jobTypes[proposal.type ?? 'check-answers']?.outdatedRecords?.(map, proposal) } = {}) {
   const clone = structuredClone(map);
   for (const node of clone.nodes) Object.assign(node, { completed: isCompleted(map, node), hasFindings: hasFindings(map, node) });
   for (const job of clone.jobs) { if (resultIsStale(job)) job.stale = true; delete job.claimKey; delete job.claimHash; delete job.inputSignature; delete job.reuseKey; }
-  for (const proposal of clone.proposals || []) proposal.stale = !!proposal.stale || proposalIsStale(proposal);
+  for (const proposal of clone.proposals || []) { proposal.stale = !!proposal.stale || proposalIsStale(proposal); const changed = proposalChanges(proposal); if (changed?.length) proposal.changed = changed; } // Which sources, for a type that names them (F4).
   return clone;
 }

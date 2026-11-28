@@ -69,8 +69,10 @@ export function includedRecords(map, records) {
 // A review is outdated once anything it read has changed: an answer (its text or how sure the user is), an open
 // question (answered since), or, for an idea's findings, the idea itself. A record saved before questions were keyed
 // falls back to the idea's revision.
-export function proposalOutdated(map, proposal) {
-  return (proposal.included || []).some(record => {
+export const proposalOutdated = (map, proposal) => outdatedRecords(map, proposal).length > 0;
+// The records a review read that have changed since, as it recorded them, so a review can name its changed sources (F4).
+export function outdatedRecords(map, proposal) {
+  return (proposal.included || []).filter(record => {
     const node = map.nodes.find(n => n.id === record.nodeId);
     if (!node) return true;
     if (!record.questionId) return node.contentRevision !== record.contentRevision;

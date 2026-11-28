@@ -6,52 +6,17 @@ import { lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { textField } from './fields.mjs';
 import { packetBudget } from './guidance.mjs';
-import { includedKey, includedRecords, proposalOutdated } from './map-jobs.mjs';
-import { certaintyText } from '../assets/questions.js';
-import { answerChoices } from '../assets/workspace-view.js';
+import { proposalOutdated } from './map-jobs.mjs';
+import { chosenRecords, recordsPacket, citedRecords, editableReview, oneLine } from './record-drafts.mjs';
 import { ADR_DRAFT, maxAdrRecords, adrTitleMax, adrSectionMax, adrFileMax, adrSections, adrName, renderAdr, adrFileText, adrSlug, adrToday } from '../assets/adr.js';
 
 class AdrProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new AdrProblem(message, status); };
-const clip = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit - 1)}…` : text; };
 const sha256 = text => createHash('sha256').update(text, 'utf8').digest('hex');
-const oneLine = (value, field, max, fail, options) => { const text = textField(value, field, max, fail, options); if (text !== undefined && /[\r\n]/.test(text)) fail(`${field} must be one line.`); return text; };
 
-// The records a draft reads: 1–40 of what the shared selector offers (F1's answerChoices with findings): saved, current
-// answers ({ nodeId, questionId }) and explored ideas' findings ({ nodeId }).
-function normalizeSelection(map, selection) {
-  need(Array.isArray(selection) && selection.length >= 1 && selection.length <= maxAdrRecords, `Choose 1 to ${maxAdrRecords} answers or findings.`);
-  const offered = new Set(answerChoices(map, { findings: true }).flatMap(group => [...(group.findings ? [`${group.nodeId}/`] : []), ...group.answers.map(answer => `${group.nodeId}/${answer.questionId}`)]));
-  const seen = new Set();
-  return selection.map(item => {
-    const key = `${item?.nodeId}/${item?.questionId ?? ''}`;
-    need(offered.has(key), 'A chosen record is not a saved answer or an explored idea\'s findings on this map.');
-    need(!seen.has(key), 'A record is chosen twice.'); seen.add(key);
-    return { nodeId: item.nodeId, ...(item.questionId !== undefined ? { questionId: item.questionId } : {}) };
-  });
-}
-// The packet: each record with its idea, review state and staleness. The records share the room: when they would not fit,
-// their text is shortened step by step (marked, with how to read it in full); a choice that cannot fit even then is refused.
-const steps = [{ findings: 2400, summary: 700, answer: 1200 }, { findings: 1200, summary: 400, answer: 600 }, { findings: 500, summary: 200, answer: 300 }, { findings: 200, summary: 120, answer: 150 }];
-const retrieval = 'Use CLI read --map MAP --node NODE --section findings, or --section questions --question ID, to read anything shortened here.';
-function adrPacket({ map, job, budget }) {
-  const build = caps => job.input.selection.map(({ nodeId, questionId }) => {
-    const node = map.nodes.find(n => n.id === nodeId), base = { nodeId, idea: clip(node.title, 100), reviewState: node.reviewState, stale: !!node.stale };
-    const texts = questionId ? { answer: node.questions.find(q => q.id === questionId).answer } : { summary: node.summary, findings: node.body === node.prompt ? '' : node.body };
-    const cut = Object.entries(texts).some(([key, text]) => String(text ?? '').length > caps[key]), clipped = Object.fromEntries(Object.entries(texts).map(([key, text]) => [key, clip(text, caps[key])]));
-    const question = questionId ? node.questions.find(q => q.id === questionId) : null;
-    return { ...base, ...(question ? { questionId, question: clip(question.text, 400), certainty: certaintyText(question) } : {}), ...clipped, ...(cut ? { shortened: true } : {}) };
-  });
-  let packet;
-  for (const caps of steps) {
-    const records = build(caps);
-    packet = { records, ...(job.input.titleHint ? { titleHint: job.input.titleHint } : {}), ...(records.some(record => record.shortened) ? { retrieval } : {}), resultFormat, instruction };
-    if (JSON.stringify(packet).length <= budget - 800) break;
-  }
-  need(JSON.stringify(packet).length <= budget - 800, 'These answers and findings do not fit in one draft. Choose fewer.');
-  packet[includedKey] = includedRecords(map, packet.records);
-  return packet;
-}
+// The packet: the chosen records (record-drafts.mjs), the title the user has in mind, and how to draft.
+const adrPacket = ({ map, job, budget }) => recordsPacket({ map, selection: job.input.selection, budget, tooBig: 'These answers and findings do not fit in one draft. Choose fewer.',
+  fields: { ...(job.input.titleHint ? { titleHint: job.input.titleHint } : {}), resultFormat, instruction } });
 const resultFormat = { title: `one line, at most ${adrTitleMax} characters`, context: 'Markdown', decision: 'Markdown', consequences: 'Markdown', alternatives: 'Markdown, optional', openQuestions: 'Markdown, optional',
   refs: [{ nodeId: 'from records', questionId: 'from records, for an answer' }], limits: `each section at most ${adrSectionMax} characters; at least one ref, each a record you were given` };
 const instruction = 'Draft an architecture decision record from these records alone: the user\'s saved answers and the findings of explored ideas. Do no new research. Write context, the decision, its consequences, and alternatives and open questions where the records give them. Where the user never gave a reason, write "Not recorded"; never invent one. Cite every record you rely on in refs. You only draft: never write the file; the user edits, accepts and saves it.';
@@ -62,15 +27,7 @@ function validateAdr(result, { job }) {
   need(!extra.length, `An ADR draft returns a title, its sections and refs; remove ${extra.join(', ')}.`);
   const title = oneLine(result.title, 'Title', adrTitleMax, fail);
   const sections = Object.fromEntries(adrSections.map(([key, heading]) => [key, textField(result[key], heading, adrSectionMax, fail, { optional: key === 'alternatives' || key === 'openQuestions' })]).filter(([, value]) => value));
-  const read = new Set((job.included ?? []).map(record => `${record.nodeId}/${record.questionId ?? ''}`)), seen = new Set();
-  need(Array.isArray(result.refs) && result.refs.length >= 1, 'Cite at least one record you relied on in refs.');
-  const refs = result.refs.map((ref, index) => {
-    const key = `${ref?.nodeId}/${ref?.questionId ?? ''}`;
-    need(read.has(key), `Ref ${index + 1} names a record that was not read for this draft.`);
-    need(!seen.has(key), `Ref ${index + 1} repeats a record.`); seen.add(key);
-    return { nodeId: ref.nodeId, ...(ref.questionId ? { questionId: ref.questionId } : {}) };
-  });
-  return { title, ...sections, refs };
+  return { title, ...sections, refs: citedRecords(result.refs, job, fail) };
 }
 
 export const adrJobTypes = {
@@ -78,7 +35,7 @@ export const adrJobTypes = {
     label: 'Draft an ADR', target: 'map',
     reason: 'The user asked for an architecture decision record drafted from chosen answers and findings.',
     prepare: ({ map, input }) => {
-      const selection = normalizeSelection(map, input.selection), titleHint = oneLine(input.titleHint, 'Title', adrTitleMax, message => need(false, message), { optional: true });
+      const selection = chosenRecords(map, input.selection, { max: maxAdrRecords }), titleHint = oneLine(input.titleHint, 'Title', adrTitleMax, message => need(false, message), { optional: true });
       adrPacket({ map, job: { input: { selection, titleHint } }, budget: packetBudget(map) }); // Refuses a choice that cannot fit, before anything is queued.
       return { selection, ...(titleHint ? { titleHint } : {}) };
     },
@@ -91,16 +48,8 @@ export const adrJobTypes = {
       map.proposals = [...(map.proposals || []), { id: makeId('proposal'), jobId: job.id, type: ADR_DRAFT, createdAt: at, included: job.included || [], ...(stale ? { stale: true } : {}),
         items: [{ id: makeId('item'), title: result.title, refs: result.refs, text: renderAdr(map, result), review: 'unreviewed' }] }];
     },
-    // F1's review-proposal for an editable item: accepted or dismissed once, so a saved record is never reviewed again;
-    // accepting saves the user's edited text. Accepting writes nothing to the project.
-    reviewRefusal: 'Choose Accept or Dismiss.', finalReview: true,
-    review: ({ item, input }) => {
-      if (input.decision === 'accepted') {
-        const text = input.text === undefined ? item.text : textField(input.text, 'The record', adrFileMax, message => need(false, message));
-        need(Buffer.byteLength(text, 'utf8') <= adrFileMax, 'The record must be at most 64 KiB.');
-        item.text = text;
-      }
-    },
+    // Accept or Dismiss, once; accepting saves the user's edited text and writes nothing to the project.
+    ...editableReview({ name: 'The record', max: adrFileMax, bytes: true }),
   },
 };
 

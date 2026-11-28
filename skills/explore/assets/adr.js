@@ -1,12 +1,11 @@
 // Lightweight ADR (F5): an architecture decision record drafted by the agent from chosen answers and findings, edited
 // and accepted by the user, and saved by the user to docs/adr/ in the workspace. Explore renders the file from a fixed
 // template: Status is always Proposed, and saving it approves nothing. Shared by the Store and the app.
-import { answerChooserHtml, plural } from './workspace-view.js';
+import { answerChooserHtml, draftsOf, draftStatusHtml, plural } from './workspace-view.js';
 
 export const ADR_DRAFT = 'adr-draft';
 export const maxAdrRecords = 40, adrTitleMax = 120, adrSectionMax = 6000, adrFileMax = 64 * 1024;
 export const adrSections = [['context', 'Context'], ['decision', 'Decision'], ['consequences', 'Consequences'], ['alternatives', 'Alternatives considered'], ['openQuestions', 'Open questions']];
-const isOpenJob = job => job.status === 'queued' || job.status === 'running';
 const clip = (value, limit) => { const text = String(value ?? '').replace(/\s+/g, ' ').trim(); return text.length > limit ? `${text.slice(0, limit - 1)}…` : text; };
 
 // The file's name, from a path under docs/adr/: four digits, then lowercase words joined by hyphens (at most 60), .md;
@@ -47,11 +46,7 @@ export const adrSlug = title => String(title ?? '').toLowerCase().replace(/[^a-z
 export const adrPath = (number, slug) => `docs/adr/${String(number).padStart(4, '0')}-${slug}.md`;
 // A map's ADR drafts: `pending` (waiting or running), `failed` (the newest attempt, failed or interrupted), and every
 // proposal's item, newest first.
-export function adrDrafts(map) {
-  const jobs = (map.jobs ?? []).filter(job => job.type === ADR_DRAFT), last = jobs.at(-1);
-  const items = (map.proposals ?? []).filter(proposal => proposal.type === ADR_DRAFT).flatMap(proposal => proposal.items.map(item => ({ proposal, item }))).reverse();
-  return { pending: jobs.find(isOpenJob) ?? null, failed: last && (last.status === 'failed' || last.status === 'interrupted') ? last : null, items };
-}
+export const adrDrafts = map => draftsOf(map, ADR_DRAFT);
 
 
 // The path note under Save file: the path, and why it cannot be used yet. Updated in place as the user types.
@@ -64,10 +59,8 @@ export function adrPathNote({ number, slug, free }) {
 // item; `hint` the title typed for a new draft; `save` the open save preview { itemId, proposalId, number, slug, free,
 // text, sha256 }; `live` false (history) shows the records read-only.
 export function adrDialogHtml({ map, esc, listening, live = true, chosen = [], preview = null, edits = {}, hint = '', save = null }) {
-  const { pending, failed, items } = adrDrafts(map);
-  const status = !live ? '<p class="form-note">An earlier view of the map: return to the live map to draft, accept or save records.</p>'
-    : pending ? `<p class="question-help-status" id="adr-status" tabindex="-1" role="status">${pending.status === 'running' ? 'Your agent is drafting the record.' : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.'} <button type="button" class="text-button" data-adr-stop="${esc(pending.id)}">Stop</button></p>`
-    : failed ? `<p class="state-note warning" id="adr-status" tabindex="-1">Your agent could not draft this record. ${esc(failed.error ?? 'It stopped before it finished.')}</p>` : '';
+  const drafts = adrDrafts(map), { pending, items } = drafts;
+  const status = draftStatusHtml(drafts, { esc, listening, live, prefix: 'adr', doing: 'Your agent is drafting the record.', failure: 'Your agent could not draft this record.', earlier: 'An earlier view of the map: return to the live map to draft, accept or save records.' });
   const draft = live ? items.find(entry => entry.item.review === 'unreviewed') : null;
   const review = draft ? `<h3 class="section-label" id="adr-draft-heading" tabindex="-1">Draft for review: ${esc(draft.item.title)}</h3>${draft.proposal.stale ? '<p class="state-note warning">Some of what it was drafted from changed since. Check it before you accept it.</p>' : ''}`
     + `<p class="form-note">Edit it as you like. Accepting keeps it here; nothing is written to your project until you save it.</p><label for="adr-text" class="visually-hidden">The draft, as Markdown</label><textarea id="adr-text" class="adr-text" rows="16" data-adr-text="${esc(draft.item.id)}">${esc(edits[draft.item.id] ?? draft.item.text)}</textarea>`
