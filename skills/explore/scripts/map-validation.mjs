@@ -96,7 +96,7 @@ const shapes = {
     history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
-    prompt: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
+    prompt: text({ optional: true }), doneWhen: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
     stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }) },
   question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }) },
   source: { title: text({ unreadable: true }), url: rule(httpUrl, { code: 'source-url' }) },
