@@ -10,6 +10,7 @@ import { topicProfiles, topicProfileLabel } from '../assets/workspace-view.js';
 import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
+import { normalizeLimitations, limitationLines } from './limitations.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
@@ -254,6 +255,7 @@ export class Store {
       const guidance = topicProfileLabel(map.jobs.filter(j => currentRun(n, j)).at(-1)?.result?.topicProfile);
       if (guidance && hasFindings(map, n)) lines.push('', `_Guidance: ${guidance}_`);
       if (n.options?.length) lines.push('', ...comparisonLines(n));
+      if (n.limitations?.length) lines.push('', ...limitationLines(n));
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
       else if (n.reaffirmedAt) lines.push('', `_Reaffirmed ${n.reaffirmedAt.slice(0, 10)}: the user re-checked it against the change; it was not re-researched._`);
@@ -327,7 +329,7 @@ export class Store {
   // An idea's findings start again from `premise`; its answers and history stay.
   resetFindings(node, premise) {
     Object.assign(node, { prompt: premise, body: premise, summary: premise.slice(0, 600), sources: [], reviewState: 'unreviewed', stale: false });
-    for (const key of ['completedAt', 'options', 'optionsLimit', 'recommendation', 'reviewCauses', 'earlierCauses', 'reaffirmedAt', 'clearedAt', 'replacedBy', 'resolvedBy', 'acceptedAt', 'acceptedBy']) delete node[key];
+    for (const key of ['completedAt', 'options', 'optionsLimit', 'recommendation', 'limitations', 'reviewCauses', 'earlierCauses', 'reaffirmedAt', 'clearedAt', 'replacedBy', 'resolvedBy', 'acceptedAt', 'acceptedBy']) delete node[key];
   }
   invalidatePremises(map, nodeId, kind = 'premise-revised') { this.invalidate(map, this.affectedBy(map, nodeId), { sourceId: nodeId, kind }); }
   // Ideas whose basis changed: findings are flagged, questions asked on the old basis are set aside, and waiting
@@ -680,11 +682,14 @@ export class Store {
       return null;
     });
   }
-  // A result may also compare options and recommend one (C1); that stays the agent's judgement.
+  // A result may also compare options and recommend one (C1), and record conflicts and evidence gaps (C3); that stays
+  // the agent's judgement.
   validateResult(result, map, node) {
     object(result, 'Result');
     need(JSON.stringify(result).length <= 150000, 'This result is too large. Shorten the findings or the options.');
-    return { ...this.validateResultFields(result, map, node), ...normalizeComparison(result, message => { throw new Problem(message); }) };
+    const fail = message => { throw new Problem(message); };
+    const checked = { ...this.validateResultFields(result, map, node), ...normalizeComparison(result, fail) };
+    return { ...checked, ...normalizeLimitations(result, checked, fail) };
   }
   validateResultFields(result, map, node) {
     const list = (value, name, max) => { if (value === undefined) return []; need(Array.isArray(value) && value.length <= max, `${name} must be an array of at most ${max} items.`); return value; };
@@ -732,8 +737,9 @@ export class Store {
         this.event(map, 'stale-result', n.id, 'Result retained in job history. A premise changed during research.');
       } else {
         n.summary = normalized.summary; n.body = normalized.body; n.sources = normalized.sources;
-        // Options belong to these findings: a new result replaces them, and one without options clears them.
-        delete n.options; delete n.optionsLimit; delete n.recommendation;
+        // Options and limitations belong to these findings: a new result replaces them, and one without them clears them.
+        delete n.options; delete n.optionsLimit; delete n.recommendation; delete n.limitations;
+        if (normalized.limitations) n.limitations = normalized.limitations;
         if (normalized.options) Object.assign(n, { options: normalized.options, recommendation: normalized.recommendation, ...(normalized.optionsLimit ? { optionsLimit: normalized.optionsLimit } : {}) });
         n.questions.push(...normalized.questions.map(q => ({ ...q, askedAt: now(), jobId: job.id }))); n.contentRevision++; n.stale = false; n.reviewState = 'unreviewed';
         n.status = normalized.questions.length ? 'awaiting-answer' : 'explored';

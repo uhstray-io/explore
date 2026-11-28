@@ -5,6 +5,7 @@ import { proposalOutdated } from './map-jobs.mjs';
 import { linkSuffix } from './links.mjs';
 import { markdownText as line } from '../assets/workspace-view.js';
 import { branchIds } from '../assets/graph.js';
+import { limitationKinds } from '../assets/limitations.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
@@ -37,6 +38,7 @@ export function mapBrief(map, nodeId = null) {
       const r = n.recommendation, chosen = n.options.find(option => option.id === r?.optionId);
       return entry(n, chosen ? `Recommended: ${chosen.title}. Main trade-off: ${r.mainTradeoff}` : `No recommendation yet: ${r?.missing ?? 'not recorded'}`, { options: n.options.length });
     })],
+    ['limitations', 'Conflicts and evidence gaps — unresolved', nodes.flatMap(n => (n.limitations || []).map(record => entry(n, `${limitationKinds[record.kind]}: ${record.summary} Next step: ${record.nextStep}`, { limitationId: record.id, kind: record.kind })))],
     ['reviews', 'Agent reviews waiting for you — not conclusions', (map.proposals || []).filter(proposal => !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
       const node = nodes.find(n => item.refs.some(ref => ref.nodeId === n.id));
       return node ? entry(node, `${reviewWords[item.category] || item.category}: ${item.explanation}`, { proposalId: proposal.id, itemId: item.id }) : null;
@@ -68,7 +70,7 @@ export function mapBrief(map, nodeId = null) {
       for (const item of section.items) {
         lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}${item.doneWhen ? ` — Done when: ${line(item.doneWhen)}` : ''}`);
       }
-      if (!section.total) lines.push('_None recorded in this scope._');
+      if (!section.total) lines.push(section.id === 'limitations' ? '_None recorded. Results saved before this feature could not record them._' : '_None recorded in this scope._');
       if (section.omitted) lines.push(`_${section.omitted} more records omitted. Use paged map reads and targeted node sections._`);
     }
     lines.push('', '## Continue from here', '',

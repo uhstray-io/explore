@@ -157,10 +157,10 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
 }
 
 // Options the agent compared (C1), as compact cards. Only the recommended one is labelled, and the
-// whole section says it is the agent's view: the user still decides.
-export function optionsHtml(node, esc) {
+// whole section says it is the agent's view: the user still decides. `extra(option)` adds to a card (C3's notes).
+export function optionsHtml(node, esc, extra = () => '') {
   if (!node.options?.length) return '';
-  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${optionCardsHtml(node, esc)}`;
+  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${optionCardsHtml(node, esc, extra)}`;
 }
 // The cards and the recommendation for any comparison; `extra(option)` adds controls to a card.
 function optionCardsHtml(comparison, esc, extra = () => '') {
