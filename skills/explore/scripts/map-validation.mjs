@@ -93,7 +93,8 @@ const shapes = {
   map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
-    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
+    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }),
+    mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: text({ optional: true }), successCriteria: text({ optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
     prompt: text({ optional: true }), doneWhen: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
@@ -183,4 +184,5 @@ export function checkMapFile(bytes, { folderId, maxBytes = maxMapBytes } = {}) {
   const { map, problem } = decodeMap(bytes);
   if (problem) return { map: null, errors: [{ code: problem, at: 'map.json', message: unreadableMessages[problem], unreadable: true }], warnings: [] };
   return { map, ...validateMap(map, { folderId }) };
-}
+}import { modes } from '../assets/guidance.js';
+

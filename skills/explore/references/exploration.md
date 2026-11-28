@@ -10,6 +10,18 @@ Ask only when a missing answer would change the next investigation. Budget, time
 
 On resumption, identify the saved goal, actual user answers, accepted findings, stale material, and the selected unfinished branch. State a concise orientation only if useful: “We settled X; Y remains open; this branch checks Z.” Do not restart discovery, ask an answered question, or present the original premise as a proven finding. Retrieve an older answer by its question ID or a targeted section search when the packet omits it.
 
+## Follow the map's mode, objective and success criteria
+
+A packet may carry `guidance`: the map's `mode` with its `modeFocus`, an `objective` and `successCriteria` (what done looks like). Each is optional; without them, work as described here. Let the mode set what you look for first:
+
+- **Understand:** concepts, stakeholders and unknowns.
+- **Decide:** choices, criteria and trade-offs.
+- **Design:** intended outcomes, constraints, interfaces and feasibility.
+- **Diagnose:** symptoms, reproduction, evidence and alternative causes.
+- **Challenge:** assumptions, counterexamples and failure conditions.
+
+The objective and success criteria shape your working frame and your judgement of when a branch has done enough. The user can change them at any time. A change applies to new work only: never reopen or rewrite completed findings because the guidance changed. When an earlier finding no longer fits the new guidance, say so and propose a new direction instead.
+
 ## Choose a topic profile
 
 Before researching a job, pick one profile and read only that file. It adds checks for that kind of topic to the rules here; it never replaces them, grants no extra tools and is not evidence.
