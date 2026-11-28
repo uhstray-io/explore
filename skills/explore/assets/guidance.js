@@ -8,14 +8,14 @@ export const modes = {
   diagnose: { label: 'Diagnose', focus: 'symptoms, reproduction, evidence and alternative causes' },
   challenge: { label: 'Challenge', focus: 'assumptions, counterexamples and failure conditions' },
 };
-export const guidanceFields = ['mode', 'objective', 'successCriteria'];
-export const guidanceMax = 2000;
+export const goalFields = ['mode', 'objective', 'successCriteria'];
+export const goalMax = 2000;
 export const modeLine = mode => `${modes[mode].label} — ${modes[mode].focus}`;
 const clip = (text, max) => (text.length > max ? `${text.slice(0, max)}…` : text);
 
 // The map's goal with only the parts that are set, or null. A mode from a newer Explore is left out, and text from a
 // pulled or imported map is clipped to `max`, so views stay bounded.
-export function goalOf(map, max = guidanceMax) {
+export function goalOf(map, max = goalMax) {
   const out = { ...(Object.hasOwn(modes, map?.mode ?? '') ? { mode: map.mode } : {}),
     ...(typeof map?.objective === 'string' && map.objective ? { objective: clip(map.objective, max) } : {}),
     ...(typeof map?.successCriteria === 'string' && map.successCriteria ? { successCriteria: clip(map.successCriteria, max) } : {}) };
@@ -24,13 +24,20 @@ export function goalOf(map, max = guidanceMax) {
 export const modeLabel = map => modes[goalOf(map)?.mode]?.label ?? '';
 
 // From the create dialog's form: only what the user filled in, so an unopened disclosure sends nothing.
-export function guidanceInput(data) {
+export function goalInput(data) {
   const out = {};
-  for (const field of guidanceFields) { const value = data.get(field); if (typeof value === 'string' && value.trim()) out[field] = value; }
+  for (const field of goalFields) { const value = data.get(field); if (typeof value === 'string' && value.trim()) out[field] = value; }
   return out;
 }
-// Whether the editor's form would change nothing, so Save just closes it.
-export const guidanceUnchanged = (map, data) => guidanceFields.every(field => String(data[field] ?? '').trim() === String(map[field] ?? '').trim());
+// What the editor's form changes, field by field: {} when nothing does, so Save just closes it. Only the fields that
+// changed are sent, so a long text from a pull is never sent back, and a mode from a newer Explore (which the form
+// cannot show) is kept unless the user picks a mode.
+export function goalEdits(map, data) {
+  const edits = {}, known = Object.hasOwn(modes, map.mode ?? ''), mode = data.mode || null;
+  if (!(mode === null && map.mode && !known) && mode !== (known ? map.mode : null)) edits.mode = mode;
+  for (const field of ['objective', 'successCriteria']) { const value = String(data[field] ?? '').trim(); if (value !== String(map[field] ?? '').trim()) edits[field] = value || null; }
+  return edits;
+}
 
 // The fields, in the create dialog and in the inspector's editor alike: the modes with their focus (and No mode), the
 // objective and what done looks like. `chosen` is the checked mode ('' for No mode); null checks none. `drafts` and
@@ -41,12 +48,12 @@ export function goalFieldsHtml({ esc, prefix, chosen = null, values = {}, drafts
   const mode = (draftKey ? drafts[`${prefix}-mode:${draftKey}`] : undefined) ?? chosen;
   const choice = (key, label, focus) => `<label class="mode-choice"><input type="radio" name="mode" value="${key}"${mode === key ? ' checked' : ''}${draft('mode')}><span><strong>${esc(label)}</strong>${focus ? ` ${esc(focus)}` : ''}</span></label>`;
   return `<fieldset class="mode-choices"><legend>What kind of exploration is this?</legend>${choice('', 'No mode', '')}${Object.entries(modes).map(([key, entry]) => choice(key, entry.label, entry.focus)).join('')}</fieldset>`
-    + `<label for="${prefix}-objective">Objective <span>(optional)</span></label><textarea id="${prefix}-objective" name="objective" rows="2" maxlength="${guidanceMax}" placeholder="What you want from this exploration"${draft('objective')}>${value('objective')}</textarea>`
-    + `<label for="${prefix}-success">What done looks like <span>(optional)</span></label><textarea id="${prefix}-success" name="successCriteria" rows="2" maxlength="${guidanceMax}" placeholder="A recommendation you can act on"${draft('successCriteria')}>${value('successCriteria')}</textarea>`;
+    + `<label for="${prefix}-objective">Objective <span>(optional)</span></label><textarea id="${prefix}-objective" name="objective" rows="2" maxlength="${goalMax}" placeholder="What you want from this exploration"${draft('objective')}>${value('objective')}</textarea>`
+    + `<label for="${prefix}-success">What done looks like <span>(optional)</span></label><textarea id="${prefix}-success" name="successCriteria" rows="2" maxlength="${goalMax}" placeholder="A recommendation you can act on"${draft('successCriteria')}>${value('successCriteria')}</textarea>`;
 }
 
 // The starting idea's inspector: the goal, when any is set.
-export function guidanceSectionHtml(map, { esc }) {
+export function goalSectionHtml(map, { esc }) {
   const goal = goalOf(map);
   if (!goal) return '';
   const row = (label, value) => (value ? `<dt>${label}</dt><dd>${esc(value)}</dd>` : '');
@@ -54,7 +61,7 @@ export function guidanceSectionHtml(map, { esc }) {
 }
 
 // Its editor, with the other editors at the foot of the inspector.
-export function guidanceEditorHtml(map, { esc, drafts }) {
+export function goalEditorHtml(map, { esc, drafts }) {
   const root = esc(map.rootId), set = goalOf(map);
   return `<details data-editor="guidance"><summary data-command="edit-guidance" data-command-editor="guidance" data-node-id="${root}">${set ? 'Edit goal and mode' : 'Set a goal and mode'}</summary><form id="guidance-form" data-node-id="${root}">`
     + goalFieldsHtml({ esc, prefix: 'guidance', chosen: set?.mode ?? '', values: map, drafts, draftKey: map.id })

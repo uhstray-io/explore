@@ -20,7 +20,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
-import { guidanceInput, goalFieldsHtml, guidanceSectionHtml, guidanceEditorHtml, guidanceUnchanged, modeLabel } from './guidance.js';
+import { goalInput, goalFieldsHtml, goalSectionHtml, goalEditorHtml, goalEdits, modeLabel } from './guidance.js';
 import { minimapPanel } from './minimap.js';
 import { outlinePanel } from './outline.js';
 import { nextQuestionPanel } from './next-question.js';
@@ -645,7 +645,7 @@ function renderDetail(force = false) {
     // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
     if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
   }
-  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? guidanceSectionHtml(state.visibleMap, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc))}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${basisHtml(n)}${n.id === state.map?.rootId ? goalSectionHtml(state.visibleMap, { esc }) : ''}${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc, option => optionLimitationNotes(n, option, esc))}${limitationsHtml(n, { esc, live: !historic, map: state.visibleMap })}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${state.versionPreview && n.id !== state.versionPreview.map.rootId ? branchRestore.html(n.id) : ''}
     ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
@@ -666,7 +666,7 @@ function renderDetail(force = false) {
     ${!historic ? `<details data-editor="suggest"><summary data-command="add-direction" data-command-editor="suggest" data-node-id="${n.id}">Add a direction</summary><form id="suggest-form" data-node-id="${n.id}"><label for="branch-title">What's worth exploring?</label><input id="branch-title" name="title" maxlength="100" data-draft="${n.id}-title" value="${esc(state.drafts[`${n.id}-title`] ?? '')}" required><label for="branch-body">A little context</label><textarea id="branch-body" name="body" rows="3" maxlength="4000" data-draft="${n.id}-branch">${esc(state.drafts[`${n.id}-branch`] ?? '')}</textarea><button type="submit" class="secondary">Add suggested branch</button></form></details>
     ${!historic ? linkEditorHtml(n, state.visibleMap, { esc, drafts: state.drafts, shown: state.editors[`${n.id}:link`] === true }) : ''}
     <details data-editor="revise"><summary data-command="revise" data-command-editor="revise" data-node-id="${n.id}">${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new branch and starts exploring it. Affected findings are flagged for review; the original is preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
-    ${!historic && n.id === state.map?.rootId ? guidanceEditorHtml(state.map, { esc, drafts: state.drafts }) : ''}
+    ${!historic && n.id === state.map?.rootId ? goalEditorHtml(state.map, { esc, drafts: state.drafts }) : ''}
     ${runNoteHtml(job)}`;
   // The user's open or closed choice wins; otherwise a disclosure stays as rendered (closed, or new help open).
   for (const editor of detail.querySelectorAll('details[data-editor]')) editor.open = state.editors[`${n.id}:${editor.dataset.editor}`] ?? editor.open;
@@ -768,7 +768,7 @@ $('#create-form').addEventListener('submit', async event => {
   const idea = submittedIdea.trim(), title = submittedTitle.trim() || idea.split(/\s+/).slice(0, 7).join(' ').slice(0, 100);
   const currentDraft = () => version === createVersion && navigationVersion === openVersion && dialog.open && $('#idea').value === submittedIdea && $('#title').value === submittedTitle;
   try {
-    const map = await api('/maps', { title, idea, ...guidanceInput(data) });
+    const map = await api('/maps', { title, idea, ...goalInput(data) });
     await refresh();
     const follow = currentDraft();
     if (follow) { dialog.close(); form.reset(); await openMap(map.id); }
@@ -882,8 +882,10 @@ $('#detail').addEventListener('submit', async event => {
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', { title: data.title, body: data.body.trim() || data.title });
     if (form.id === 'guidance-form') {
-      if (guidanceUnchanged(state.map, data)) { form.closest('details').open = false; return; }
-      success = await act(node, 'set-guidance', { mode: data.mode || null, objective: data.objective, successCriteria: data.successCriteria });
+      const edits = goalEdits(state.map, data);
+      // Nothing changed: the editor closes and its drafts go, so a later change by someone else shows as it is.
+      if (!Object.keys(edits).length) { for (const key of submittedDrafts.keys()) delete state.drafts[key]; form.closest('details').open = false; return; }
+      success = await act(node, 'set-guidance', edits);
     }
     if (form.id === 'link-form') success = await act(node, 'link', { to: data.to, relation: data.relation, ...(data.note.trim() ? { note: data.note.trim() } : {}) });
     if (form.id === 'revise-form') success = await act(node, form.dataset.completed === 'true' ? 'fork-revision' : 'revise', form.dataset.completed === 'true' ? { ...data, start: true } : data);

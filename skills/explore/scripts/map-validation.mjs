@@ -1,4 +1,4 @@
-import { modes, guidanceMax } from '../assets/guidance.js';
+import { modes, goalMax } from '../assets/guidance.js';
 // Map validation (H1): the one place that decides what a map.json may contain. The Store reads every map
 // through decodeMap and readProblem, so it refuses exactly the problems marked `unreadable`; the validate
 // command reports all of them. Pure and dependency-free. Each problem has a code, a location such as
@@ -95,7 +95,7 @@ const shapes = {
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
     history: list({ unreadable: true }), view: rule(isRecord, { optional: true }),
-    mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: rule(value => isText(value) && value.length <= guidanceMax, { optional: true }), successCriteria: rule(value => isText(value) && value.length <= guidanceMax, { optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
+    mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: rule(value => isText(value) && value.length <= goalMax, { optional: true }), successCriteria: rule(value => isText(value) && value.length <= goalMax, { optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
     prompt: text({ optional: true }), doneWhen: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),

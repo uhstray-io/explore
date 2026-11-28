@@ -14,7 +14,7 @@ import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { normalizeLimitations, limitationLines } from './limitations.mjs';
 import { normalizeClaims, claimLines } from './claims.mjs';
-import { normalizeGuidance, goalForPacket, goalUse, goalLines, packetBudget } from './guidance.mjs';
+import { normalizeGoal, goalForPacket, goalUse, goalLines, packetBudget } from './guidance.mjs';
 import { goalOf } from '../assets/guidance.js';
 import { findingsBasis, reasoningLabel } from '../assets/claims.js';
 import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryRoom, glossaryLines } from './glossary.mjs';
@@ -398,7 +398,7 @@ export class Store {
       object(input, 'Input');
       const title = text(input.title, 'Title', 100);
       const idea = text(input.idea, 'Idea', 16000);
-      const guidance = normalizeGuidance(input); // Mode, objective and success criteria (A1), all optional.
+      const guidance = normalizeGoal(input); // Mode, objective and success criteria (A1), all optional.
       const root = this.node(title, idea, 'idea');
       const map = { schemaVersion: 1, id: id('map'), title, rootId: root.id, revision: 0,
         originalIdea: idea, ...guidance, ...(Object.keys(guidance).length ? { guidanceUpdatedAt: now() } : {}),

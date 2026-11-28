@@ -12,7 +12,7 @@ import { mapJobTypes, CHECK_ANSWERS } from '../skills/explore/scripts/map-jobs.m
 import { packetBudget } from '../skills/explore/scripts/guidance.mjs';
 import { restoreSummary, versionLabel } from '../skills/explore/assets/workspace-view.js';
 import { briefPreview } from '../skills/explore/assets/brief-dialog.js';
-import { modes, guidanceInput, guidanceUnchanged, goalFieldsHtml, guidanceSectionHtml, guidanceEditorHtml } from '../skills/explore/assets/guidance.js';
+import { modes, goalInput, goalEdits, goalFieldsHtml, goalSectionHtml, goalEditorHtml } from '../skills/explore/assets/guidance.js';
 
 // The map's goal: mode, objective and success criteria (A1, #2). Illustrative maps under .test-output, never ideas/.
 const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
@@ -39,8 +39,8 @@ test('a map created with a goal keeps it, and the brief, its dialog and the READ
 
 test('an unknown mode or over-long text is refused, and nothing is written', async () => {
   const { store, map, act } = await workspace();
-  for (const input of [{ mode: 'explore' }, { objective: 'x'.repeat(2001) }, { successCriteria: 7 }]) {
-    await assert.rejects(store.create({ title: 'T', idea: 'An idea.', ...input }), error => error.status === 400, JSON.stringify(input).slice(0, 40));
+  for (const [input, message] of [[{ mode: 'explore' }, /Choose Understand/], [{ objective: 'x'.repeat(2001) }, /at most 2000/], [{ successCriteria: 7 }, /must be text/]]) {
+    await assert.rejects(store.create({ title: 'T', idea: 'An idea.', ...input }), error => error.status === 400 && message.test(error.message), JSON.stringify(input).slice(0, 40));
     const before = await readFile(store.file(map.id), 'utf8');
     await assert.rejects(act({ type: 'set-guidance', ...input }), error => error.status === 400);
     assert.equal(await readFile(store.file(map.id), 'utf8'), before);
@@ -150,21 +150,23 @@ test('one set of fields serves the create dialog and the editor: No mode is a ch
   assert.match(create, /value="challenge"[^>]*><span><strong>Challenge<\/strong> assumptions, counterexamples and failure conditions/);
   assert.match(create, /id="create-objective" name="objective" rows="2" maxlength="2000"/); assert.doesNotMatch(create, /data-draft/);
   const form = values => ({ get: key => values[key] ?? null });
-  assert.deepEqual(guidanceInput(form({ mode: 'design', objective: '  A plan.  ', successCriteria: '' })), { mode: 'design', objective: '  A plan.  ' });
-  assert.deepEqual(guidanceInput(form({ mode: '' })), {}, 'No mode or an unopened disclosure sends nothing');
+  assert.deepEqual(goalInput(form({ mode: 'design', objective: '  A plan.  ', successCriteria: '' })), { mode: 'design', objective: '  A plan.  ' });
+  assert.deepEqual(goalInput(form({ mode: '' })), {}, 'No mode or an unopened disclosure sends nothing');
   const map = { id: 'map-1', rootId: 'root', mode: 'decide', objective: 'Pick <one>.', successCriteria: 'A choice.' };
-  assert.equal(guidanceSectionHtml({ id: 'map-1', rootId: 'root' }, { esc }), '');
-  const section = guidanceSectionHtml(map, { esc });
+  assert.equal(goalSectionHtml({ id: 'map-1', rootId: 'root' }, { esc }), '');
+  const section = goalSectionHtml(map, { esc });
   assert.match(section, /^<div class="guidance-summary">/); assert.match(section, /Pick &lt;one&gt;\./); assert.doesNotMatch(section, /<one>/);
-  const editor = guidanceEditorHtml(map, { esc, drafts: {} });
+  const editor = goalEditorHtml(map, { esc, drafts: {} });
   assert.match(editor, /<details data-editor="guidance"><summary data-command="edit-guidance" data-command-editor="guidance" data-node-id="root">Edit goal and mode<\/summary><form id="guidance-form" data-node-id="root">/);
   assert.match(editor, /value="decide" checked data-draft="guidance-mode:map-1">/); assert.match(editor, /<button class="secondary" type="submit">Save<\/button>/);
   assert.match(editor, /id="guidance-objective" name="objective"[^>]*data-draft="guidance-objective:map-1">Pick &lt;one&gt;\.<\/textarea>/);
-  const drafted = guidanceEditorHtml(map, { esc, drafts: { 'guidance-mode:map-1': 'design', 'guidance-objective:map-1': 'Draft.' } });
+  const drafted = goalEditorHtml(map, { esc, drafts: { 'guidance-mode:map-1': 'design', 'guidance-objective:map-1': 'Draft.' } });
   assert.match(drafted, /value="design" checked/); assert.match(drafted, />Draft\.<\/textarea>/, 'a draft survives a redraw');
-  assert.match(guidanceEditorHtml({ id: 'map-1', rootId: 'root' }, { esc, drafts: {} }), /value="" checked[\s\S]*>Set a goal and mode<\/summary>|>Set a goal and mode<\/summary>[\s\S]*value="" checked/);
-  assert.equal(guidanceUnchanged(map, { mode: 'decide', objective: ' Pick <one>. ', successCriteria: 'A choice.' }), true);
-  assert.equal(guidanceUnchanged(map, { mode: '', objective: 'Pick <one>.', successCriteria: 'A choice.' }), false);
+  assert.match(goalEditorHtml({ id: 'map-1', rootId: 'root' }, { esc, drafts: {} }), /value="" checked[\s\S]*>Set a goal and mode<\/summary>|>Set a goal and mode<\/summary>[\s\S]*value="" checked/);
+  assert.deepEqual(goalEdits(map, { mode: 'decide', objective: ' Pick <one>. ', successCriteria: 'A choice.' }), {}, 'nothing changed');
+  assert.deepEqual(goalEdits(map, { mode: '', objective: 'Pick <one>.', successCriteria: '' }), { mode: null, successCriteria: null }, 'only what changed is sent');
+  assert.deepEqual(goalEdits({ ...map, mode: 'newer-mode' }, { mode: '', objective: 'Pick <one>.', successCriteria: 'A choice.' }), {}, 'a mode the form cannot show is kept');
+  assert.deepEqual(goalEdits({ ...map, objective: 'x'.repeat(3000) }, { mode: 'design', objective: 'x'.repeat(3000), successCriteria: 'A choice.' }), { mode: 'design' }, 'a long pulled text is not sent back');
 });
 
 test('the CLI creates a map with a goal, changes it with act, and read and brief return it', async () => {

@@ -1,6 +1,6 @@
 // The map's goal (A1) for the Store: checking it, the set-guidance action, the packet's `goal` and its budget, and the
 // Markdown lines. Changing it steers new work only: no idea, flag, review or queued job changes.
-import { modes, guidanceFields, guidanceMax, goalOf, modeLine } from '../assets/guidance.js';
+import { modes, goalFields, goalMax, goalOf, modeLine } from '../assets/guidance.js';
 import { markdownText } from '../assets/workspace-view.js';
 import { textField } from './fields.mjs';
 
@@ -12,7 +12,7 @@ const labels = { objective: 'The objective', successCriteria: 'What done looks l
 
 // The fields `input` gives, checked: a value to set, or null to clear (null, '' or only spaces). Fields it leaves out
 // are not in the result.
-export function guidanceChanges(input) {
+export function goalChanges(input) {
   const out = {};
   if (input.mode !== undefined) {
     if (input.mode === null || input.mode === '') out.mode = null;
@@ -21,21 +21,22 @@ export function guidanceChanges(input) {
   for (const field of ['objective', 'successCriteria']) {
     const value = input[field];
     if (value === undefined) continue;
-    out[field] = value === null || (typeof value === 'string' && !value.trim()) ? null : textField(value, labels[field], guidanceMax, fail);
+    need(value === null || typeof value === 'string', `${labels[field]} must be text.`);
+    out[field] = value === null || !value.trim() ? null : textField(value, labels[field], goalMax, fail);
   }
   return out;
 }
 // The goal a new map is created with: only the fields that are set.
-export const normalizeGuidance = input => Object.fromEntries(Object.entries(guidanceChanges(input)).filter(([, value]) => value !== null));
+export const normalizeGoal = input => Object.fromEntries(Object.entries(goalChanges(input)).filter(([, value]) => value !== null));
 
-export const guidanceActions = {
+export const goalActions = {
   // `mode`, `objective`, `successCriteria`: each one given is set, or cleared when null or empty; one left out is
   // kept. A save that changes nothing is refused. The old values go to the history.
   'set-guidance': { target: 'map', apply: ({ map, input, store }) => {
-    const changes = guidanceChanges(input);
+    const changes = goalChanges(input);
     need(Object.keys(changes).length, 'Give a mode, an objective or what done looks like.');
     need(Object.entries(changes).some(([field, value]) => (value ?? undefined) !== map[field]), 'Nothing changed.', 409);
-    const previous = Object.fromEntries(guidanceFields.filter(field => map[field] !== undefined).map(field => [field, map[field]]));
+    const previous = Object.fromEntries(goalFields.filter(field => map[field] !== undefined).map(field => [field, map[field]]));
     for (const [field, value] of Object.entries(changes)) { if (value === null) delete map[field]; else map[field] = value; }
     map.guidanceUpdatedAt = now();
     store.event(map, 'guidance-changed', null, '', { previous });
