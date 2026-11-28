@@ -7,7 +7,7 @@ import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { contextExcerpt } from '../skills/explore/scripts/context.mjs';
 import { validateMap } from '../skills/explore/scripts/map-validation.mjs';
 import { inboxJobTypes, noteLines } from '../skills/explore/scripts/inbox.mjs';
-import { restoreSummary } from '../skills/explore/assets/workspace-view.js';
+import { restoreSummary, versionLabel } from '../skills/explore/assets/workspace-view.js';
 import { openThoughts, inboxHtml, notesHtml, proposalItemFor, previewText, textKey, SORT_THOUGHTS } from '../skills/explore/assets/inbox.js';
 import { inboxDialog } from '../skills/explore/assets/inbox-dialog.js';
 
@@ -64,7 +64,14 @@ test('Undo and restore include the inbox, a placed note included, and history na
   saved = await act({ type: 'restore-version', version: versions[1].id, undo: true });
   assert.equal(saved.nodes.find(node => node.id === storage.id).notes, undefined, 'Undo takes the note off');
   assert.equal(saved.inbox[0].state, 'open', 'and the thought is open again, never lost');
+  assert.equal(saved.proposals.at(-1).items[0].review, 'unreviewed', 'and its suggestion waits again');
+  saved = await act({ type: 'review-proposal', proposalId: proposal.id, itemId: proposal.items[0].id, decision: 'dismissed' });
+  versions = (await store.versions.list(map.id)).versions;
+  saved = await act({ type: 'restore-version', version: versions[1].id, undo: true });
+  assert.equal(saved.proposals.at(-1).items[0].review, 'unreviewed', 'Undo after a Dismiss brings the suggestion back');
   assert.match(restoreSummary({ counts: { nodesAdded: 0, nodesRemoved: 0, nodesChanged: 0, linksAdded: 0, linksRemoved: 0, termsChanged: 0, thoughtsChanged: 1 }, reopened: [] }), /^Restoring changes the inbox\./);
+  assert.match(restoreSummary({ counts: { nodesAdded: 0, nodesRemoved: 0, nodesChanged: 0, linksAdded: 0, linksRemoved: 0, termsChanged: 0, reviewsChanged: 1 }, reopened: [] }), /^Restoring changes agents' suggestions or your reviews of them\./);
+  assert.deepEqual(['thought-added', 'thought-edited', 'thought-discarded', 'thought-placed'].map(label => versionLabel({ labels: [label] })), ['Thought added to the inbox', 'Thought edited', 'Thought discarded', 'Thought placed']);
 });
 
 async function sorted() {
@@ -87,6 +94,9 @@ test('sorting sends the open thoughts and an index of ideas; the job keeps which
   const { store, map, thoughts, packet, placements } = await sorted();
   assert.equal(packet.jobType, SORT_THOUGHTS); assert.deepEqual(packet.thoughts, thoughts.map(({ id, text }) => ({ id, text })));
   assert.equal(packet.remainingThoughts, 0); assert.ok(packet.ideas.some(idea => idea.id === map.rootId && idea.title === 'Field notebook' && idea.completed === true)); assert.equal(packet.omittedIdeas, 0);
+  const raw = await store.get(map.id), finishedNotExplored = { ...raw.nodes.find(node => node.title === 'Storage'), status: 'interrupted', completedAt: '2026-01-01T00:00:00.000Z' };
+  const index = inboxJobTypes[SORT_THOUGHTS].packet({ map: { ...raw, nodes: raw.nodes.map(node => (node.id === finishedNotExplored.id ? finishedNotExplored : node)) }, budget: 15500 }).ideas;
+  assert.equal(index.find(idea => idea.id === finishedNotExplored.id).completed, true, 'complete by the Store\'s rule, not only when explored');
   assert.match(packet.retrieval, /read --map/); assert.match(packet.instruction, /never activate/i);
   const job = (await store.get(map.id)).jobs.find(item => item.id === packet.jobId);
   assert.deepEqual(job.included, thoughts.map(thought => ({ thoughtId: thought.id, textKey: textKey(thought.text) })));
@@ -95,7 +105,8 @@ test('sorting sends the open thoughts and an index of ideas; the job keeps which
   for (const [bad, message] of [[placements.slice(1), /exactly one placement for every thought/], [[...placements.slice(0, 2), placements[0]], /places a thought twice|exactly one placement/],
     [[{ ...placements[0], parentId: 'node-nope' }, ...placements.slice(1)], /idea that does not exist/], [[{ ...placements[1], nodeId: 'node-nope' }, placements[0], placements[2]], /idea that does not exist/],
     [[{ ...placements[0], action: 'move' }, ...placements.slice(1)], /new-branch, note or unplaced/], [[{ ...placements[0], kind: 'idea' }, ...placements.slice(1)], /research or hypothesis/],
-    [[{ ...placements[1], title: 'Extra' }, placements[0], placements[2]], /does not take: title/]]) {
+    [[{ ...placements[1], title: 'Extra' }, placements[0], placements[2]], /does not take: title/], [[{ ...placements[0], title: 'Storage' }, ...placements.slice(1)], /already a direction under that idea; propose a note/],
+    [[{ ...placements[0], test: 'Try it.' }, ...placements.slice(1)], /only a hypothesis carries a test/]]) {
     await assert.rejects(store.complete(map.id, packet.jobId, packet.claimKey, { placements: bad }), error => error.status === 400 && message.test(error.message), message.source);
   }
   assert.equal(await readFile(store.file(map.id), 'utf8'), before, 'nothing saved');
@@ -172,22 +183,28 @@ test('thoughts never sorted go first, so every thought gets its turn; a dismisse
   const first = await round();
   assert.deepEqual(first.packet.thoughts.map(thought => thought.text), Array.from({ length: 20 }, (_, i) => `Thought ${i}.`));
   const second = await round();
-  assert.deepEqual(second.packet.thoughts.slice(0, 5).map(thought => thought.text), ['Thought 20.', 'Thought 21.', 'Thought 22.', 'Thought 23.', 'Thought 24.'], 'the ones never sorted first');
+  assert.deepEqual(second.packet.thoughts.map(thought => thought.text), ['Thought 20.', 'Thought 21.', 'Thought 22.', 'Thought 23.', 'Thought 24.'], 'only those never sorted: a suggestion still waiting is never replaced');
+  await assert.rejects(act({ type: 'request-map-job', jobType: SORT_THOUGHTS }), error => error.status === 409 && /suggestion waiting/.test(error.message), 'nothing left to sort');
+  // A thought edited since its suggestion goes again; dismissing the newer suggestion never brings back the older one.
   const thought = (await store.get(map.id)).inbox[0];
-  assert.ok(first.proposal.items.some(entry => entry.thoughtId === thought.id), 'an older suggestion exists');
-  const item = second.proposal.items.find(entry => entry.thoughtId === thought.id);
-  await act({ type: 'review-proposal', proposalId: second.proposal.id, itemId: item.id, decision: 'dismissed' });
-  assert.equal(proposalItemFor(await store.get(map.id), thought), null, 'no older suggestion comes back');
-  await assert.rejects(act({ type: 'review-proposal', proposalId: second.proposal.id, itemId: item.id, decision: 'dismissed' }), error => error.status === 409, 'reviewed once');
+  await act({ type: 'inbox-edit', thoughtId: thought.id, text: 'Thought 0, edited.' });
+  const third = await round();
+  assert.deepEqual(third.packet.thoughts.map(entry => entry.id), [thought.id]);
+  assert.ok(first.proposal.items.some(entry => entry.thoughtId === thought.id && entry.review === 'unreviewed'), 'an older suggestion still waits');
+  const item = third.proposal.items[0];
+  await act({ type: 'review-proposal', proposalId: third.proposal.id, itemId: item.id, decision: 'dismissed' });
+  assert.equal(proposalItemFor(await store.get(map.id), (await store.get(map.id)).inbox[0]), null, 'no older suggestion comes back');
+  await assert.rejects(act({ type: 'review-proposal', proposalId: third.proposal.id, itemId: item.id, decision: 'dismissed' }), error => error.status === 409, 'reviewed once');
 });
 
 test('accepting a new branch makes one inactive suggestion as Add a direction does, and refuses a title the idea already has', async () => {
   const { store, map, act, thoughts, packet, placements } = await sorted();
-  let saved = await store.complete(map.id, packet.jobId, packet.claimKey, { placements: [{ ...placements[0], kind: 'hypothesis' }, { ...placements[1], action: 'new-branch', parentId: map.rootId, title: 'Paper backup', body: 'Again.', reason: undefined }, placements[2]].map(({ reason, nodeId, ...rest }) => (rest.action === 'unplaced' ? { ...rest, reason } : rest)) });
+  let saved = await store.complete(map.id, packet.jobId, packet.claimKey, { placements: [{ ...placements[0], kind: 'hypothesis', test: 'Leave a phone flat for a day.' }, { ...placements[1], action: 'new-branch', parentId: map.rootId, title: 'Paper backup', body: 'Again.', reason: undefined }, placements[2]].map(({ reason, nodeId, ...rest }) => (rest.action === 'unplaced' ? { ...rest, reason } : rest)) });
   const [proposal] = sortsOf(saved), nodes = saved.nodes.length, batches = saved.growth?.batches.length ?? 0, jobs = saved.jobs.length;
   saved = await act({ type: 'place-thought', proposalId: proposal.id, itemId: proposal.items[0].id }, { actor: { name: 'Sam' } });
   const branch = saved.nodes.at(-1);
   assert.equal(saved.nodes.length, nodes + 1); assert.deepEqual([branch.title, branch.status, branch.parentId, branch.kind], ['Paper backup', 'suggested', map.rootId, 'hypothesis']);
+  assert.equal(branch.hypothesis.test, 'Leave a phone flat for a day.', 'the hypothesis says how to test it');
   assert.equal(saved.growth.batches.length, batches + 1); assert.equal(saved.jobs.length, jobs, 'nothing queued');
   const thought = saved.inbox.find(entry => entry.id === thoughts[0].id);
   assert.equal(thought.state, 'placed'); assert.deepEqual(thought.placement, { action: 'new-branch', nodeId: branch.id });
@@ -273,7 +290,7 @@ test('maps without an inbox or notes load unchanged; malformed ones are reported
 });
 
 test('the inbox lists open thoughts with their suggestions, each control naming its thought; history is read-only', () => {
-  const map = { nodes: [{ id: 'root', title: 'Root <a>' }], inbox: [{ id: 'thought-1', text: 'Paper <backup>.', state: 'open' }, { id: 'thought-2', text: 'Encrypt?', state: 'open' }, { id: 'thought-3', text: 'Gone.', state: 'discarded' }, { id: 'thought-4', text: 'Moved.', state: 'open' }],
+  const map = { nodes: [{ id: 'root', title: 'Root <a>' }], inbox: [{ id: 'thought-1', text: 'Paper <backup>.', state: 'open' }, { id: 'thought-2', text: 'Encrypt?', state: 'open' }, { id: 'thought-3', text: 'Gone.', state: 'discarded' }, { id: 'thought-4', text: 'Moved.', state: 'open' }, { id: 'thought-5', text: 'New.', state: 'open' }],
     proposals: [{ id: 'proposal-1', type: SORT_THOUGHTS, items: [{ id: 'item-1', thoughtId: 'thought-1', textKey: textKey('Paper <backup>.'), action: 'new-branch', parentId: 'root', title: 'Paper', body: 'When <batteries> die.', review: 'unreviewed' },
       { id: 'item-2', thoughtId: 'thought-2', textKey: textKey('Encrypt?'), action: 'unplaced', reason: 'Not <here>.', review: 'unreviewed' }, { id: 'item-4', thoughtId: 'thought-4', textKey: textKey('Moved.'), action: 'note', nodeId: 'node-gone', reason: 'Fits.', review: 'unreviewed' }] }], jobs: [] };
   const html = inboxHtml({ map, esc, live: true, editing: null, preview: null, listening: false });
@@ -285,6 +302,7 @@ test('the inbox lists open thoughts with their suggestions, each control naming 
   assert.match(html, /Your agent could not place it: Not &lt;here&gt;\./); assert.doesNotMatch(html, /data-place-thought="item-2"/, 'an unplaced item can only be dismissed');
   assert.match(html, /a note on a removed idea\./); assert.doesNotMatch(html, /node-gone/);
   assert.match(html, /<button type="button" class="primary" data-inbox-sort="">Ask the agent where these belong<\/button>/);
+  assert.match(inboxHtml({ map: { ...map, inbox: map.inbox.slice(0, 4) }, esc, live: true, listening: false }), /Every thought has a suggestion waiting for you\./, 'nothing to sort while every suggestion waits');
   const changed = { ...map, inbox: [{ ...map.inbox[0], text: 'Paper backup, laminated.' }] };
   assert.match(inboxHtml({ map: changed, esc, live: true, listening: false }), /changed since your agent sorted it/); assert.doesNotMatch(inboxHtml({ map: changed, esc, live: true, listening: false }), /data-place-thought/);
   const waiting = inboxHtml({ map: { ...map, jobs: [{ id: 'job-1', type: SORT_THOUGHTS, status: 'queued' }] }, esc, live: true, listening: true });
@@ -353,6 +371,12 @@ test('the inbox dialog captures, edits, discards and asks after F1\'s preview, k
     assert.doesNotMatch(io.element('inbox-body').innerHTML, /Your agent will read/, 'a preview of an earlier map is dropped');
     await io.click({ inboxSort: '' }); assert.equal(routes.length, 2);
     await io.click({ inboxSend: '' }); assert.deepEqual(calls.at(-1), [null, 'request-map-job', { jobType: SORT_THOUGHTS }]);
+    // The agent takes the work: the poll redraws, and focus stays on Stop.
+    map.jobs = [{ id: 'job-7', type: SORT_THOUGHTS, status: 'queued' }]; io.dialog.mapChanged();
+    globalThis.document.activeElement = { id: '', dataset: { inboxStop: 'job-7' } }; io.element('inbox-body').contains = () => true;
+    map.jobs = [{ id: 'job-7', type: SORT_THOUGHTS, status: 'running' }]; io.dialog.mapChanged();
+    assert.equal(io.focused.at(-1), '[data-inbox-stop="job-7"]', 'focus stays on Stop through the redraw');
+    globalThis.document.activeElement = null; io.element('inbox-body').contains = () => false; map.jobs = [];
     await io.click({ placeThought: 'item-1', proposal: 'proposal-1', thought: 'thought-1' });
     assert.deepEqual(calls.at(-1), [null, 'place-thought', { proposalId: 'proposal-1', itemId: 'item-1' }]); assert.equal(io.focused.at(-1), '[data-thought-edit="thought-2"]', 'the next thought');
     await io.click({ dismissItem: 'item-1', proposal: 'proposal-1', thought: 'thought-1' });

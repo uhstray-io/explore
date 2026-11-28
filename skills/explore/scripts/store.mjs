@@ -981,7 +981,7 @@ export class Store {
 
 // `resultIsStale(job)` lets the Store mark results that became stale after they arrived, before the input
 // signature it needs is removed.
-export function publicMap(map, { resultIsStale = () => false, proposalIsStale = proposal => (proposal.type ?? 'check-answers') === 'check-answers' && proposalOutdated(map, proposal) } = {}) {
+export function publicMap(map, { resultIsStale = () => false, proposalIsStale = proposal => !!defaultRegistry.jobTypes[proposal.type ?? 'check-answers']?.proposalOutdated?.(map, proposal) } = {}) {
   const clone = structuredClone(map);
   for (const node of clone.nodes) Object.assign(node, { completed: isCompleted(map, node), hasFindings: hasFindings(map, node) });
   for (const job of clone.jobs) { if (resultIsStale(job)) job.stale = true; delete job.claimKey; delete job.claimHash; delete job.inputSignature; delete job.reuseKey; }

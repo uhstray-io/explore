@@ -2,7 +2,9 @@
 // each belongs, and placing an accepted proposal. Only the user places a thought; suggestions stay inactive.
 import { randomUUID } from 'node:crypto';
 import { textField } from './fields.mjs';
-import { addDirection } from './directions.mjs';
+import { addDirection, directionKinds } from './directions.mjs';
+import { existingChild } from './result-checks.mjs';
+import { hypothesisTest } from './hypotheses.mjs';
 import { includedKey } from './map-jobs.mjs';
 import { isCompleted } from './completion.mjs';
 import { markdownText } from '../assets/workspace-view.js';
@@ -14,7 +16,6 @@ const need = (condition, message, status) => { if (!condition) throw new InboxPr
 const clip = (value, limit) => { const text = String(value ?? ''); return text.length > limit ? `${text.slice(0, limit - 1)}…` : text; };
 const thoughtText = value => textField(typeof value === 'string' ? value.trim() : value, 'A thought', thoughtMax, message => need(false, message));
 const openThought = (map, id) => { const thought = (map.inbox ?? []).find(item => item.id === id); need(thought, 'Thought not found.', 404); need(thought.state === 'open', 'This thought was already placed or discarded.', 409); return thought; };
-const branchKinds = new Set(['research', 'hypothesis']);
 
 export const inboxActions = {
   'inbox-add': { target: 'map', apply: ({ map, input, store }) => {
@@ -46,7 +47,7 @@ export const inboxActions = {
     let target;
     if (item.action === 'new-branch') {
       const parent = map.nodes.find(node => node.id === item.parentId); need(parent, 'The idea it would go under no longer exists.', 409);
-      target = addDirection(store, map, parent, { title: item.title, body: item.body, kind: item.kind }, { detail: 'A thought from the inbox became a direction; not yet activated.', unique: true });
+      target = addDirection(store, map, parent, { title: item.title, body: item.body, kind: item.kind, test: item.test }, { detail: 'A thought from the inbox became a direction; not yet activated.', unique: true });
     } else {
       target = map.nodes.find(node => node.id === item.nodeId); need(target, 'The idea it would go on no longer exists.', 409);
       target.notes = [...notesOf(target), { id: `note-${randomUUID().slice(0, 8)}`, text: thought.text, createdAt: at, fromThought: thought.id }];
@@ -80,7 +81,7 @@ function sortPacket({ map, budget }) {
 }
 const instruction = 'Propose a place for each thought; never activate anything. Return placements: exactly one per thought, { thoughtId, action: "new-branch", parentId, title, body, kind? } to start a suggested branch under an idea, { thoughtId, action: "note", nodeId, reason } to add the thought as the user\'s note on an existing idea, or { thoughtId, action: "unplaced", reason }. Prefer a note when a thought adds to an existing branch, and a new branch when it opens a separate question. A thought that changes a finished premise becomes a new branch, not a note. Only the user accepts a placement.';
 
-const placementFields = { 'new-branch': ['thoughtId', 'action', 'parentId', 'title', 'body', 'kind'], note: ['thoughtId', 'action', 'nodeId', 'reason'], unplaced: ['thoughtId', 'action', 'reason'] };
+const placementFields = { 'new-branch': ['thoughtId', 'action', 'parentId', 'title', 'body', 'kind', 'test'], note: ['thoughtId', 'action', 'nodeId', 'reason'], unplaced: ['thoughtId', 'action', 'reason'] };
 function validateSort(result, { map, job }) {
   const fail = message => need(false, message);
   const extra = Object.keys(result).filter(key => key !== 'placements');
@@ -97,8 +98,12 @@ function validateSort(result, { map, job }) {
     need(!unknown.length, `${label} has fields a ${item.action} placement does not take: ${unknown.join(', ')}.`);
     if (item.action === 'new-branch') {
       need(exists(item.parentId), `${label} names an idea that does not exist.`);
-      need(item.kind === undefined || branchKinds.has(item.kind), `${label}: kind must be research or hypothesis.`);
-      return { thoughtId: item.thoughtId, action: 'new-branch', parentId: item.parentId, title: textField(item.title, `${label} title`, 100, fail), body: textField(item.body, `${label} body`, 4000, fail), kind: item.kind ?? 'research' };
+      need(item.kind === undefined || directionKinds.has(item.kind), `${label}: kind must be research or hypothesis.`);
+      const title = textField(item.title, `${label} title`, 100, fail);
+      // A title its parent already has could never be accepted: propose a note on that direction instead.
+      need(!existingChild(map, map.nodes.find(node => node.id === item.parentId), title), `${label}: "${title}" is already a direction under that idea; propose a note on it instead.`);
+      need(item.test === undefined || item.kind === 'hypothesis', `${label}: only a hypothesis carries a test.`);
+      return { thoughtId: item.thoughtId, action: 'new-branch', parentId: item.parentId, title, body: textField(item.body, `${label} body`, 4000, fail), kind: item.kind ?? 'research', ...(item.test !== undefined ? { test: hypothesisTest(item.test, fail) } : {}) };
     }
     if (item.action === 'note') need(exists(item.nodeId), `${label} names an idea that does not exist.`);
     return { thoughtId: item.thoughtId, action: item.action, ...(item.action === 'note' ? { nodeId: item.nodeId } : {}), reason: textField(item.reason, `${label} reason`, 600, fail) };
@@ -110,7 +115,7 @@ export const inboxJobTypes = {
     label: 'Sort thoughts', target: 'map',
     reason: 'The user asked where the inbox thoughts belong.',
     // Which thoughts go is decided when the agent takes the work, from the thoughts open then.
-    prepare: ({ map }) => { need(openThoughts(map).length, 'There are no open thoughts to sort.', 409); return {}; },
+    prepare: ({ map }) => { need(openThoughts(map).length, 'There are no open thoughts to sort.', 409); need(sortOrder(map).length, 'Every open thought has a suggestion waiting for you. Accept or dismiss those first.', 409); return {}; },
     packet: sortPacket,
     validate: validateSort,
     // Stale once a thought it read was placed, discarded or edited.

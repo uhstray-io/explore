@@ -41,8 +41,9 @@ const hash = value => createHash('sha256').update(JSON.stringify(value)).digest(
 export function contentHash(map) { const { revision, updatedAt, ...content } = snapshotOf(map); return hash(content); }
 // What a restore replaces. The event log and growth history only grow, and today's layout is kept. A map saved
 // before the glossary has an empty one.
-const restorableFields = ['title', 'originalIdea', 'mode', 'objective', 'successCriteria', 'rootId', 'nodes', 'edges', 'jobs', 'glossary', 'inbox'];
-export const restorableContent = map => Object.fromEntries(restorableFields.map(key => [key, key === 'glossary' || key === 'inbox' ? map[key] ?? [] : map[key]]));
+const restorableFields = ['title', 'originalIdea', 'mode', 'objective', 'successCriteria', 'rootId', 'nodes', 'edges', 'jobs', 'glossary', 'inbox', 'proposals'];
+const listFields = new Set(['glossary', 'inbox', 'proposals']); // Absent in older maps: restored as empty.
+export const restorableContent = map => Object.fromEntries(restorableFields.map(key => [key, listFields.has(key) ? map[key] ?? [] : map[key]]));
 export function restorableHash(map) { return hash(restorableContent(snapshotOf(map))); }
 export function shouldRecord(labels) { return labels.some(label => !bookkeeping.has(label)); }
 // A version file's header, or why no version can be read from it. A damaged file is left alone and never offered.
@@ -166,7 +167,7 @@ export class Versions {
 
 // What restoring `snapshot` would change in `current`, and which finished branches it would reopen.
 // How many glossary entries differ between two maps, added or removed (an edit counts both ways).
-function glossaryDifference(a, b, field = 'glossary') {
+function entryDifference(a, b, field) {
   const entries = map => new Set((map[field] ?? []).map(entry => JSON.stringify(entry)));
   const left = entries(a), right = entries(b);
   return [...right].filter(entry => !left.has(entry)).length + [...left].filter(entry => !right.has(entry)).length;
@@ -183,8 +184,9 @@ export function compareVersion(current, snapshot, isCompleted) {
       nodesChanged: [...then.keys()].filter(id => now.has(id) && JSON.stringify(now.get(id)) !== JSON.stringify(then.get(id))).length,
       linksAdded: [...thenEdges].filter(key => !nowEdges.has(key)).length,
       linksRemoved: [...nowEdges].filter(key => !thenEdges.has(key)).length,
-      termsChanged: glossaryDifference(current, snapshot),
-      thoughtsChanged: glossaryDifference(current, snapshot, 'inbox'), // The inbox (K8), the same way.
+      termsChanged: entryDifference(current, snapshot, 'glossary'),
+      thoughtsChanged: entryDifference(current, snapshot, 'inbox'), // The inbox (K8), the same way.
+      reviewsChanged: entryDifference(current, snapshot, 'proposals'), // Agents' suggestions and the user's reviews of them.
       guidanceChanged: ['mode', 'objective', 'successCriteria'].some(field => (current[field] ?? null) !== (snapshot[field] ?? null)),
     },
     reopened: [...then.keys()].filter(id => now.has(id) && isCompleted(current, now.get(id)) && !isCompleted(snapshot, then.get(id))),

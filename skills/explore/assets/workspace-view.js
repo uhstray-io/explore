@@ -198,6 +198,7 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
     counts.linksAdded && `brings back ${count(counts.linksAdded, 'connection')}`,
     counts.termsChanged && `changes the glossary`,
     counts.thoughtsChanged && 'changes the inbox',
+    counts.reviewsChanged && 'changes agents\' suggestions or your reviews of them',
     counts.guidanceChanged && 'changes the goal and mode',
   ].filter(Boolean);
   const changes = parts.length ? `${verb} ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}.` : `${verb} changes no ideas or connections.`;

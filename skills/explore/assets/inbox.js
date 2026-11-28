@@ -28,11 +28,11 @@ export function proposalItemFor(map, thought) {
   const found = newestItem(map, thought);
   return found?.item.review === 'unreviewed' ? found : null;
 }
-// The order thoughts go to the agent: never sorted first, then those whose suggestion was set aside or which changed
-// since, then those whose suggestion still waits; oldest first within each. So every thought gets its turn.
+// The thoughts to send, in order: never sorted first, then those whose suggestion was set aside or which changed since;
+// oldest first within each, so every thought gets its turn. A thought whose suggestion still waits is not sent again.
 export function sortOrder(map) {
   const rank = thought => { const found = newestItem(map, thought); return !found ? 0 : found.item.review === 'unreviewed' && found.item.textKey === textKey(thought.text) ? 2 : 1; };
-  return openThoughts(map).map((thought, index) => ({ thought, index, rank: rank(thought) })).sort((a, b) => a.rank - b.rank || a.index - b.index).map(entry => entry.thought);
+  return openThoughts(map).map((thought, index) => ({ thought, index, rank: rank(thought) })).filter(entry => entry.rank < 2).sort((a, b) => a.rank - b.rank || a.index - b.index).map(entry => entry.thought);
 }
 
 // The inspector: an idea's notes, the user's own words placed from the inbox.
@@ -74,6 +74,7 @@ export function inboxHtml({ map, esc, live, editing, preview, listening, readOnl
   const request = !live || !thoughts.length ? ''
     : pending ? `<p class="question-help-status" id="inbox-status" tabindex="-1" role="status">${waitingWords(pending, listening, 'sorting these thoughts')} <button type="button" class="text-button" data-inbox-stop="${esc(pending.id)}">Stop</button></p>`
     : preview ? `<div class="inbox-preview"><p>${esc(previewText(preview))}</p><div class="brief-actions"><button type="button" class="primary" data-inbox-send="">Send to your agent</button><button type="button" class="text-button" data-inbox-cancel="">Cancel</button></div></div>`
+    : !sortOrder(map).length ? '<p class="form-note">Every thought has a suggestion waiting for you.</p>'
     : `${failed}<button type="button" class="primary" data-inbox-sort="">Ask the agent where these belong</button>`;
   const note = live ? '' : `<p class="form-note">${esc(readOnly)} Return to the live map to add or place thoughts.</p>`;
   return `${note}${thoughts.length ? `<ul class="inbox-thoughts">${thoughts.map(row).join('')}</ul>` : '<p class="form-note">No open thoughts. Jot one down above.</p>'}${request}`;
