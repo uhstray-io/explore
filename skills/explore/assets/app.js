@@ -7,6 +7,7 @@ import { branchRestorePanel } from './branch-restore.js';
 import { exportPanel } from './export-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
+import { usageDialog } from './usage-dialog.js';
 import { recoverDialog } from './recover-dialog.js';
 import { questionClick } from './question-clicks.js';
 import { sinceVisitPanel } from './since-visit.js';
@@ -772,6 +773,7 @@ const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map
   } });
 const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
+$('#usage-open').addEventListener('click', usageDialog({ api, esc, openMap: id => openMap(id) }));
 $('#storage-open').addEventListener('click', storageDialog({ api, esc, titleOf: id => state.maps.find(map => map.id === id)?.title ?? id }));
 $('#create-form').addEventListener('submit', async event => {
   event.preventDefault();
