@@ -11,6 +11,7 @@ import { impactHtml } from '../skills/explore/assets/impact.js';
 import { foldMenuItems } from '../skills/explore/assets/folds.js';
 import { goalSectionHtml, goalEditorHtml, goalInput, goalEdits } from '../skills/explore/assets/guidance.js';
 import { branchComplete } from '../skills/explore/assets/graph.js';
+import { hypothesisHtml, directionKindHtml } from '../skills/explore/assets/hypothesis.js';
 import { readOnlyNote } from '../skills/explore/assets/history.js';
 import { isInvestigationJob } from '../skills/explore/assets/workspace-view.js';
 import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, tidyArrived, runNoteHtml } from '../skills/explore/assets/workspace-view.js';
@@ -66,7 +67,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, readOnlyNote, isInvestigationJob, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, foldMenuItems, goalSectionHtml, goalEditorHtml, goalEdits, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, hypothesisHtml, directionKindHtml, readOnlyNote, isInvestigationJob, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, foldMenuItems, goalSectionHtml, goalEditorHtml, goalEdits, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }

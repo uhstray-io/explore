@@ -10,6 +10,7 @@ import { findingsBasis, unsupportedClaimCount, basisNote } from '../assets/claim
 import { agreedTerms, proposedTerms } from '../assets/glossary.js';
 import { goalOf } from '../assets/guidance.js';
 import { goalLines } from './guidance.mjs';
+import { hypothesisBriefText } from './hypotheses.mjs';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
@@ -50,6 +51,8 @@ export function mapBrief(map, nodeId = null) {
       return node ? entry(node, `${reviewWords[item.category] || item.category}: ${item.explanation}`, { proposalId: proposal.id, itemId: item.id }) : null;
     }).filter(Boolean))],
     ['risks', 'Risk investigations — not verified risks', nodes.filter(n => n.kind === 'risk').map(n => entry(n))],
+    // Hypotheses (K13): the outcome the user recorded and the agent's proposal, never read as one another.
+    ['hypotheses', 'Hypotheses — outcomes the user recorded, proposals kept apart', nodes.filter(n => n.kind === 'hypothesis').map(n => entry(n, hypothesisBriefText(n), { outcome: n.hypothesis?.outcome ?? null, proposed: n.hypothesis?.proposed?.outcome ?? null }))],
     ['directions', 'Unexplored directions', nodes.filter(n => n.status === 'suggested').map(n => entry(n, n.prompt || n.summary))],
     ['active', 'Queued, running, or interrupted work', nodes.filter(n => ['queued', 'running', 'interrupted'].includes(n.status)).map(n => entry(n, n.summary, n.doneWhen ? { doneWhen: clip(normalizeDoneWhen(n.doneWhen), doneWhenMax) } : {}))],
     ['relationships', 'Recorded semantic relationships — not verified conclusions', map.edges.filter(e => e.type !== 'contains' && (ids.has(e.from) || ids.has(e.to))).map(e => {

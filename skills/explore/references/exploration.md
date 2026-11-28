@@ -51,6 +51,8 @@ For a neighborhood workshop, “Marketing,” “Budget,” and “Operations”
 
 These are examples of useful distinctions, not branches to insert into unrelated maps. Avoid duplicating existing directions or researching an unselected child. A suggestion is an invitation for the user to activate it. Its proposed outcomes are hypotheses, not conclusions.
 
+Suggest a `hypothesis` instead of a research direction when the work runs on a testable guess, as in diagnosing a problem or testing a design: its body is the claim, "I think X is true", and its `test` the smallest check that could refute it. When you explore one, design that test, gather evidence for and against, and propose an outcome in `hypothesis`. Never record an outcome: the user does.
+
 ## Ask questions worth interrupting for
 
 A question should resolve a decision-relevant ambiguity that research or the existing map cannot answer. Ask about the user's priorities, constraints, lived context, or a choice reserved for them. Investigate externally answerable factual uncertainty with available tools. If evidence is unavailable, state that limit instead of disguising a factual question as a preference.
