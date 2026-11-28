@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { briefDialog } from '../skills/explore/assets/brief-dialog.js';
+import { briefDialog, briefFilename, briefPreview } from '../skills/explore/assets/brief-dialog.js';
 
 // The brief dialog, moved out of app.js. A small fake DOM; no server.
 function fakeDocument() {
@@ -55,4 +55,23 @@ test('Retry asks again for the same branch, and copying falls back to selected t
       assert.equal(doc.element('brief-copy-fallback').value, '# Branch'); assert.equal(doc.element('brief-copy-fallback').hidden, false);
     } finally { if (clipboard) Object.defineProperty(globalThis.navigator, 'clipboard', clipboard); else delete globalThis.navigator.clipboard; }
   } finally { delete globalThis.document; }
+});
+test('brief filenames remain usable for titles containing platform path characters', () => {
+  assert.equal(briefFilename('Pricing / launch: Q4?'), 'Pricing - launch- Q4--brief.md');
+  assert.equal(briefFilename(''), 'exploration-brief.md');
+  assert.equal(briefFilename('Plan...'), 'Plan-brief.md');
+  assert.ok(!briefFilename('../data\\node\u0000').includes('/'));
+});
+
+test('brief preview treats saved HTML and links as text while preserving stale and omission notices', () => {
+  const brief = { originalIdea: '<img src=x onerror=alert(1)>', counts: { nodes: 3, explored: 2, accepted: 1, stale: 1, awaitingAnswer: 0 }, sections: [
+    { label: '<script>alert(1)</script>', omitted: 2, items: [{ title: 'Research <b>title</b>', text: '[click](javascript:alert(1)) & <iframe>', nodeId: 'node-123', status: 'explored', reviewState: 'accepted', stale: true }] },
+  ] };
+  const html = briefPreview(brief);
+  assert.ok(!html.includes('<script>') && !html.includes('<img') && !html.includes('<iframe'));
+  assert.ok(!html.includes('<a ') && !html.includes('<b>title'));
+  assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /Explored · needs review/);
+  assert.match(html, /2 more records/);
+  assert.match(html, /node-123/);
 });

@@ -1,4 +1,4 @@
-import { presentation, treeOrder, branchComplete } from './graph.js';
+import { treeOrder, branchComplete } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY, answerStateLabels, effectiveAnswerState, certaintyText,
   hasCurrentAnswer, isOpen, isSavedForLater, importanceLevels, importanceName } from './questions.js';
 
