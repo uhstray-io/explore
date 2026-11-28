@@ -4,6 +4,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
+import { topicProfiles } from '../assets/workspace-view.js';
 import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
@@ -240,6 +241,8 @@ export class Store {
       overview.push(`- [${n.title.replace(/[\[\]]/g, '')}](nodes/${n.id}.md): ${n.status}; ${n.reviewState}${n.stale ? '; needs review after a premise changed' : ''}. ${n.summary.replace(/\n/g, ' ')}`);
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
         `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
+      const guidance = map.jobs.filter(j => j.nodeId === n.id && isInvestigation(j) && j.status === 'completed').at(-1)?.result?.topicProfile;
+      if (Object.hasOwn(topicProfiles, guidance ?? '')) lines.push('', `Guidance: ${topicProfiles[guidance]}`);
       if (n.options?.length) lines.push('', ...comparisonLines(n));
       if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
       if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
@@ -679,6 +682,7 @@ export class Store {
         return { title: text(s.title, 'Suggestion title', 100), body: text(s.body || s.summary, 'Suggestion detail', 4000), kind: nodeKinds.has(s.kind) ? s.kind : 'research' };
       }),
       sources: sourceList(result.sources, message => { throw new Problem(message); }),
+      ...(result.topicProfile === undefined ? {} : { topicProfile: need(Object.hasOwn(topicProfiles, result.topicProfile), `topicProfile must be one of: ${Object.keys(topicProfiles).join(', ')}.`) ?? result.topicProfile }),
       links: list(result.links, 'Links', 12).map(e => {
         object(e, 'Relationship');
         const exists = map.nodes.some(n => n.id === e.to);

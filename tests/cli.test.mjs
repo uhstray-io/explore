@@ -76,7 +76,7 @@ test('all three project installation paths receive a complete portable package',
     const installed = path.join(project, folder, 'skills/explore');
     assert.equal(await readFile(path.join(installed, 'SKILL.md'), 'utf8'), await readFile(path.join(skill, 'SKILL.md'), 'utf8'));
     await access(path.join(installed, 'assets/app.js')); await access(path.join(installed, 'scripts/server.mjs'));
-    await access(path.join(installed, 'references/exploration.md'));
+    await access(path.join(installed, 'references/exploration.md')); await access(path.join(installed, 'references/topics/general.md'));
     const diagnosis = JSON.parse((await exec(process.execPath, [path.join(installed, 'scripts/cli.mjs'), 'doctor', '--workspace', project], { cwd: path.dirname(project) })).stdout);
     assert.equal(diagnosis.skillDirectory, installed + path.sep);
     assert.equal(diagnosis.workspace, project); assert.equal(diagnosis.state, 'not-started');

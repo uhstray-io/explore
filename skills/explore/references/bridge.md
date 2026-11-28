@@ -57,6 +57,8 @@ To create a map, the input file is `{ "title": "Short name", "idea": "The user's
 }
 ```
 
+Optional `topicProfile` names the research guidance you followed: `general`, `software-versions`, `products-services` or `concepts-tradeoffs` (see "Choose a topic profile" in `exploration.md`). Any other value is rejected. It is kept with the result and shown under the findings.
+
 This format is for `jobType: "investigate"`, the branch investigation. Other job types are described below.
 
 When the branch is really a choice, a result can also compare options and recommend one. All of these are optional and need each other:

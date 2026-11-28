@@ -67,6 +67,19 @@ Use these distinctions where needed rather than filling a mandatory template. Re
 
 When a prior premise changes, check relevant dependency links and stale findings before building on them. Keep prior work and its reasons visible. Save the result's rationale and evidence, not a transcript of private reasoning.
 
+## Choose a topic profile
+
+Before researching a job, pick one profile and read only that file. It adds checks for that kind of topic to the rules here; it never replaces them, grants no extra tools and is not evidence.
+
+| Profile | Choose it when |
+| --- | --- |
+| [General](topics/general.md) | The default: the topic is mixed, unfamiliar or not technical, or you are unsure. |
+| [Software and versions](topics/software-versions.md) | The branch is about adopting, upgrading, migrating or combining software. |
+| [Products and services](topics/products-services.md) | The branch is about buying, renting, subscribing to or hiring something. |
+| [Concepts and design trade-offs](topics/concepts-tradeoffs.md) | The branch defines an idea or weighs competing approaches. |
+
+Do not force a software lens on an idea that is not technical. Name the profile you used in the result's `topicProfile`.
+
 ## Stop with a useful result
 
 Before investigating further, judge what would count as enough for this branch. Completion may mean a comparison that enables a choice, a bounded explanation, a tested hypothesis, or a concrete next experiment. Stop when further work is unlikely to change that outcome within the user's scope; explicitly leave residual uncertainty rather than implying exhaustive research.
