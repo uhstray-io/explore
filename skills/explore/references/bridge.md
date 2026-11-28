@@ -177,6 +177,22 @@ Deliver with the same `result --job ID --file result.json`:
 
 Categories: `possible-tension`, `unresolved-choice`, `untested-assumption`. At most 12 findings; text up to 1,000 characters; each finding cites 1–8 records from `records`. An empty list is a valid result. Report what you notice between saved statements; never call an answer wrong or answer for the user. The result becomes a proposal: each point waits for the user to keep or dismiss it, and nothing in the map changes. A tension that rests on an answer the user has not marked Decided is shown as an unresolved choice. A check whose answers changed meanwhile is marked stale. `GET /api/maps/ID/job-preview?type=check-answers` shows the packet without starting anything.
 
+## Map jobs: Sort thoughts
+
+The user jots rough thoughts into the map's inbox and, when they ask, a `sort-thoughts` packet carries them: `thoughts` (`{ id, text }`, at most 20, in full) and `ideas`, an index of the map in reading order (`{ id, title, kind, status, completed, summary }`, summaries shortened), with `omittedIdeas` counted; use `read --map ID --query TEXT` for more. Propose a place for each thought; never activate anything:
+
+```json
+{
+  "placements": [
+    {"thoughtId": "thought-1a2b3c4d", "action": "new-branch", "parentId": "node-…", "title": "Paper backup", "body": "Why it matters and what to explore", "kind": "research"},
+    {"thoughtId": "thought-5e6f7a8b", "action": "note", "nodeId": "node-…", "reason": "It adds to the storage question."},
+    {"thoughtId": "thought-9c0d1e2f", "action": "unplaced", "reason": "Not about this exploration."}
+  ]
+}
+```
+
+Give exactly one placement per thought; `parentId` and `nodeId` must exist. Titles are at most 100 characters, bodies 4,000, reasons 600; `kind` follows the suggestion kinds. Prefer a note when a thought adds to an existing branch, and a new branch when it opens a separate question; a thought that changes a finished premise becomes a new branch, not a note. The result is stored as a proposal: only the user accepts a placement. A note keeps the user's own words, and a later branch packet carries an idea's notes as `selected.userNotes`: the user's context, not findings or answers.
+
 ## Mutations
 
 An action carries `expectedRevision` and `type`, plus `nodeId` unless the action covers the whole map. Use the current revision returned by `read`. On a conflict, re-read before deciding whether the action still applies; do not blindly overwrite. Map-level actions still need `expectedRevision` and run one at a time like every other action.

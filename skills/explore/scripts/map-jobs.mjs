@@ -142,6 +142,7 @@ export const mapJobActions = {
     const proposal = (map.proposals || []).find(p => p.id === input.proposalId), item = proposal?.items.find(i => i.id === input.itemId);
     need(item, 'That review point no longer exists.', 404);
     need(['accepted', 'dismissed'].includes(input.decision), 'Choose Keep or Dismiss.');
+    need(!(proposal.type === 'sort-thoughts' && input.decision === 'accepted'), 'Use Accept to place this thought.'); // K8: placing applies it.
     Object.assign(item, { review: input.decision, reviewedAt: new Date().toISOString(), ...(actor?.name ? { reviewedBy: { name: actor.name } } : {}) });
     store.event(map, 'proposal-reviewed', null, `${proposal.id}/${item.id}: ${input.decision}`);
   } },

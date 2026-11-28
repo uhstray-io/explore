@@ -10,6 +10,7 @@ import { findingsBasis, unsupportedClaimCount, basisNote } from '../assets/claim
 import { agreedTerms, proposedTerms } from '../assets/glossary.js';
 import { goalOf } from '../assets/guidance.js';
 import { goalLines } from './guidance.mjs';
+import { openThoughts } from '../assets/inbox.js';
 import { assumptionRegister } from '../assets/assumptions.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
@@ -49,7 +50,7 @@ export function mapBrief(map, nodeId = null) {
     // Older results could not record these, so an empty section never reads as "none found".
     ['limitations', 'Conflicts and evidence gaps — unresolved', nodes.flatMap(n => (n.limitations || []).map(record => entry(n, `${limitationLabel(record.kind)}: ${clip(record.summary, 180)} Next step: ${clip(record.nextStep, 100)}`, { limitationId: record.id, kind: record.kind }))),
       '_None recorded. Results saved before this feature could not record them._'],
-    ['reviews', 'Agent reviews waiting for you — not conclusions', (map.proposals || []).filter(proposal => !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
+    ['reviews', 'Agent reviews waiting for you — not conclusions', (map.proposals || []).filter(proposal => (proposal.type ?? 'check-answers') === 'check-answers' && !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
       const node = nodes.find(n => item.refs.some(ref => ref.nodeId === n.id));
       return node ? entry(node, `${reviewWords[item.category] || item.category}: ${item.explanation}`, { proposalId: proposal.id, itemId: item.id }) : null;
     }).filter(Boolean))],
@@ -67,7 +68,7 @@ export function mapBrief(map, nodeId = null) {
     goal: goalOf(map), // Mode, objective and success criteria (A1), or null. `guidance` below is how to read the brief.
     counts: { nodes: nodes.length, explored: count(n => n.status === 'explored'), accepted: count(n => n.reviewState === 'accepted' && !n.stale && n.status === 'explored'),
       stale: count(n => n.stale), awaitingAnswer: count(n => n.status === 'awaiting-answer'), queued: count(n => n.status === 'queued'),
-      running: count(n => n.status === 'running'), suggested: count(n => n.status === 'suggested'), interrupted: count(n => n.status === 'interrupted') },
+      running: count(n => n.status === 'running'), suggested: count(n => n.status === 'suggested'), interrupted: count(n => n.status === 'interrupted'), openThoughts: openThoughts(map).length },
     sections: definitions.map(([id, label, items, empty]) => ({ id, label, total: items.length, omitted: Math.max(0, items.length - 5), items: items.slice(0, 5), ...(empty ? { empty } : {}) })),
     glossary: Object.fromEntries([['agreed', agreedTerms(map), 10], ['proposed', proposedTerms(map), 5]].map(([part, entries, shown]) =>
       [part, { total: entries.length, omitted: Math.max(0, entries.length - shown), items: entries.slice(0, shown).map(entry => ({ term: entry.term, definition: clip(entry.definition, 240) })) }])),
@@ -76,7 +77,7 @@ export function mapBrief(map, nodeId = null) {
   const render = () => {
     const lines = [`# ${line(brief.title)} — exploration brief`, '', `Map: ${map.id} | Revision: ${map.revision}${nodeId ? ` | Branch: ${nodeId}` : ''}`, '', brief.guidance,
       '', '## Original idea (excerpt)', '', ...brief.originalIdea.split('\n').map(text => `> ${line(text)}`), ...(brief.goal ? ['', ...goalLines(map)] : []), '', '## Progress', '',
-      `${brief.counts.nodes} ideas; ${brief.counts.explored} explored; ${brief.counts.accepted} accepted and current; ${brief.counts.stale} need review; ${brief.counts.awaitingAnswer} awaiting answers.`,
+      `${brief.counts.nodes} ideas; ${brief.counts.explored} explored; ${brief.counts.accepted} accepted and current; ${brief.counts.stale} need review; ${brief.counts.awaitingAnswer} awaiting answers.${brief.counts.openThoughts ? ` ${brief.counts.openThoughts === 1 ? '1 open thought' : `${brief.counts.openThoughts} open thoughts`} in the inbox, not yet placed.` : ''}`,
       '', 'Sections may overlap. This is a bounded index, not an exhaustive specification.'];
     for (const section of brief.sections) {
       lines.push('', `## ${section.label}`, '');

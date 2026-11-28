@@ -95,12 +95,14 @@ const shapes = {
   map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
-    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }),
+    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), inbox: list({ optional: true }),
     mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: rule(value => isText(value) && value.length <= goalMax, { optional: true }), successCriteria: rule(value => isText(value) && value.length <= goalMax, { optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
     prompt: text({ optional: true }), doneWhen: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
-    stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }), assumptions: list({ optional: true }) },
+    stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }), assumptions: list({ optional: true }), notes: list({ optional: true }) },
+  thought: { id: anId(), text: text(), state: oneOf(new Set(['open', 'placed', 'discarded'])) },
+  note: { text: text() },
   question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }), disproveIf: text({ optional: true }) },
   assumption: { statement: text(), wouldChangeIf: text() },
   term: { id: anId(), term: text({ unreadable: true }), definition: text({ unreadable: true }), status: oneOf(new Set(['agreed', 'proposed'])) },
@@ -131,10 +133,12 @@ export function validateMap(map, { folderId } = {}) {
   if (folderId && isText(map.id) && map.id !== folderId) report('id-mismatch', 'id', true);
   const nodes = Array.isArray(map.nodes) ? map.nodes : [], edges = Array.isArray(map.edges) ? map.edges : [], jobs = Array.isArray(map.jobs) ? map.jobs : [];
   if (Array.isArray(map.glossary)) map.glossary.forEach((entry, i) => check(entry, shapes.term, `glossary[${i}]`, { unreadable: true }));
+  if (Array.isArray(map.inbox)) map.inbox.forEach((thought, i) => check(thought, shapes.thought, `inbox[${i}]`));
   nodes.forEach((node, i) => {
     if (!check(node, shapes.node, `nodes[${i}]`, { unreadable: true })) return;
     if (Array.isArray(node.questions)) node.questions.forEach((question, j) => check(question, shapes.question, `nodes[${i}].questions[${j}]`));
     if (Array.isArray(node.sources)) node.sources.forEach((source, j) => check(source, shapes.source, `nodes[${i}].sources[${j}]`));
+    if (Array.isArray(node.notes)) node.notes.forEach((note, j) => check(note, shapes.note, `nodes[${i}].notes[${j}]`));
     if (Array.isArray(node.assumptions)) node.assumptions.forEach((item, j) => check(item, shapes.assumption, `nodes[${i}].assumptions[${j}]`));
   });
   edges.forEach((edge, i) => check(edge, shapes.edge, `edges[${i}]`, { unreadable: true }));
