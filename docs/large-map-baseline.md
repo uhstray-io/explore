@@ -97,3 +97,13 @@ Browser verification on the existing 500-node QA map:
 - All 21 automated tests, syntax checks, and static prototype verification passed. The standalone snapshot hashes remain unchanged.
 
 Issue 09 is resolved on the basis of these checks and the owner's review. A long owner-led real-idea conversation and host token/context usage remain unmeasured; [issue 11](../.scratch/explore/issues/11-context-growth.md) explicitly retains those tasks. The review is not substituted for those measurements.
+
+## Impact on a 500-idea map (D4)
+
+Measured 2026-11-28 with Node v24.22.1, on a synthetic map built in memory: 500 ideas in a four-child tree plus 500 `depends_on` links between pseudo-random pairs (a fixed seed, so every run sees the same map). Nothing was read from or written to `ideas/`.
+
+- `impactIndex` for the whole map took 22.7–25.4 ms across five runs, once per map revision; the result is cached per map object, so a second `mapOverview` on the same map took about 1 ms.
+- 219 ideas landed in the high band and 281 in the low band; none in medium, because the random links spread far once they reach the tree.
+- The inspector's twelve paths (`impactPath`) for the starting idea took about 1.3 ms together.
+
+These are single local timings, recorded rather than asserted, as the issue asks.

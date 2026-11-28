@@ -31,18 +31,20 @@ export function treeOrder(map) {
   for (const node of map.nodes) walk(node);
   return out;
 }
+// The links along which a change spreads, by the idea it starts from: to its `contains` children, and from a
+// prerequisite to each idea linked as depending on it. Each is { to, dependency }, sorted by `to`. Impact (D4) and
+// the Store's review flags both walk these, so they always agree.
+export function changeLinks(map) {
+  const links = new Map(), add = (from, to, dependency) => { if (!links.has(from)) links.set(from, []); links.get(from).push({ to, dependency }); };
+  for (const edge of map.edges ?? []) { if (edge.type === 'contains') add(edge.from, edge.to, false); else if (edge.type === 'depends_on') add(edge.to, edge.from, true); }
+  for (const list of links.values()) list.sort((a, b) => (a.to < b.to ? -1 : a.to > b.to ? 1 : 0));
+  return links;
+}
 // What builds on these ideas: their `contains` descendants and, transitively, ideas linked as depending on them.
 // Includes the ideas themselves.
 export function downstreamOf(map, nodeIds) {
-  const affected = new Set([].concat(nodeIds));
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const edge of map.edges) {
-      const next = edge.type === 'contains' && affected.has(edge.from) ? edge.to : edge.type === 'depends_on' && affected.has(edge.to) ? edge.from : null;
-      if (next && !affected.has(next)) { affected.add(next); changed = true; }
-    }
-  }
+  const links = changeLinks(map), affected = new Set([].concat(nodeIds));
+  for (const id of affected) for (const link of links.get(id) ?? []) affected.add(link.to); // A Set visits what is added while iterating.
   return affected;
 }
 // An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.

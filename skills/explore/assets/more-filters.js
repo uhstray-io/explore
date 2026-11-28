@@ -3,7 +3,7 @@
 export function moreFiltersHtml(groups, { esc, active }) {
   const section = (kind, heading) => `<div class="more-filters-group" role="group" aria-label="${heading}"><h3>${heading}</h3>${groups.filter(group => group.kind === kind)
     .map(group => `<button type="button" data-more-filter="${group.id}" aria-pressed="${group.id === active}"><span>${esc(group.short)}</span><strong>${group.nodes.length}</strong></button>`).join('')}</div>`;
-  return section('state', 'How settled answers are') + section('importance', 'Importance of open questions');
+  return section('state', 'How settled answers are') + section('importance', 'Importance of open questions') + (groups.some(group => group.kind === 'impact') ? section('impact', 'Impact') : '');
 }
 
 // The More filters button, its panel and Clear filter. `openFilter(id)` sets the one shared filter (null clears it);

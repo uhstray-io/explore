@@ -7,6 +7,7 @@ import { doneWhenSection, doneWhenMenuItem, canExplore } from '../skills/explore
 import * as questionHelpers from '../skills/explore/assets/questions.js';
 import { limitationsHtml, optionLimitationNotes } from '../skills/explore/assets/limitations.js';
 import { claimsHtml, basisHtml } from '../skills/explore/assets/claims.js';
+import { impactHtml } from '../skills/explore/assets/impact.js';
 import { branchComplete } from '../skills/explore/assets/graph.js';
 import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, tidyArrived, runNoteHtml } from '../skills/explore/assets/workspace-view.js';
 
@@ -61,7 +62,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, branchComplete, limitationsHtml, optionLimitationNotes, claimsHtml, basisHtml, impactHtml, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }

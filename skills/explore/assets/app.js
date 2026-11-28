@@ -20,6 +20,7 @@ import { claimsHtml, basisHtml } from './claims.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
 import { commandPalette, draftNeeded } from './command-palette.js';
+import { impactHtml } from './impact.js';
 import { minimapPanel } from './minimap.js';
 import { outlinePanel } from './outline.js';
 import { nextQuestionPanel } from './next-question.js';
@@ -147,7 +148,7 @@ function renderMap(fit = false, preserveView = false) {
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
   $('#map-title').textContent = state.map.title; $('#canvas-title').textContent = state.map.title;
-  const overview = mapOverview(state.visibleMap);
+  const overview = mapOverview(state.visibleMap, { impact: false });
   $('#canvas-subtitle').textContent = `${state.map.library?.archived ? 'Archived · ' : ''}${overview.total} ${overview.total === 1 ? 'idea' : 'ideas'} · ${overview.explored} explored · ${overview.accepted} accepted${overview.running ? ` · ${overview.running} researching` : ''}${state.map.demo ? ' · Example map' : ''}`;
   showGitStatus();
   $('#workspace').classList.toggle('history-mode', historic);
@@ -298,7 +299,7 @@ function closeOverview() {
 }
 function renderOverview() {
   if (!state.visibleMap) return;
-  const overview = mapOverview(state.visibleMap), focusedFilter = document.activeElement?.dataset.filter;
+  const overview = mapOverview(state.visibleMap, { impact: state.historyStep === null }), focusedFilter = document.activeElement?.dataset.filter;
   const focusedIdea = $('#overview-list').contains(document.activeElement) ? document.activeElement.dataset.focusNode : null;
   const html = overview.groups.filter(group => group.kind === 'progress').map(group => `<button type="button" data-filter="${group.id}" data-command="filter" data-command-label="Show: ${group.label}" aria-expanded="${state.filter === group.id}" aria-controls="overview-panel"><span>${group.label}</span><strong>${group.nodes.length}</strong></button>`).join('');
   if ($('#overview-filters').innerHTML !== html) $('#overview-filters').innerHTML = html;
@@ -306,7 +307,10 @@ function renderOverview() {
   moreFilters.render(overview.groups.filter(group => group.kind !== 'progress'), state.filter);
   const group = overview.groups.find(item => item.id === state.filter);
   $('#overview-panel').hidden = !group;
-  for (const card of document.querySelectorAll('.node')) card.classList.toggle('filter-muted', Boolean(group) && !group.nodes.some(node => node.id === card.dataset.node));
+  for (const card of document.querySelectorAll('.node')) {
+    const matched = !group || group.nodes.some(node => node.id === card.dataset.node), context = !matched && !!group.context?.includes(card.dataset.node);
+    card.classList.toggle('filter-muted', !matched && !context); card.classList.toggle('filter-context', context); // Dependency chains between matches stay as context (D4).
+  }
   outline.dim(group ? new Set(group.nodes.map(node => node.id)) : null);
   if (!group) return;
   $('#overview-title').textContent = `${group.label} (${group.nodes.length})`;
@@ -658,6 +662,7 @@ function renderDetail(force = false) {
     ${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
     ${questionHtml}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
+    ${!historic ? impactHtml(state.map, n, { esc }) : ''}
     ${n.body && n.body !== n.summary ? `<h3 class="section-label">${n.status === 'suggested' ? 'What to explore' : 'Notes & findings'}</h3><div class="prose">${prose(n.body)}</div>` : ''}
     ${job?.stale && job.result ? `<h3 class="section-label">Result from the earlier premise</h3><div class="prose">${prose(job.result.body)}</div>` : ''}
     ${claimsHtml(n, { esc })}${n.sources.length ? `<h3 class="section-label">Sources & evidence</h3>${n.sources.map(s => `<a class="evidence-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} <span aria-hidden="true">↗</span><small>${esc(s.note)}</small></a>`).join('')}` : ''}

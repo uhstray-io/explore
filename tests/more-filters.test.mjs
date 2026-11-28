@@ -20,7 +20,7 @@ const ids = group => group.nodes.map(n => n.id);
 test('the overview builds the progress and question filters alike; the bar keeps only the progress ones', () => {
   const groups = mapOverview(map()).groups;
   assert.deepEqual(groups.filter(group => group.kind === 'progress').map(group => group.id), ['answer', 'queued', 'unexplored', 'stale']);
-  assert.deepEqual(groups.filter(group => group.kind !== 'progress').map(group => group.id), ['state:decided', 'state:tentative', 'state:assumption', 'state:later', 'importance:high', 'importance:medium', 'importance:low', 'importance:unranked']);
+  assert.deepEqual(groups.filter(group => group.kind !== 'progress').map(group => group.id), ['state:decided', 'state:tentative', 'state:assumption', 'state:later', 'importance:high', 'importance:medium', 'importance:low', 'importance:unranked', 'impact:high-open']);
   for (const group of groups) assert.equal(typeof group.lines, 'function', `${group.id} lists its rows one way`);
   assert.deepEqual(groupsOf({ nodes: [node('x', [], { summary: 'A summary.' })] }).answer.lines(node('x', [], { summary: 'A summary.' })), [{ text: 'A summary.' }]);
 });

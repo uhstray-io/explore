@@ -1,4 +1,5 @@
 import { treeOrder, branchComplete } from './graph.js';
+import { impactIndex, impactContext, impactSentence } from './impact.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY, answerStateLabels, effectiveAnswerState, certaintyText,
   hasCurrentAnswer, isOpen, isSavedForLater, importanceLevels, importanceName } from './questions.js';
 
@@ -61,14 +62,26 @@ const importanceFilters = [...importanceLevels, 'unranked'].map(level => {
 });
 export const questionFilters = [...stateFilters, ...importanceFilters];
 
-export function mapOverview(map) {
+// High impact, still open (D4): a More filter that reads the impact index, computed once per map. Ideas on dependency
+// chains between two of its matches stay visible as quieter context.
+function impactFilter(map) {
+  const index = impactIndex(map);
+  return { id: 'impact:high-open', kind: 'impact', short: 'High impact, still open', name: 'High impact, still open', label: 'High-impact ideas that are still open',
+    empty: 'No high-impact ideas are still open.', matches: node => index[node.id]?.band === 'high' && index[node.id].open, lines: node => [{ text: impactSentence(index[node.id], map) }],
+    context: matched => impactContext(map, new Set(matched.map(node => node.id))) };
+}
+// `impact` false leaves the impact filter out: growth history shows today's content, so it has no impact there.
+export function mapOverview(map, { impact = true } = {}) {
   const nodes = map?.nodes || [];
   return {
     total: nodes.length,
     explored: nodes.filter(node => node.status === 'explored').length,
     accepted: nodes.filter(node => node.reviewState === 'accepted' && !node.stale && node.status === 'explored').length,
     running: nodes.filter(node => node.status === 'running').length,
-    groups: [...overviewFilters, ...questionFilters].map(filter => ({ ...filter, nodes: nodes.filter(filter.matches) })),
+    groups: [...overviewFilters, ...questionFilters, ...(impact && map ? [impactFilter(map)] : [])].map(filter => {
+      const matched = nodes.filter(filter.matches);
+      return { ...filter, nodes: matched, ...(filter.context ? { context: filter.context(matched) } : {}) };
+    }),
   };
 }
 
