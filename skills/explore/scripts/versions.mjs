@@ -41,7 +41,7 @@ const hash = value => createHash('sha256').update(JSON.stringify(value)).digest(
 export function contentHash(map) { const { revision, updatedAt, ...content } = snapshotOf(map); return hash(content); }
 // What a restore replaces. The event log and growth history only grow, and today's layout is kept. A map saved
 // before the glossary has an empty one.
-const restorableFields = ['title', 'originalIdea', 'mode', 'objective', 'successCriteria', 'rootId', 'nodes', 'edges', 'jobs', 'glossary', 'inbox', 'proposals'];
+const restorableFields = ['title', 'originalIdea', 'mode', 'objective', 'successCriteria', 'rootId', 'nodes', 'edges', 'jobs', 'glossary', 'inbox', 'proposals', 'assignments'];
 const listFields = new Set(['glossary', 'inbox', 'proposals']); // Absent in older maps: restored as empty.
 export const restorableContent = map => Object.fromEntries(restorableFields.map(key => [key, listFields.has(key) ? map[key] ?? [] : map[key]]));
 export function restorableHash(map) { return hash(restorableContent(snapshotOf(map))); }

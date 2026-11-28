@@ -18,6 +18,7 @@ import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
 import { pinsOf, pinnedAnswersHtml, pinMenuItem, pinnedLabel, pinClick } from './pinned-answers.js';
 import { doneWhenSection, doneWhenClick, doneWhenKey, doneWhenMenuItem, canExplore } from './done-when.js';
+import { assignmentCardHtml, assignFormHtml, assignmentRequest, assignmentClick, assignedFilter } from './assignments.js';
 import { branchRestorePanel } from './branch-restore.js';
 import { exportPanel } from './export-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
@@ -38,7 +39,7 @@ import { outlinePanel } from './outline.js';
 import { foldsPanel, foldMenuItems, hiddenLabel } from './folds.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, overviewFilters, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml, isInvestigationJob } from './workspace-view.js';
+import { mapOverview, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml, isInvestigationJob } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, prefilled: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
@@ -323,7 +324,7 @@ function closeOverview() {
 }
 function renderOverview() {
   if (!state.visibleMap) return;
-  const overview = mapOverview(state.visibleMap, { filters: state.historyStep === null ? [impactFilter(state.visibleMap)] : [] }), focusedFilter = document.activeElement?.dataset.filter;
+  const overview = mapOverview(state.visibleMap, { filters: [...(state.historyStep === null ? [impactFilter(state.visibleMap)] : []), assignedFilter(state.visibleMap)] }), focusedFilter = document.activeElement?.dataset.filter;
   const focusedIdea = $('#overview-list').contains(document.activeElement) ? document.activeElement.dataset.focusNode : null;
   const html = overview.groups.filter(group => group.kind === 'progress').map(group => `<button type="button" data-filter="${group.id}" data-command="filter" data-command-label="Show: ${group.label}" aria-expanded="${state.filter === group.id}" aria-controls="overview-panel"><span>${group.label}</span><strong>${group.nodes.length}</strong></button>`).join('');
   if ($('#overview-filters').innerHTML !== html) $('#overview-filters').innerHTML = html;
@@ -345,7 +346,7 @@ function renderOverview() {
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
 // The control that opened a filter: its progress button, or More filters.
-const filterControl = filter => (overviewFilters.some(item => item.id === filter) ? $(`[data-filter="${filter}"]`) : $('#more-filters'));
+const filterControl = filter => $('#overview-filters').querySelector?.(`[data-filter="${filter}"]`) ?? $('#more-filters'); // A progress button, or More filters.
 function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
 // Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
 const nextQuestion = nextQuestionPanel({ esc, focusNode, rerender: () => { renderOverview(); $('#overview-list button')?.focus(); } });
@@ -650,7 +651,7 @@ function renderDetail(force = false) {
     ${job?.error ? `<p class="state-note warning">${esc(job.error)}</p>` : ''}
     ${!historic ? `<div class="detail-actions">${canExplore(n, completed) ? `<button class="primary" data-explore="${n.id}" data-command="explore" data-node-id="${n.id}">${n.status === 'suggested' ? 'Explore this branch' : 'Retry exploration'}</button>` : ''}${!completed && ['queued', 'running'].includes(n.status) ? `<button class="secondary" data-cancel="${n.id}" data-command="cancel" data-node-id="${n.id}">Stop exploration</button>` : ''}${n.status === 'explored' && n.reviewState !== 'accepted' && !n.stale ? `<button class="secondary" data-accept="${n.id}" data-command="accept" data-node-id="${n.id}">Accept finding</button>` : ''}<button class="secondary" data-branch-brief="${n.id}" data-command="branch-brief" data-node-id="${n.id}">Branch brief</button></div>` : ''}
     ${doneWhenSection(n, { esc, completed, live: !historic, editing: state.doneWhenEditing === n.id, drafts: state.drafts })}
-    ${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
+    ${assignmentCardHtml(state.visibleMap, n, { esc, live: !historic, drafts: state.drafts })}${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
     ${questionHtml}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
     ${hypothesisHtml(n, { esc, live: !historic, drafts: state.drafts })}
@@ -661,7 +662,7 @@ function renderDetail(force = false) {
     ${claimsHtml(n, { esc })}${n.sources.length ? `<h3 class="section-label">Sources & evidence</h3>${n.sources.map(s => `<a class="evidence-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} <span aria-hidden="true">↗</span><small>${esc(s.note)}</small></a>`).join('')}` : ''}
     ${connectionsHtml(n, state.visibleMap, { esc, live: !historic })}
     ${!historic ? `<details data-editor="suggest"><summary data-command="add-direction" data-command-editor="suggest" data-node-id="${n.id}">Add a direction</summary><form id="suggest-form" data-node-id="${n.id}"><label for="branch-title">What's worth exploring?</label><input id="branch-title" name="title" maxlength="100" data-draft="${n.id}-title" value="${esc(state.drafts[`${n.id}-title`] ?? '')}" required><label for="branch-body">A little context</label><textarea id="branch-body" name="body" rows="3" maxlength="4000" data-draft="${n.id}-branch">${esc(state.drafts[`${n.id}-branch`] ?? '')}</textarea>${directionKindHtml(n.id, { esc, drafts: state.drafts })}<button type="submit" class="secondary">Add suggested branch</button></form></details>
-    ${!historic ? linkEditorHtml(n, state.visibleMap, { esc, drafts: state.drafts, shown: state.editors[`${n.id}:link`] === true }) : ''}
+    ${!historic ? linkEditorHtml(n, state.visibleMap, { esc, drafts: state.drafts, shown: state.editors[`${n.id}:link`] === true }) : ''}${assignFormHtml(state.visibleMap, n, { esc, live: !historic, drafts: state.drafts })}
     <details data-editor="revise"><summary data-command="revise" data-command-editor="revise" data-node-id="${n.id}">${completed ? 'Explore a changed premise' : 'Revise this premise'}</summary><form id="revise-form" data-completed="${completed}" data-node-id="${n.id}"><label for="revised-body">What changed?</label><textarea id="revised-body" name="body" rows="5" maxlength="16000" required data-draft="${n.id}-revision">${esc(state.drafts[`${n.id}-revision`] ?? n.prompt ?? n.body)}</textarea><p class="form-note">${completed ? 'Creates a new branch and starts exploring it. Affected findings are flagged for review; the original is preserved.' : "Dependent findings will be marked for review. Research won't restart automatically."}</p><button type="submit" class="secondary">${completed ? 'Add changed-premise branch' : 'Save revised premise'}</button></form></details>` : ''}
     ${!historic && n.id === state.map?.rootId ? goalEditorHtml(state.map, { esc, drafts: state.drafts }) : ''}
     ${runNoteHtml(job)}`;
@@ -861,6 +862,7 @@ document.addEventListener('click', async event => {
   if (await pinClick(event, { act, focusNode, toast, closeMenus })) return;
   if (await folds.click(event)) return; // The idea's ⋯ menu and the branch bar.
   if (await doneWhenClick(event, { state, act, toast, renderDetail })) { closeMenus(); return; } // Also Explore and Retry.
+  if (await assignmentClick(event, { state, act, toast, renderDetail })) { closeMenus(); return; } // Take it, Pass on, Mark done (H7).
   for (const [attribute, action, message] of [['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
     const button = event.target.closest(`[data-${attribute}]`);
     if (button) { button.disabled = true; if (await act(button.dataset[attribute], action)) toast(message); button.disabled = false; return; }
@@ -892,6 +894,7 @@ $('#detail').addEventListener('submit', async event => {
       if (!success) renderDetail(true);
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', suggestPayload(data));
+    const asked = assignmentRequest(form, data); if (asked) success = await act(node, asked.type, asked.input); // Ask someone, or pass it on (H7).
     if ('outcomeForm' in form.dataset) success = await act(node, 'record-outcome', outcomePayload(data));
     if (form.id === 'guidance-form') {
       const edits = goalEdits(state.map, data);

@@ -288,7 +288,7 @@ export function checkAnswersHtml({ map, preview, listening, esc }) {
 }
 
 // The one ⋯ menu shape shared by questions and ideas; app.js opens, closes and steers every `.item-menu`.
-function menuHtml(id, label, items) {
+export function menuHtml(id, label, items) {
   return `<div class="item-more-wrap"><button type="button" class="item-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-${id}" data-menu="${id}" aria-label="${label}">⋯</button><div class="item-menu" role="menu" id="menu-${id}" aria-label="${label}" hidden>${items.join('')}</div></div>`;
 }
 // The question ⋯ menu (B7). Items keep one fixed order so later features slot in predictably:
