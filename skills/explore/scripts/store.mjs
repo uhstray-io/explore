@@ -5,38 +5,39 @@ import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-
 import { applyDoneWhen } from './done-when.mjs';
 import { normalizeDoneWhen, doneWhenMax } from '../assets/done-when.js';
 import { atomicWrite, atomicJson } from './files.mjs';
+import { renderViews } from './views.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
-import { topicProfiles, topicProfileLabel, isEarlierResult, markdownText } from '../assets/workspace-view.js';
-import { stanceOf } from '../assets/stance.js';
+import { topicProfiles, topicProfileLabel } from '../assets/workspace-view.js';
+
 import { Versions, presentationOnly, compareVersion, restorableHash, restorableContent, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
-import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH, isAssumption, answerRefusal, answerMax } from '../assets/questions.js';
-import { normalizeComparison, comparisonLines } from './options.mjs';
-import { notesForPacket, notesInstruction, noteLines } from './inbox.mjs';
-import { reconsiderationLines } from './reconsider.mjs';
+import { answerStates, isOpen, isBlocking, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, normalizeQuestion, answerRefusal, answerMax } from '../assets/questions.js';
+import { normalizeComparison } from './options.mjs';
+import { notesForPacket, notesInstruction } from './inbox.mjs';
+
 import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
-import { normalizeLimitations, limitationLines } from './limitations.mjs';
-import { normalizeClaims, claimLines } from './claims.mjs';
+import { normalizeLimitations } from './limitations.mjs';
+import { normalizeClaims } from './claims.mjs';
 import { addDirection } from './directions.mjs';
 import { isCompleted, hasFindings, currentRun } from './completion.mjs';
-import { hypothesisTest, normalizeHypothesisResult, applyHypothesisResult, hypothesisPacket, hypothesisInstruction, hypothesisLines } from './hypotheses.mjs';
+import { hypothesisTest, normalizeHypothesisResult, applyHypothesisResult, hypothesisPacket, hypothesisInstruction } from './hypotheses.mjs';
 import { newHypothesis, hypothesisOf } from '../assets/hypothesis.js';
-import { normalizeAssumptions, assumptionLines, assumptionsForPacket } from './assumptions.mjs';
-import { normalizeGoal, goalForPacket, goalUse, goalLines, packetBudget } from './guidance.mjs';
+import { normalizeAssumptions, assumptionsForPacket } from './assumptions.mjs';
+import { normalizeGoal, goalForPacket, goalUse, packetBudget } from './guidance.mjs';
 import { goalOf } from '../assets/guidance.js';
-import { findingsBasis, reasoningLabel } from '../assets/claims.js';
-import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryRoom, glossaryLines } from './glossary.mjs';
+
+import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryRoom } from './glossary.mjs';
 import { includedKey } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
-import { linkSuffix } from './links.mjs';
+
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
-import { peopleLines } from './people.mjs';
+
 import { sourceList } from './fields.mjs';
 import { reuseKey, contentKey } from './reuse.mjs';
 import { signature, signatureMatches, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { rankContext, admitContext, selectionKey } from './relevance.mjs';
-import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap, unreadableReasons } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, readMapFile, maxMapBytes, validateMap, unreadableReasons } from './map-validation.mjs';
 
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
@@ -67,8 +68,6 @@ const fingerprintOf = bytes => createHash('sha256').update(bytes).digest('hex');
 // Maps saved before that keep `claimKey` until their next save converts it.
 const claimHashOf = key => createHash('sha256').update(key).digest('hex');
 const holdsClaim = (job, key) => typeof key === 'string' && key !== '' && (job.claimHash ? job.claimHash === claimHashOf(key) : job.claimKey === key);
-// Contributor names come from Git; in generated Markdown they stay literal text, never markup.
-const literal = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 // Reading follows the validator's rules (H1): only the problems it marks unreadable stop a map from opening,
 // so listing, recovery and the views can rely on what they get. Explanations never quote the file.
 function parseMap(mapId, bytes) {
@@ -90,15 +89,6 @@ function text(value, field, max = 12000, optional = false) {
   return value.trim();
 }
 function validId(value) { need(typeof value === 'string' && /^[a-z0-9-]{1,64}$/.test(value), 'Invalid identifier.'); return value; }
-// Help me answer (B9) in a node's Markdown: the question's latest research, never presented as its answer.
-function researchLines(job, stale) {
-  if (!job) return [];
-  const { summary, sources } = job.result;
-  return ['', stale ? '_Earlier agent research, from before the question or its context changed. Not your answer._' : '_Agent research to help you answer, not your answer._',
-    ...(summary ? ['', summary] : []), '', ...comparisonLines(job.result, { level: 4 }), ...(sources.length ? ['', 'Sources:', ...sources.flatMap(evidenceLine)] : [])];
-}
-// One source as the Markdown views list evidence.
-const evidenceLine = s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (${stanceOf(s) ? `${stanceOf(s)}; ` : ''}retrieved ${s.retrievedAt}): ${s.note}`];
 export { atomicJson } from './files.mjs';
 
 export class Store {
@@ -254,52 +244,8 @@ export class Store {
     }
     return map;
   }
-  // The readable views of a map, as text: README.md and one file per idea. Pure, so a map whose views cannot
-  // be generated is refused before anything is written (an import), not after.
-  renderViews(map) {
-    const nodes = new Map();
-    const overview = [`# ${map.title}`, '', `${generatedFrom(map.revision)} Canonical source: [map.json](map.json).`,
-      '', '> Read this overview, then only relevant node documents. Node files are generated; use the application or CLI to make changes.',
-      '', '## Original idea', '', map.originalIdea || map.nodes[0].prompt || map.nodes[0].body, ...(goalLines(map).length ? ['', ...goalLines(map)] : []), '', '## Exploration', ''];
-    for (const n of map.nodes) {
-      const findings = hasFindings(map, n);
-      overview.push(`- [${n.title.replace(/[\[\]]/g, '')}](nodes/${n.id}.md): ${n.status}; ${n.reviewState}${n.stale ? '; needs review after a premise changed' : ''}. ${n.summary.replace(/\n/g, ' ')}`);
-      const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
-        `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, ...(n.doneWhen ? ['', `Done when: ${literal(normalizeDoneWhen(n.doneWhen))}`] : []), '', findings ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
-      const guidance = topicProfileLabel(map.jobs.filter(j => currentRun(n, j)).at(-1)?.result?.topicProfile);
-      if (findingsBasis(n, findings) === 'reasoning') lines.push('', `_${reasoningLabel}._`);
-      if (guidance && findings) lines.push('', `_Guidance: ${guidance}_`);
-      if (n.options?.length) lines.push('', ...comparisonLines(n), ...reconsiderationLines(map, n));
-      lines.push(...noteLines(n), ...peopleLines(map, n)); // K8: the user's own notes; H7 and H6: who is asked to look at it, and discussions.
-      if (n.limitations?.length) lines.push('', ...limitationLines(n));
-      if (n.claims?.length) lines.push('', ...claimLines(n));
-      if (n.kind === 'hypothesis') lines.push('', ...hypothesisLines(n));
-      const readings = assumptionLines(n); if (readings.length) lines.push('', ...readings);
-      if (n.stale) lines.push('', '> A premise changed. Review this finding before using it.', ...(n.reviewCauses || []).map(c => `> Flagged ${(c.at || '').slice(0, 10)}: ${c.kind.replace(/-/g, ' ')} (${c.sourceId}).`));
-      if (n.reviewState === 'cleared') lines.push('', `_No longer relevant${n.replacedBy ? `; replaced by ${n.replacedBy}` : ''}${n.clearedAt ? ` (${n.clearedAt.slice(0, 10)})` : ''}. Not relied on._`);
-      else if (n.reaffirmedAt) lines.push('', `_Reaffirmed ${n.reaffirmedAt.slice(0, 10)}: the user re-checked it against the change; it was not re-researched._`);
-      const dismissedQuestions = n.questions.filter(q => q.dismissedAt);
-      const researchFor = q => { const job = questionJobs(map.jobs, RESEARCH, q.id).latest; return researchLines(job, !!job && this.resultIsStale(map, job)); };
-      if (n.questions.length > dismissedQuestions.length) lines.push('', '## Questions and answers', ...n.questions.filter(q => !q.dismissedAt).flatMap(q => ['', `### ${q.text}`, '', ...(q.importance || q.why ? [`_Importance: ${importanceName(q.importance)}${q.why ? ` — ${q.why}` : ''}_`, ''] : []), ...(q.supersededAt ? [`_Question from an earlier premise (${q.supersededAt}); recheck whether its answer still applies._`, ''] : []), q.answer || (q.supersededAt ? '_No answer was recorded; this question no longer blocks work._' : q.deferredAt ? '_Saved for later; it does not block this branch._' : '_Awaiting the user._'),
-        ...(q.answer ? ['', `_Certainty: ${certaintyText(q)}_`] : []), ...(isAssumption(q) && q.disproveIf ? ['', `_Would be disproved if: ${markdownText(q.disproveIf)}_`] : []),
-        ...(q.previousAnswers || []).map(p => `_Earlier answer (${(p.replacedAt || '').slice(0, 10)}${p.wordingFix ? ', wording fix' : ''}): ${p.answer}_`),
-        ...(q.answer && q.answeredBy?.name ? ['', `_Answered by ${literal(q.answeredBy.name)}${q.answeredAt ? ` · ${q.answeredAt.slice(0, 10)}` : ''}_`] : []),
-        ...researchFor(q)]));
-      if (dismissedQuestions.length) lines.push('', '## Dismissed questions', '', '_Set aside by the user; do not ask them again._', '',
-        ...dismissedQuestions.map(q => `- ${q.text}${q.ratingReason ? ` — ${q.ratingReason}` : ''}${q.replacedBy === 'pending' ? ' (a replacement is on its way)' : q.replacedBy ? ' (replaced)' : ''}`));
-      if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(evidenceLine));
-      const edges = map.edges.filter(e => e.from === n.id || e.to === n.id);
-      if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}${linkSuffix(e)}`));
-      const earlierRuns = map.jobs.filter(j => isEarlierResult(j, n));
-      for (const j of earlierRuns) {
-        lines.push('', j.restartedAt ? '## Earlier result before this branch was restarted' : '## Earlier investigation result', '', `Job: ${j.id}${j.restartedAt ? ` | Kept from before the restart on ${j.restartedAt.slice(0, 10)}; the full branch is in its checkpoint version.` : j.stale ? ' | A premise changed while this investigation was running.' : ' | Retained history; use the current premise and findings above.'}`, '', j.result.summary, '', j.result.body);
-        if (j.result.sources?.length) lines.push('', '### Evidence recorded for this result', ...j.result.sources.flatMap(evidenceLine));
-      }
-      nodes.set(n.id, lines.join('\n') + '\n');
-    }
-    overview.push(...glossaryLines(map));
-    return { readme: overview.join('\n') + '\n', nodes };
-  }
+  // The readable views of a map (scripts/views.mjs), with this Store's rule for a stale result.
+  renderViews(map) { return renderViews(map, { resultIsStale: (shown, job) => this.resultIsStale(shown, job) }); }
   async project(map, views = this.renderViews(map)) {
     const dir = path.dirname(this.file(map.id));
     await mkdir(path.join(dir, 'nodes'), { recursive: true });
