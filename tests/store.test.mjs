@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Store } from '../skills/explore/scripts/store.mjs';
+import { Store, searchPrivacy } from '../skills/explore/scripts/store.mjs';
 import { growthTimeline, mapAtGrowthStep } from '../skills/explore/assets/history.js';
 
 async function fixture() {
@@ -116,6 +116,21 @@ test('context stays bounded as irrelevant branches grow', async () => {
   assert.equal(job.selected.premise, 'Shared notes must work offline.');
 });
 
+// C12 (#15): guidance only. Explore cannot see what a host's search tool sends.
+const privacy = /Keep names, private figures and personal details out of search queries and URLs; if a search needs them, skip it and say so\./;
+
+test('typed work carries the same sentence, and a type that keeps the usual 800 characters free still fits', async () => {
+  const { store, map } = await fixture(); const saved = await store.get(map.id);
+  saved.title = 'T'.repeat(100); // The longest map title.
+  const job = { id: 'job-typed', type: 'probe', reason: 'A probe.' };
+  // Fills its budget up to the 800-character reserve, the way the real types trim their context.
+  const filling = { label: 'Probe', packet: ({ budget }) => { const packet = { instruction: 'Do the probe.', filler: '' }; packet.filler = 'x'.repeat(budget - 800 - JSON.stringify(packet).length); return packet; } };
+  const packet = await store.typedPacket(saved, job, filling, saved.nodes[0], { claimKey: 'k'.repeat(48) });
+  assert.equal(packet.instruction, `Do the probe. ${searchPrivacy}`);
+  assert.match(packet.instruction, privacy);
+  assert.ok(packet.contextCharacters <= 15500);
+});
+
 test('unsupported schema fails without rewriting the original file', async () => {
   const { store, map } = await fixture(); const file = store.file(map.id);
   const source = JSON.stringify({ ...map, schemaVersion: 22 }); await writeFile(file, source);
@@ -138,7 +153,8 @@ test('large relevant content is bounded and reports omissions', async () => {
   n.sources = Array.from({ length: 20 }, () => ({ title: 'Evidence', url: 'https://example.org', note: 'n'.repeat(1500), retrievedAt: new Date().toISOString() }));
   await store.save(saved);
   const packet = await store.claim('test');
-  assert.ok(JSON.stringify(packet).length < 16000);
+  assert.ok(JSON.stringify(packet).length <= 15500);
+  assert.match(packet.instruction, privacy, 'the privacy sentence is never trimmed');
   assert.ok(packet.omittedQuestions > 0); assert.ok(packet.omittedSources > 0);
   assert.match(packet.selected.premise, /Shortened/);
 });

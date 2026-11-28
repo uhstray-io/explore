@@ -146,7 +146,7 @@ test('asynchronous packet builders and validators are awaited', async () => {
   const { store, map } = await explored();
   await act(store, map.id, { type: 'request-async', nodeId: map.rootId });
   const packet = await store.claim('test');
-  assert.equal(packet.instruction, 'Built asynchronously.');
+  assert.match(packet.instruction, /^Built asynchronously\. Keep names/, 'the built instruction, then the privacy sentence');
   const saved = await store.complete(map.id, packet.jobId, packet.claimKey, { note: 'Awaited.' });
   assert.deepEqual(saved.jobs.find(j => j.id === packet.jobId).result, { note: 'Awaited.' });
 });
