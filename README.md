@@ -98,6 +98,8 @@ Tests cover queue authorization, concurrent results, stale premises, cancellatio
 
 An optional real-browser workflow check is available in `scripts/browser-smoke.mjs`. It uses an existing Playwright installation and your explicitly chosen browser executable, creates only disposable maps, and saves screenshots and a report. See the [polish review](docs/iterations/2026-10-29-polish.md) for the command and what was exercised. It is not a runtime dependency of the skill.
 
+To compare a change to the skill's guidance before and after, use the [exploration benchmark](docs/exploration-benchmark.md): fixed synthetic cases, a scoring rubric, and `node scripts/benchmark.mjs prepare|collect|compare`. It never calls a model; you run each case by hand in your own agent session. It is not part of the installed skill.
+
 ## Design and research
 
 - [Product brief](docs/product-brief.md): confirmed requirements and open questions.

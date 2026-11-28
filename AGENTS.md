@@ -22,6 +22,7 @@ This repository contains a portable agent skill plus its dependency-free local w
 - `references/` holds conditional agent guidance; keep `SKILL.md` concise.
 - `tests/` uses Node's built-in test runner. Run `node scripts/test.mjs`, `node scripts/check.mjs`, and `node scripts/verify-prototypes.mjs` from the repository root. HTTP tests need local loopback connections.
 - `node scripts/review-demo.mjs --serve` creates an isolated illustrative map under `.test-output/` and serves it on a free port.
+- `node scripts/benchmark.mjs` prepares, collects and compares guidance benchmark runs in isolated workspaces under `.test-output/`. Use it before and after changing `SKILL.md` or `references/`; see `docs/exploration-benchmark.md`.
 
 Do not use the owner's `ideas/` for tests. `.explore/` (or `.grill-my-mind/` in workspaces from before the rename) contains runtime credentials and claims: never commit it or print its token fields. Standalone `prototypes/` snapshots are preserved comparisons, not the live app.
 
