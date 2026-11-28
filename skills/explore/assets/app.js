@@ -748,7 +748,8 @@ for (const button of document.querySelectorAll('.close-dialog')) button.addEvent
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
-const exporter = exportPanel({ api, map: () => state.map, selected: () => state.selected, download });
+// Exports use the live map; the page's layout is reused unless it shows a version or growth history.
+const exporter = exportPanel({ api, map: () => state.map, selected: () => state.selected, positions: () => (state.historySource ? null : state.positions), download });
 $('#changes-open').addEventListener('click', () => { $('#tools-dialog').close(); changes.show(); });
 // The rail (I1): Pin and Archive act on any map through the action queue; the open map uses its own revision.
 const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference,

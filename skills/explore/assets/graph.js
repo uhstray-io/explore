@@ -1,11 +1,20 @@
 export const workLabels = { suggested: 'Unexplored', queued: 'Queued', running: 'Researching', 'awaiting-answer': 'Needs your answer', explored: 'Explored', interrupted: 'Ready to retry' };
 
+// What review says about an idea's findings, or '' when nothing has been decided.
+export function reviewWord(node) {
+  return node.stale ? 'needs review' : node.reviewState === 'accepted' ? 'accepted' : node.reviewState === 'cleared' ? 'no longer relevant' : '';
+}
 export function presentation(node) {
   const work = workLabels[node.status] || node.status;
-  return {
-    label: [work, node.stale ? 'needs review' : node.reviewState === 'accepted' ? 'accepted' : node.reviewState === 'cleared' ? 'no longer relevant' : ''].filter(Boolean).join(' · '),
-    lit: node.status === 'explored' && !node.stale,
-  };
+  return { label: [work, reviewWord(node)].filter(Boolean).join(' · '), lit: node.status === 'explored' && !node.stale };
+}
+// An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.
+export function branchIds(map, nodeId) {
+  const children = new Map();
+  for (const node of map.nodes) { if (!children.has(node.parentId)) children.set(node.parentId, []); children.get(node.parentId).push(node.id); }
+  const ids = new Set(map.nodes.some(node => node.id === nodeId) ? [nodeId] : []);
+  for (const id of ids) for (const child of children.get(id) ?? []) ids.add(child); // A Set visits what is added while iterating.
+  return ids;
 }
 
 // Saved coordinates are absolute centers. Layout never writes, activates, or edits nodes.

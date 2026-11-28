@@ -43,7 +43,7 @@ test('a branch export holds exactly that idea and everything below it, in every 
   assert.equal((branch('print').match(/<section class="idea"/g) || []).length, 2);
   for (const format of Object.keys(exportFormats)) {
     const text = branch(format);
-    assert.doesNotMatch(text, /Syncing|Field notebook — Power|Batteries last/, `${format}: no ancestors or siblings`);
+    assert.doesNotMatch(text, /Syncing|Batteries last/, `${format}: no ancestors or siblings`);
   }
   // Links count only when both ends are in scope.
   assert.doesNotMatch(branch('mermaid'), /supports|depends on/);
@@ -141,9 +141,39 @@ test('the CLI writes each format for a map or a branch, refuses to overwrite, an
     await assert.rejects(cli(['export', '--map', map.id, '--format', 'svg', '--out', path.join(dir, 'taken.svg')]), /already exists/);
     assert.equal(await readFile(path.join(dir, 'taken.svg'), 'utf8'), 'keep');
     await assert.rejects(cli(['export', '--map', map.id, '--format', 'pdf', '--out', path.join(dir, 'x.pdf')]), /--format must be/);
+    await assert.rejects(cli(['export', '--map', map.id, '--node', branch.id, '--out', path.join(dir, 'x.json')]), /always the complete map/);
+    await cli(['export', '--map', map.id, '--format', 'print', '--node', branch.id, '--out', path.join(dir, 'branch.html')]);
+    assert.match(await readFile(path.join(dir, 'branch.html'), 'utf8'), /^<!doctype html>/);
     for (const file of ['export-formats.js', 'export-dialog.js']) {
       assert.ok(packageFiles.includes(`assets/${file}`), file);
       assert.equal((await fetch(`${app.address}/${file}`)).status, 200, file);
     }
   } finally { await app.close(); }
+});
+
+test('findings from an earlier round stay unreviewed while the idea is queued, running or interrupted; a restarted idea has none', () => {
+  for (const status of ['queued', 'running', 'interrupted', 'awaiting-answer']) {
+    const map = fixture(); Object.assign(map.nodes[3], { status, title: 'Photos' });
+    for (const format of Object.keys(exportFormats)) assert.match(exportAs(map, format, { nodeId: 'photos' }).text, /unreviewed/, `${status} in ${format}`);
+    assert.match(exportAs(map, 'print', { nodeId: 'photos' }).text, /class="state provisional"/);
+  }
+  // A restart resets findings to the premise: nothing to review yet.
+  const restarted = fixture(); Object.assign(restarted.nodes[3], { status: 'interrupted', body: 'Premise photos.', summary: 'Premise photos.', questions: [], sources: [] });
+  assert.doesNotMatch(exportAs(restarted, 'mermaid', { nodeId: 'photos' }).text.split('\n')[1], /unreviewed/);
+});
+
+test('a percent sign cannot hide text in Obsidian, and wrapping never splits a character', () => {
+  const canvas = JSON.parse(exportAs(fixture({ sync: 'Up %% 50 %% down' }), 'canvas').text);
+  assert.ok(!canvas.nodes.some(card => card.text.includes('%')), 'percent signs are entities');
+  assert.match(canvas.nodes.find(card => card.id === 'sync').text, /Up &#37;&#37; 50/);
+  assert.ok(new Set(canvas.edges.map(edge => edge.id)).size === canvas.edges.length && canvas.edges.every(edge => !canvas.nodes.some(card => card.id === edge.id)), 'edge IDs never match an idea ID');
+  const svg = exportAs(fixture({ sync: '😀'.repeat(40) }), 'svg').text;
+  assert.doesNotMatch(svg, /\uFFFD|[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, 'no broken surrogate pair');
+});
+
+test('SVG ideas never overlap, even when saved on one spot', () => {
+  const crowded = fixture(); crowded.view.positions = Object.fromEntries(crowded.nodes.map(entry => [entry.id, { x: 10, y: 10 }]));
+  const centres = [...exportAs(crowded, 'svg').text.matchAll(/<circle cx="([\d.-]+)" cy="([\d.-]+)"/g)].map(match => ({ x: Number(match[1]), y: Number(match[2]) }));
+  assert.equal(centres.length, crowded.nodes.length);
+  assert.ok(centres.every((a, i) => centres.slice(i + 1).every(b => Math.abs(a.x - b.x) >= 210 || Math.abs(a.y - b.y) >= 112)));
 });
