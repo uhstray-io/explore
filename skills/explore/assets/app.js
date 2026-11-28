@@ -8,6 +8,7 @@ import { sourcesDialog } from './sources-dialog.js';
 import { assumptionsDialog } from './assumptions-dialog.js';
 import { answersDialog } from './answers-dialog.js';
 import { criteriaDialog } from './criteria-dialog.js';
+import { challengeDialog } from './challenge-dialog.js';
 import { criteriaEntryHtml, reconsideredHtml } from './criteria.js';
 import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
@@ -151,7 +152,7 @@ function renderMap(fit = false, preserveView = false) {
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
-  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged();
+  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); challenge.mapChanged();
   const topologyChanged = state.layoutMap !== state.map.id || state.layoutCount !== state.map.nodes.length;
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
@@ -754,6 +755,8 @@ const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
 const criteria = criteriaDialog({ map: () => state.visibleMap, act, esc, toast, listening: agentListening }); // Criteria (C9), opened only on the live map.
 answersDialog({ map: () => state.map, live: () => state.historyStep === null, act, esc, download }); // Answer in a file (K11).
+const challenge = challengeDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening, select: focusNode, // Challenge decisions (F2).
+  exploreAsDirection: ({ nodeId, title, body }) => { Object.assign(state.drafts, { [`${nodeId}-title`]: title, [`${nodeId}-branch`]: body }); focusNode(nodeId); openEditor('suggest'); } });
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).
 const showBrief = briefDialog({ api, map: () => state.map, download });

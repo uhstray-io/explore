@@ -192,6 +192,24 @@ Deliver with the same `result --job ID --file result.json`:
 
 Categories: `possible-tension`, `unresolved-choice`, `untested-assumption`. At most 12 findings; text up to 1,000 characters; each finding cites 1–8 records from `records`. An empty list is a valid result. Report what you notice between saved statements; never call an answer wrong or answer for the user. The result becomes a proposal: each point waits for the user to keep or dismiss it, and nothing in the map changes. A tension that rests on an answer the user has not marked Decided is shown as an unresolved choice. A check whose answers changed meanwhile is marked stale. `GET /api/maps/ID/job-preview?type=check-answers` shows the packet without starting anything.
 
+## Map jobs: Challenge decisions
+
+Only the user asks for this (`request-map-job` with `challenge`); never request it on their behalf. A `challenge` packet carries `records`: the original idea, then the 1–40 saved answers the user chose (`{ nodeId, questionId, nodeTitle, question, answer, certainty, status, reviewState, stale }`), and nothing else. Argue against them in good faith:
+
+```json
+{
+  "findings": [{
+    "category": "assumption",
+    "explanation": "What the answer takes for granted",
+    "resolution": "What would confirm or settle it",
+    "refs": [{"nodeId": "node-…", "questionId": "q-…"}],
+    "sources": [{"title": "…", "url": "https://…", "note": "The claim it supports"}]
+  }]
+}
+```
+
+`category` is `assumption`, `counterargument`, `alternative` or `evidence-gap`. Give at most 12 findings (an empty list is fine: do not manufacture objections when none matter), each with an explanation and a resolution of at most 1,000 characters, 1–8 refs to answers you were given, and at most 3 sources you actually read. Missing context is not evidence against a choice. Each finding is a hypothesis for the user to keep or dismiss: never ask the user to change an answer, and never present one as a finding about the map. Anything else rejects the result.
+
 ## Mutations
 
 An action carries `expectedRevision` and `type`, plus `nodeId` unless the action covers the whole map. Use the current revision returned by `read`. On a conflict, re-read before deciding whether the action still applies; do not blindly overwrite. Map-level actions still need `expectedRevision` and run one at a time like every other action.

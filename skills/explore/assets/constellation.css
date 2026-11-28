@@ -112,6 +112,8 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 .assumption-editor{display:grid;gap:6px;margin:0 0 8px}.assumption-editor textarea{width:100%}.assumption-dependents{margin:0 0 6px;font-size:12px}.assumption-dependents summary{cursor:pointer;color:var(--teal)}.assumption-dependents .relationship{padding:4px 0}
 /* Reuse earlier research (Z4): Ask again, quietly at the end of a current result. */
 .reuse-again{margin:6px 0 0;font-size:12px}
+/* Challenge decisions (F2): the answers to choose, and the hypotheses to keep or dismiss. */
+.adr-choices{max-height:40dvh;overflow:auto;margin:6px 0 10px}.review-refs{margin:0 0 6px;font-size:12px;color:var(--muted)}
 /* Answer in a file (K11): the import preview. */
 .answers-body{max-height:55dvh;overflow:auto}.answer-preview{list-style:none;margin:0;padding:0;display:grid;gap:10px}.answer-preview li{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .answer-preview-question{margin:0 0 4px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.answer-preview-text{margin:0 0 4px;font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
