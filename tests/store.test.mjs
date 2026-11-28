@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { Store } from '../skills/explore/scripts/store.mjs';
+import { Store, searchPrivacy } from '../skills/explore/scripts/store.mjs';
 import { growthTimeline, mapAtGrowthStep } from '../skills/explore/assets/history.js';
 
 async function fixture() {
@@ -114,6 +114,32 @@ test('context stays bounded as irrelevant branches grow', async () => {
   assert.ok(JSON.stringify(job).length < 16000);
   assert.ok(job.contextCharacters < 5000);
   assert.equal(job.selected.premise, 'Shared notes must work offline.');
+});
+
+// C12 (#15): guidance only. Explore cannot see what a host's search tool sends.
+const privacy = /Keep names, private figures and personal details out of search queries and URLs; if a search needs them, skip it and say so\./;
+
+test('every investigation packet tells the agent to keep private details out of searches, within the budget', async () => {
+  const { store, map } = await fixture(); const saved = await store.get(map.id); const n = saved.nodes[0];
+  n.prompt = 'p'.repeat(16000); n.body = 'b'.repeat(24000);
+  n.questions = Array.from({ length: 12 }, (_, i) => ({ id: `q-${i}`, text: 'q'.repeat(1600), answer: 'a'.repeat(12000) }));
+  await store.save(saved);
+  const packet = await store.claim('test');
+  assert.match(packet.instruction, privacy);
+  assert.ok(packet.contextCharacters <= 15500 && JSON.stringify(packet).length <= 15500);
+});
+
+test('typed work carries the same sentence, and a type that fills its budget still fits', async () => {
+  const { store, map } = await fixture(); const saved = await store.get(map.id);
+  const job = { id: 'job-typed', type: 'probe', reason: 'A probe.' };
+  // Fills what it is given, the way the real types trim their context to the budget.
+  let given;
+  const filling = { label: 'Probe', packet: ({ budget }) => { given = budget; const packet = { instruction: 'Do the probe.', filler: '' }; packet.filler = 'x'.repeat(budget - JSON.stringify(packet).length - 400); return packet; } };
+  const packet = await store.typedPacket(saved, job, filling, saved.nodes[0], { claimKey: 'k'.repeat(48) });
+  assert.equal(given, 15500 - searchPrivacy.length - 1, 'the type is told the room left once the sentence is added');
+  assert.match(packet.instruction, /^Do the probe\. Keep names/);
+  assert.match(packet.instruction, privacy);
+  assert.ok(packet.contextCharacters <= 15500);
 });
 
 test('unsupported schema fails without rewriting the original file', async () => {

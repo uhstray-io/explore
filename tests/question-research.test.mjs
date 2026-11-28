@@ -54,6 +54,7 @@ test('the agent gets the question, its idea, the findings and the ideas around i
   assert.ok(packet.context.length > 0 && packet.omittedContext > 0, 'nearby ideas are included until the budget, and the rest are counted');
   assert.match(packet.instruction, /Do not answer for the user/);
   assert.match(packet.instruction, /Do not ask questions or propose branches/);
+  assert.match(packet.instruction, /Keep names, private figures and personal details out of search queries and URLs/);
   assert.ok(packet.contextCharacters <= 15500);
 });
 
