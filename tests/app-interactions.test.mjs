@@ -12,7 +12,7 @@ import { foldMenuItems } from '../skills/explore/assets/folds.js';
 import { goalSectionHtml, goalEditorHtml, goalInput, goalEdits } from '../skills/explore/assets/guidance.js';
 import { branchComplete } from '../skills/explore/assets/graph.js';
 import { notesHtml } from '../skills/explore/assets/inbox.js';
-import { assignmentCardHtml, assignFormHtml, assignmentRequest } from '../skills/explore/assets/assignments.js';
+import { assignmentCardHtml, assignFormHtml, assignmentRequest, assignmentClick } from '../skills/explore/assets/assignments.js';
 import { criteriaEntryHtml, reconsideredHtml } from '../skills/explore/assets/criteria.js';
 import { hypothesisHtml, directionKindHtml, suggestPayload, outcomePayload } from '../skills/explore/assets/hypothesis.js';
 import { readOnlyNote } from '../skills/explore/assets/history.js';
@@ -32,7 +32,7 @@ const callbacks = between('function agentListening(', '\nfunction connectionView
 
 // Execute the real callbacks with DOM/API boundaries replaced. This verifies control
 // replacement decisions, not browser-native undo or IME behavior itself.
-function harness({ question = false, hypothesis = false } = {}) {
+function harness({ question = false, hypothesis = false, formAs = null } = {}) {
   const actCalls = [];
   const node = id => ({ id, kind: 'research', title: id, summary: 'Saved premise', body: 'Saved premise',
     status: 'suggested', reviewState: 'unreviewed', questions: [], sources: [] });
@@ -84,6 +84,7 @@ function harness({ question = false, hypothesis = false } = {}) {
   const form = { id: 'suggest-form', dataset: { nodeId: 'node-a' },
     querySelectorAll: () => submittedFields };
   if (question) { form.id = ''; form.dataset.question = 'question-a'; }
+  if (formAs) Object.assign(form, formAs); // Another form of the inspector, with its own fields.
   const focusControl = spec => { controlSpecs.push(spec); const current = control(spec); controls.push(current); current.focus(); return current; };
   return { state, document, detail, button, complete, focusDraft, focusControl, render: context.renderDetail, actCalls,
     clearControls: () => { controlSpecs.length = 0; }, markup: () => markup,
@@ -765,4 +766,40 @@ test('Explore this as a direction opens Add a direction on that idea once it is 
   page = run({ shown: ['a'] });
   await page.explore({ nodeId: 'gone', title: 'T', body: 'B' });
   assert.equal(page.calls.some(call => call[0] === 'open'), false, 'nothing opens for an idea that is not on the map');
+});
+
+test('the inspector shows the Assign form, then the request; Pass on opens its form until it is sent, cancelled or another idea is shown; history only shows (H7)', async () => {
+  const item = { id: 'assignment-1', nodeId: 'node-a', requestedFor: 'Ana', status: 'requested', events: [{ at: '2026-11-04T10:00:00.000Z', type: 'requested', to: 'Ana' }] };
+  const passFields = [{ name: 'to', value: 'Cy', dataset: { draft: 'assignment-pass:node-a-to' } }, { name: 'note', value: '', dataset: { draft: 'assignment-pass:node-a-note' } }];
+  const h = harness({ formAs: { id: '', dataset: { nodeId: 'node-a', passForm: 'assignment-1' }, querySelectorAll: () => passFields } });
+  h.document.activeElement = null; h.render(true);
+  assert.match(h.markup(), /<form id="assign-form" data-node-id="node-a">/, 'nobody is asked yet: the Assign form');
+  h.state.visibleMap.assignments = { version: 1, items: [item] }; h.render(true);
+  assert.match(h.markup(), /<section class="assignment-card"/); assert.doesNotMatch(h.markup(), /assign-form|data-pass-form/, 'one request at a time, and its form closed');
+  const focused = [];
+  globalThis.document = { querySelector: selector => ({ focus: () => focused.push(selector) }) };
+  const click = dataset => assignmentClick({ target: { closest: selector => { const name = selector.slice(6, -1).replace(/-([a-z])/g, (_, c) => c.toUpperCase()); return name in dataset ? { dataset } : null; } } }, { state: h.state, act: async () => true, toast: () => {}, renderDetail: h.render });
+  try {
+    await click({ assignmentPass: 'assignment-1', nodeId: 'node-a' });
+    assert.match(h.markup(), /<form class="assignment-pass-form" data-pass-form="assignment-1"/, 'Pass on opens its form in the real inspector');
+    assert.match(h.markup(), /data-assignment-pass-cancel="assignment-1"[^>]*>Cancel</); assert.equal(focused.at(-1), '#detail [data-pass-form] input');
+    h.state.drafts['assignment-pass:node-a-to'] = 'Dee';
+    await click({ assignmentPassCancel: 'assignment-1', nodeId: 'node-a' });
+    assert.doesNotMatch(h.markup(), /data-pass-form/); assert.equal(h.state.drafts['assignment-pass:node-a-to'], undefined, 'Cancel drops what was typed');
+    assert.equal(focused.at(-1), '#detail [data-menu="assignment-1"]', 'back to the menu it came from');
+    await click({ assignmentPass: 'assignment-1', nodeId: 'node-a' });
+    h.state.selected = 'node-b'; h.render(); h.state.selected = 'node-a'; h.render();
+    assert.doesNotMatch(h.markup(), /data-pass-form/, 'showing another idea closes it');
+    await click({ assignmentPass: 'assignment-1', nodeId: 'node-a' });
+    const saving = h.submit(); h.complete(true); await saving;
+    assert.deepEqual(h.actCalls.at(-1), ['node-a', 'pass-assignment', { assignmentId: 'assignment-1', to: 'Cy' }]);
+    assert.equal(h.state.assignmentPassing, null); assert.doesNotMatch(h.markup(), /data-pass-form/, 'sent: it closes');
+    h.state.historyStep = 0; h.render();
+    assert.match(h.markup(), /<section class="assignment-card"/); assert.doesNotMatch(h.markup(), /data-assignment-|assign-form|data-pass-form|data-menu="assignment-1"/, 'history shows the request with nothing to do');
+  } finally { delete globalThis.document; }
+});
+
+test('the inspector hands Take it, Pass on and Mark done to the assignment module, and the overview offers the Assigned filter (H7)', () => {
+  assert.match(app, /if \(await assignmentClick\(event, \{ state, act, toast, renderDetail \}\)\) \{ closeMenus\(\); return; \}/);
+  assert.match(app, /mapOverview\(state\.visibleMap, \{ filters: \[.*, assignedFilter\(state\.visibleMap\)\] \}\)/);
 });

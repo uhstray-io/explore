@@ -42,7 +42,7 @@ import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, e
 import { mapOverview, ideaMatches, visibleSelection, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml, isInvestigationJob } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, prefilled: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, prefilled: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, doneWhenEditing: null, assignmentPassing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -346,7 +346,7 @@ function renderOverview() {
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
 // The control that opened a filter: its progress button, or More filters.
-const filterControl = filter => $('#overview-filters').querySelector?.(`[data-filter="${filter}"]`) ?? $('#more-filters'); // A progress button, or More filters.
+const filterControl = filter => $(`#overview-filters [data-filter="${filter}"]`) ?? $('#more-filters'); // A progress button, or More filters.
 function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
 // Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
 const nextQuestion = nextQuestionPanel({ esc, focusNode, rerender: () => { renderOverview(); $('#overview-list button')?.focus(); } });
@@ -579,7 +579,7 @@ function renderDetail(force = false) {
   for (const editor of detail.querySelectorAll('details[data-editor]')) state.editors[`${previousNode}:${editor.dataset.editor}`] = editor.open;
   const focus = active ? active.dataset.draft ? { key: active.dataset.draft, start: active.selectionStart, end: active.selectionEnd } : { control: detailFocusKey(active) } : null;
   const scroll = previousNode === state.selected ? detail.scrollTop : 0;
-  if (previousNode !== state.selected) state.doneWhenEditing = null; // Editing ends when another idea is shown.
+  if (previousNode !== state.selected) { state.doneWhenEditing = null; state.assignmentPassing = null; } // Editing ends when another idea is shown.
   detail.dataset.nodeId = state.selected || '';
   const n = state.visibleMap.nodes.find(n => n.id === state.selected);
   if (!n) { detail.innerHTML = `<div class="detail-empty"><span>◇</span>${historic ? 'Select an idea visible at this growth step to read today’s findings.' : 'Select an idea to look closer.'}</div>`; return; }
@@ -651,7 +651,7 @@ function renderDetail(force = false) {
     ${job?.error ? `<p class="state-note warning">${esc(job.error)}</p>` : ''}
     ${!historic ? `<div class="detail-actions">${canExplore(n, completed) ? `<button class="primary" data-explore="${n.id}" data-command="explore" data-node-id="${n.id}">${n.status === 'suggested' ? 'Explore this branch' : 'Retry exploration'}</button>` : ''}${!completed && ['queued', 'running'].includes(n.status) ? `<button class="secondary" data-cancel="${n.id}" data-command="cancel" data-node-id="${n.id}">Stop exploration</button>` : ''}${n.status === 'explored' && n.reviewState !== 'accepted' && !n.stale ? `<button class="secondary" data-accept="${n.id}" data-command="accept" data-node-id="${n.id}">Accept finding</button>` : ''}<button class="secondary" data-branch-brief="${n.id}" data-command="branch-brief" data-node-id="${n.id}">Branch brief</button></div>` : ''}
     ${doneWhenSection(n, { esc, completed, live: !historic, editing: state.doneWhenEditing === n.id, drafts: state.drafts })}
-    ${assignmentCardHtml(state.visibleMap, n, { esc, live: !historic, drafts: state.drafts })}${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
+    ${assignmentCardHtml(state.visibleMap, n, { esc, live: !historic, drafts: state.drafts, passing: state.assignmentPassing })}${pinnedAnswersHtml(state.visibleMap, pins, { esc, selectedId: n.id, open: questions.some(isBlocking), live: !historic })}
     ${questionHtml}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
     ${hypothesisHtml(n, { esc, live: !historic, drafts: state.drafts })}
@@ -894,7 +894,7 @@ $('#detail').addEventListener('submit', async event => {
       if (!success) renderDetail(true);
     }
     if (form.id === 'suggest-form') success = await act(node, 'suggest', suggestPayload(data));
-    const asked = assignmentRequest(form, data); if (asked) success = await act(node, asked.type, asked.input); // Ask someone, or pass it on (H7).
+    const asked = assignmentRequest(form, data); if (asked && (success = await act(node, asked.type, asked.input)) && asked.type === 'pass-assignment') state.assignmentPassing = null; // Ask someone, or pass it on (H7).
     if ('outcomeForm' in form.dataset) success = await act(node, 'record-outcome', outcomePayload(data));
     if (form.id === 'guidance-form') {
       const edits = goalEdits(state.map, data);

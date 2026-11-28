@@ -186,6 +186,7 @@ export function compareVersion(current, snapshot, isCompleted) {
       linksRemoved: [...nowEdges].filter(key => !thenEdges.has(key)).length,
       termsChanged: entryDifference(current, snapshot, 'glossary'),
       thoughtsChanged: entryDifference(current, snapshot, 'inbox'), // The inbox (K8), the same way.
+      assignmentsChanged: entryDifference(current.assignments ?? {}, snapshot.assignments ?? {}, 'items'), // Requests to look at a branch (H7).
       reviewsChanged: entryDifference(current, snapshot, 'proposals'), // Agents' suggestions and the user's reviews of them.
       guidanceChanged: ['mode', 'objective', 'successCriteria'].some(field => (current[field] ?? null) !== (snapshot[field] ?? null)),
     },

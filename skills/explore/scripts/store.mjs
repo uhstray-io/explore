@@ -31,7 +31,7 @@ import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
 import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
-import { assignmentLines } from '../assets/assignments.js';
+import { assignmentLines } from './assignments.mjs';
 import { sourceList } from './fields.mjs';
 import { reuseKey, contentKey } from './reuse.mjs';
 import { signature, signatureMatches, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';

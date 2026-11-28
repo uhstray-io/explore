@@ -3,7 +3,8 @@
 // the person finished looking, not that the branch is explored or accepted.
 import { randomUUID } from 'node:crypto';
 import { textField } from './fields.mjs';
-import { assignmentLimits, assignmentsOf, openAssignment } from '../assets/assignments.js';
+import { markdownText } from '../assets/workspace-view.js';
+import { assignmentLimits, assignmentsOf, openAssignment, requestLine } from '../assets/assignments.js';
 
 class AssignmentProblem extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 const need = (condition, message, status) => { if (!condition) throw new AssignmentProblem(message, status); };
@@ -11,6 +12,7 @@ const fail = message => need(false, message);
 // Who it is for: a free-text label, one line, not checked against anything.
 const label = value => { const text = textField(value, 'Who', assignmentLimits.label, fail); need(!/[\r\n]/.test(text), 'Who is one line.'); return text; };
 const noteOf = value => textField(value, 'Note', assignmentLimits.note, fail, { optional: true });
+const withNote = note => (note ? { note } : {});
 const by = actor => (actor?.name ? { by: { name: actor.name } } : {});
 const itemOf = (map, node, input) => {
   const item = assignmentsOf(map).find(entry => entry.id === input.assignmentId && entry.nodeId === node.id);
@@ -27,31 +29,49 @@ export const assignmentActions = {
   assign: { target: 'node', apply: ({ map, node, input, store, actor }) => {
     need(!openAssignment(map, node.id), 'Someone is already asked to look at this branch. Pass it on or mark it done first.', 409);
     const to = label(input.to), note = noteOf(input.note);
-    map.assignments = { version: 1, items: [...assignmentsOf(map)] };
-    const item = { id: `assignment-${randomUUID().slice(0, 8)}`, nodeId: node.id, requestedFor: to, ...(note ? { note } : {}), status: 'requested', events: [] };
+    map.assignments ??= { version: 1, items: [] }; // A map that has one already passed validation, so it is kept as it is.
+    const item = { id: `assignment-${randomUUID().slice(0, 8)}`, nodeId: node.id, requestedFor: to, ...withNote(note), status: 'requested', events: [] };
     map.assignments.items.push(item);
-    record(store, map, item, 'requested', actor, { to, ...(note ? { note } : {}) });
+    record(store, map, item, 'requested', actor, { to, ...withNote(note) });
   } },
-  // Take it: the person running Explore, by their Git name, so others see who has it.
+  // Take it: the person running Explore, by their Git name, so others see who has it. Only while nobody has.
   'take-assignment': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const item = itemOf(map, node, input), note = noteOf(input.note);
     need(actor?.name, 'Explore takes your name from Git. Set it (git config user.name) so others see who has this, then take it.', 409);
     need(item.status !== 'done', 'This request is done. Pass it on to reopen it.', 409);
+    need(item.status === 'requested', `${item.takenBy?.name ?? 'Someone'} has this already. Pass it on first.`, 409);
     Object.assign(item, { status: 'taken', takenBy: { name: actor.name } });
-    record(store, map, item, 'taken', actor, note ? { note } : {});
+    record(store, map, item, 'taken', actor, withNote(note));
   } },
-  // Pass it on: a new label, nobody has taken it yet. It reopens a done request too.
+  // Pass it on: a new label, nobody has taken it yet, and only the new note (the old one was for someone else). It
+  // reopens a done request too.
   'pass-assignment': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const item = itemOf(map, node, input), to = label(input.to), note = noteOf(input.note);
     need(item.status !== 'done' || !openAssignment(map, node.id), 'Someone is already asked to look at this branch.', 409);
-    Object.assign(item, { requestedFor: to, status: 'requested', ...(note ? { note } : {}) }); delete item.takenBy;
-    record(store, map, item, 'passed', actor, { to, ...(note ? { note } : {}) });
+    Object.assign(item, { requestedFor: to, status: 'requested', ...withNote(note) }); delete item.takenBy;
+    if (!note) delete item.note;
+    record(store, map, item, 'passed', actor, { to, ...withNote(note) });
   } },
   // Mark it done: the person finished looking. The branch is left exactly as it is.
   'complete-assignment': { target: 'node', apply: ({ map, node, input, store, actor }) => {
     const item = itemOf(map, node, input), note = noteOf(input.note);
     need(item.status !== 'done', 'This request is already done.', 409);
     item.status = 'done';
-    record(store, map, item, 'done', actor, note ? { note } : {});
+    record(store, map, item, 'done', actor, withNote(note));
   } },
 };
+
+// Requests on ideas a restart or a branch restore removes go with them, as their jobs do; the version kept before the
+// change still has them. `ids` the ideas removed. Returns how many open requests that drops.
+export const openRequestsOn = (map, ids) => assignmentsOf(map).filter(item => ids.has(item.nodeId) && (item.status === 'requested' || item.status === 'taken')).length;
+export function dropRequestsOn(map, ids) {
+  if (map.assignments && assignmentsOf(map).some(item => ids.has(item.nodeId))) map.assignments.items = map.assignments.items.filter(item => !ids.has(item.nodeId));
+}
+
+// The open request in an idea's Markdown view (committed with the map), as literal text, its note quoted line by line.
+export function assignmentLines(map, node) {
+  const item = openAssignment(map, node.id);
+  if (!item) return [];
+  const note = item.note ? ['', ...item.note.split(/\r?\n/).map(line => (line.trim() ? `> ${markdownText(line)}` : '>'))] : [];
+  return ['', `_${markdownText(requestLine(item, { iso: true }))}${item.takenBy?.name ? `; taken by ${markdownText(item.takenBy.name)}` : ''}._`, ...note];
+}

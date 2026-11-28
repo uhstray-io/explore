@@ -282,3 +282,21 @@ test('work elsewhere that links to a deleted idea still delivers; unknown ideas 
   assert.equal(map.nodes.find(n => n.title === 'Catering').summary, 'Local cafe.');
   assert.ok(!map.edges.some(e => e.to === green.id));
 });
+
+test('restarting drops the requests to look at the ideas it deletes, says so first, and keeps the others (H7)', async () => {
+  const f = await fixture(), venue = f.find('Venue'), actor = { actor: { name: 'Ben' } };
+  const ask = async (title, to) => { const map = await f.refresh(); return f.store.action(map.id, { expectedRevision: map.revision, nodeId: f.find(title).id, type: 'assign', to }, actor); };
+  await ask('Green', 'Ana'); await ask('Budget', 'Cy');
+  let map = await ask('Permit', 'Dee');
+  const permit = map.assignments.items.find(item => item.requestedFor === 'Dee');
+  map = await f.store.action(map.id, { expectedRevision: map.revision, nodeId: permit.nodeId, type: 'complete-assignment', assignmentId: permit.id }, actor);
+  const earlier = await previewRestart(f.store, map.id, { nodeId: venue.id, questionId: f.firstId });
+  assert.equal(earlier.requestsRemoved, 1, 'the open one; a done one goes too, but is not waiting on anyone');
+  assert.match(restartPreviewHtml(earlier, { esc: String }), /Restarting deletes 3 ideas below this branch, with 4 links and 1 open request to look at them\./);
+  await ask('Hall', 'Eve');
+  await assert.rejects(f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: earlier.hash }), /Preview the restart again/, 'a request asked for since the preview changes what it deletes');
+  const preview = await previewRestart(f.store, map.id, { nodeId: venue.id, questionId: f.firstId });
+  assert.equal(preview.requestsRemoved, 2);
+  map = await f.act({ type: 'restart-branch', nodeId: venue.id, questionId: f.firstId, answer: 'Indoors.', previewHash: preview.hash });
+  assert.deepEqual(map.assignments.items.map(item => item.requestedFor), ['Cy'], 'only the request on an idea that is still there');
+});

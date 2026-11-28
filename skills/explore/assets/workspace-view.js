@@ -137,6 +137,7 @@ const versionWords = {
   preserved: 'Kept before a pull', 'repeat-stopped': 'Repeat stopped', 'example-created': 'Example created',
   'answer-changed': 'Answer changed', 'outcome-recorded': 'Outcome recorded', 'disprove-if-set': 'Assumption note changed', 'thought-added': 'Thought added to the inbox', 'thought-edited': 'Thought edited', 'thought-discarded': 'Thought discarded', 'thought-placed': 'Thought placed', 'answer-reworded': 'Answer reworded', reaffirmed: 'Finding still holds', cleared: 'Finding no longer relevant',
   'branch-restarted': 'Branch restarted', 'before-restart': 'Before a restart', 'map-imported': 'Map imported', 'glossary-added': 'Glossary term added', 'guidance-changed': 'Goal and mode changed', 'glossary-edited': 'Glossary term edited', 'glossary-removed': 'Glossary term removed', 'glossary-accepted': 'Glossary term accepted', 'glossary-dismissed': 'Proposed term dismissed', 'done-when-set': 'Stopping point set', 'map-recovered': 'Recovered from a version',
+  'assignment-requested': 'Someone asked to look at a branch', 'assignment-taken': 'Request taken', 'assignment-passed': 'Request passed on', 'assignment-done': 'Request marked done',
 };
 export function versionLabel(version) {
   if (version.name) return version.name;
@@ -198,6 +199,7 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
     counts.linksAdded && `brings back ${count(counts.linksAdded, 'connection')}`,
     counts.termsChanged && `changes the glossary`,
     counts.thoughtsChanged && 'changes the inbox',
+    counts.assignmentsChanged && 'changes who is asked to look at branches',
     counts.reviewsChanged && 'changes agents\' suggestions or your reviews of them',
     counts.guidanceChanged && 'changes the goal and mode',
   ].filter(Boolean);
@@ -538,7 +540,7 @@ export function reviewStepHtml({ map, nodeId, index, total, esc }) {
 export function restartPreviewHtml(preview, { esc, expanded = false }) {
   const ideas = preview.deleteCount;
   const lead = ideas
-    ? `<p><strong>Restarting deletes ${count(ideas, 'idea')} below this branch${preview.linksRemoved ? `, with ${count(preview.linksRemoved, 'link')}` : ''}.</strong> This branch keeps its premise and answers and explores again from your new answer.</p>`
+    ? `<p><strong>Restarting deletes ${count(ideas, 'idea')} below this branch${preview.linksRemoved ? `, with ${count(preview.linksRemoved, 'link')}` : ''}${preview.requestsRemoved ? `${preview.linksRemoved ? ' and' : ', with'} ${count(preview.requestsRemoved, 'open request')} to look at them` : ''}.</strong> This branch keeps its premise and answers and explores again from your new answer.</p>`
     : '<p><strong>Nothing below this branch is deleted.</strong> Its findings are cleared and it explores again from your new answer.</p>';
   const list = ideas ? `<details class="restart-list"${expanded ? ' open' : ''}><summary>Ideas to delete (${ideas})</summary><ul>${preview.deleted.map(node => `<li>${esc(node.title)}</li>`).join('')}</ul>${preview.nextOffset != null ? `<button type="button" class="text-button" data-restart-more="${preview.nextOffset}">Show more</button>` : ''}</details>` : '';
   const setAside = preview.superseded.length ? `<p>${preview.superseded.length === 1 ? '1 later question on this branch is' : `${preview.superseded.length} later questions on this branch are`} set aside; their answers are kept.</p>` : '';
