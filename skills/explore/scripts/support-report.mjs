@@ -17,18 +17,23 @@ const pick = (value, allowed) => allowed.has(value) ? value : 'unknown';
 
 // Map files the server could not open, by the server's own read rule. Counted, never quoted; any failure
 // other than a missing map.json counts, so a broken map is never reported as fine.
-export async function countUnreadableMaps(workspace) {
+// Maps whose map.json the server cannot open, as [{ id, problem }], or 'unknown' when the folder cannot be read.
+export async function unreadableMaps(workspace) {
   let entries;
   try { entries = await readdir(path.join(workspace, 'ideas'), { withFileTypes: true }); }
-  catch (error) { return error.code === 'ENOENT' ? 0 : 'unknown'; }
-  let count = 0;
+  catch (error) { return error.code === 'ENOENT' ? [] : 'unknown'; }
+  const out = [];
   for (const entry of entries.filter(item => item.isDirectory() && mapFolderPattern.test(item.name))) {
     const file = path.join(workspace, 'ideas', entry.name, 'map.json');
-    try { if ((await stat(file)).size > maxMapBytes || readMapFile(await readFile(file), entry.name).problem) count++; }
-    catch (error) { if (error.code !== 'ENOENT') count++; }
+    try {
+      if ((await stat(file)).size > maxMapBytes) { out.push({ id: entry.name, problem: 'too-large' }); continue; }
+      const { problem } = readMapFile(await readFile(file), entry.name);
+      if (problem) out.push({ id: entry.name, problem });
+    } catch (error) { if (error.code !== 'ENOENT') out.push({ id: entry.name, problem: 'unreadable' }); }
   }
-  return count;
+  return out;
 }
+export async function countUnreadableMaps(workspace) { const maps = await unreadableMaps(workspace); return Array.isArray(maps) ? maps.length : maps; }
 
 export function toSupportReport(diagnosis, { version, missing, unreadable, legacy, generatedAt = new Date().toISOString() }) {
   return {

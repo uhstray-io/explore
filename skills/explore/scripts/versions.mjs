@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { atomicJson } from './files.mjs';
 import { undoDependencies } from '../assets/workspace-view.js';
+import { decodeMap, readProblem } from './map-validation.mjs';
 
 // Version history (E1). Each saved change to a map is one standalone file in the map's folder,
 // ideas/<map-id>/versions/<time>-<random>.json, committed with the map so anyone who pulls can
@@ -78,6 +79,7 @@ export class Versions {
         try {
           const record = JSON.parse(await readFile(file, 'utf8'));
           if (record?.format === 'explore-version' && record.version === 1 && record.mapId === mapId && typeof record.at === 'string' && Array.isArray(record.labels) && record.map) header = describe(id, record, info.size);
+          if (header) { const problem = readProblem(record.map, mapId); if (problem) header.problem = problem; }
         } catch {} // A damaged version file is left alone and not offered.
         cached = { mtimeMs: info.mtimeMs, size: info.size, header };
         this.headers.set(key, cached);
@@ -89,7 +91,23 @@ export class Versions {
   async list(mapId) {
     const versions = await this.scan(mapId);
     // Versions older than the feature, or tidied away, are not listed; committed ones remain in Git history.
-    return { versions: versions.map(({ contentHash, mapId: _, ...version }) => version), earlierMissing: !versions.length || versions.at(-1).revision > 1, limits: this.limits };
+    // Each says whether it can be used (J2); a version file that cannot be read at all is listed apart.
+    return { versions: versions.map(({ contentHash, mapId: _, ...version }) => version), unusable: await this.unusable(mapId, versions),
+      earlierMissing: !versions.length || versions.at(-1).revision > 1, limits: this.limits };
+  }
+  // Version-named files that scan could not read, with the reason a map file of those bytes would have.
+  async unusable(mapId, versions) {
+    const known = new Set(versions.map(version => version.id)), out = [];
+    let names = [];
+    try { names = (await readdir(this.folder(mapId))).filter(name => name.endsWith('.json') && idPattern.test(name.slice(0, -5)) && !known.has(name.slice(0, -5))); }
+    catch { return []; }
+    for (const name of names) {
+      const file = path.join(this.folder(mapId), name);
+      try { if (!(await lstat(file)).isFile()) continue; } catch { continue; }
+      const decoded = decodeMap(await readFile(file).catch(() => Buffer.from('')));
+      out.push({ id: name.slice(0, -5), problem: decoded.problem ?? 'invalid-version' });
+    }
+    return out.sort((a, b) => b.id.localeCompare(a.id));
   }
   async get(mapId, id) {
     let record;

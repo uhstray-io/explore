@@ -86,7 +86,10 @@ export class Store {
     this.versions = new Versions(this.directory, versionLimits);
     // A preview compares a version with the map as it is now; it writes nothing.
     this.versions.preview = async (mapId, id) => {
-      const current = await this.get(mapId), { version, map } = await this.versions.get(mapId, id);
+      const { version, map } = await this.versions.get(mapId, id);
+      let current;
+      try { current = await this.get(mapId); }
+      catch (error) { if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) return { version, map, damaged: true, problem: error.code }; throw error; }
       return { version, map, revision: current.revision, queuedCancelled: current.jobs.filter(job => job.status === 'queued').length, ...compareVersion(current, map, isCompleted) };
     };
   }
@@ -799,6 +802,22 @@ export class Store {
       try { this.renderViews(map); } catch { throw new Problem('This map has parts Explore cannot show, so it was not imported.'); }
       await this.save(this.isNew(map), { labels: ['map-imported'] });
       return { imported: map.id };
+    });
+  }
+  // Copy a saved version out as a new, separate map (J2), even when the map itself cannot be opened. The original
+  // folder, its map.json, Markdown and history are never touched; the copy opens only when the user chooses it.
+  recoverCopy(mapId, versionId) {
+    return this.serial(async () => {
+      need(typeof mapId === 'string' && mapFolderPattern.test(mapId), 'Map not found.', 404);
+      const { version, map: saved } = await this.versions.get(mapId, versionId);
+      const problems = validateMap(saved, { folderId: mapId }).errors;
+      need(!problems.length, `This version cannot be used: ${problems.slice(0, 3).map(problem => problem.message.replace(/[.]$/, '')).join('; ')}.`, 409);
+      const map = this.asImported(saved);
+      Object.assign(map, { id: id('map'), title: `${map.title.slice(0, 90)} (recovered)`, createdAt: now(), recoveredFrom: { mapId, version: version.id, revision: version.revision } });
+      delete map.library;
+      try { this.renderViews(map); } catch { throw new Problem('This version has parts Explore cannot show, so it was not copied.'); }
+      await this.save(this.isNew(map), { labels: ['map-recovered'] });
+      return { recovered: map.id };
     });
   }
   // A map as an import would store it: without claim data, and with open work stopped but no timestamps added,

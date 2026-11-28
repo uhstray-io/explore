@@ -7,6 +7,7 @@ import { branchRestorePanel } from './branch-restore.js';
 import { exportPanel } from './export-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
+import { recoverDialog } from './recover-dialog.js';
 import { questionClick } from './question-clicks.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
@@ -757,7 +758,7 @@ const branchRestore = branchRestorePanel({ api, act, esc, mapId: () => state.map
 const exporter = exportPanel({ api, map: () => state.map, selected: () => state.selected, positions: () => (state.historySource ? null : state.positions), download });
 $('#changes-open').addEventListener('click', () => { $('#tools-dialog').close(); changes.show(); });
 // The rail (I1): Pin and Archive act on any map through the action queue; the open map uses its own revision.
-const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference,
+const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference, recover: recoverDialog({ api, esc, openMap: id => openMap(id), refresh: () => refresh() }),
   // The open map goes through the action queue, except while growth history shows (act() refuses then);
   // either way the rail is refreshed at once, so its labels and order are never a poll behind.
   act: async (mapId, input) => {

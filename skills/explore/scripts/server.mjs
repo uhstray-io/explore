@@ -87,7 +87,8 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           return send(res, 200, await previewBranchRestore(store, branchRoute[1], branchRoute[2], { nodeId: q.get('node'), offset: q.get('offset'), limit: q.get('limit') }));
         }
         const versionsRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions(?:\/([A-Za-z0-9-]+))?$/);
-        if (req.method === 'GET' && versionsRoute && !versionsRoute[2]) { await store.get(versionsRoute[1]); return send(res, 200, await store.versions.list(versionsRoute[1])); }
+        // A map that cannot be opened still lists its versions (J2), so one of them can be copied out.
+        if (req.method === 'GET' && versionsRoute && !versionsRoute[2]) { if (!await store.taken(versionsRoute[1])) throw new Problem('Map not found.', 404); return send(res, 200, await store.versions.list(versionsRoute[1])); }
         if (req.method === 'GET' && versionsRoute) {
           const preview = await store.versions.preview(versionsRoute[1], versionsRoute[2]);
           return send(res, 200, { ...preview, map: publicMap(preview.map) });
@@ -142,6 +143,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (url.pathname === '/api/settings') return send(res, 200, await store.updateSettings(body));
         if (url.pathname === '/api/storage/preview') return send(res, 200, await storage.preview(body));
         if (url.pathname === '/api/storage/clean') return send(res, 200, await storage.clean(body));
+        if (url.pathname === '/api/recover-copy') return send(res, 200, await store.recoverCopy(body.mapId, body.version));
         if (url.pathname === '/api/import') return send(res, 200, await store.importMap(body.data, { asCopy: body.asCopy === true }));
         if (match?.[2] === 'action') return send(res, 200, store.view(await store.action(match[1], body, { actor: await contributor() })));
         if (match?.[2] === 'result') {
@@ -154,7 +156,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/recover-dialog.js': 'recover-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
