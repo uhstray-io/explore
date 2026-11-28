@@ -232,9 +232,9 @@ test('the dialog labels each item for what it is, lists refused paths, warns of 
   const map = { jobs: [], proposals: [], projectBrief: { draft, approved: null, statements: [{ id: 'statement-1', text: 'Mine <b>.' }] } };
   let html = projectBriefHtml({ map, esc, listening: false, live: true, status: { files: [{ path: 'README.md', status: 'changed' }] }, editing: null });
   assert.match(html, /README\.md is changed since the brief was written\. Facts from it are unverified/);
-  assert.match(html, /<span class="brief-label">Your statement<\/span> Mine &lt;b&gt;\./); assert.match(html, /<span class="brief-label">Fact <span class="form-note">purpose<\/span><\/span> Works &lt;offline&gt;\./);
+  assert.match(html, /<span class="brief-label">Your statement<\/span><\/p><p>Mine &lt;b&gt;\.<\/p>/); assert.match(html, /<span class="brief-label">Fact<\/span> · purpose<\/p><p>Works &lt;offline&gt;\.<\/p>/);
   assert.match(html, /<summary>From README\.md <span class="warning">\(changed since\)<\/span><\/summary><blockquote>Notes &lt;that&gt; work\.<\/blockquote>/);
-  assert.match(html, /Agent inference <span class="form-note">architecture<\/span><\/span> Local-first\. <span class="form-note">\(from f1\)<\/span>/); assert.match(html, /Not found in these files <span class="form-note">constraints<\/span>/);
+  assert.match(html, /Agent inference<\/span> · architecture<\/p><p>Local-first\. <span class="form-note">\(from f1\)<\/span><\/p>/); assert.match(html, /Not found in these files<\/span> · constraints/);
   assert.match(html, /data-brief-approve>Approve brief/); assert.match(html, /data-brief-remove="facts:f1"/); assert.match(html, /data-brief-edit="f1"/);
   assert.doesNotMatch(html, /data-brief-ask/, 'no new request while a draft waits');
   html = projectBriefHtml({ map, esc, listening: false, live: true, editing: 'f1' });
@@ -242,14 +242,14 @@ test('the dialog labels each item for what it is, lists refused paths, warns of 
   const history = projectBriefHtml({ map, esc, listening: false, live: false });
   assert.doesNotMatch(history, /data-brief-(approve|remove|edit|ask|add)/); assert.match(history, /An earlier view of the map/);
   const empty = projectBriefHtml({ map: { jobs: [], proposals: [] }, esc, listening: false, live: true, errors: [{ path: '.env <x>', message: 'Never read.' }], paths: '.env <x>' });
-  assert.match(empty, /<textarea id="project-brief-paths"[^>]*>\.env &lt;x&gt;<\/textarea><ul class="state-note warning" id="project-brief-errors"><li><code>\.env &lt;x&gt;<\/code>: Never read\.<\/li><\/ul>/);
+  assert.match(empty, /<textarea id="project-brief-paths"[^>]*>\.env &lt;x&gt;<\/textarea><ul class="state-note warning" id="project-brief-errors" role="alert"><li><code>\.env &lt;x&gt;<\/code>: Never read\.<\/li><\/ul>/);
   const approved = projectBriefHtml({ map: { jobs: [], proposals: [], projectBrief: { draft: null, approved: draft, statements: [] } }, esc, listening: false, live: true });
   assert.match(approved, /Approved brief[\s\S]*data-brief-start-edit>Edit[\s\S]*data-brief-refresh>Refresh from files[\s\S]*data-brief-clear>Clear brief/);
   assert.doesNotMatch(approved, /data-brief-remove/, 'the approved brief is edited through a draft');
 });
 
 // A dialog in a fake page: elements by id, a body whose controls are found by selector, and events fired by hand.
-function fakeBriefDialog({ map, act, api }) {
+function fakeBriefDialog({ map, act, api, onStatus }) {
   const elements = new Map(), focused = [], toasts = [], fields = {};
   const element = id => {
     if (!elements.has(id)) {
@@ -261,7 +261,7 @@ function fakeBriefDialog({ map, act, api }) {
     return elements.get(id);
   };
   globalThis.document = { querySelector: selector => element(selector.replace(/^#/, '')), activeElement: null };
-  const dialog = projectBriefDialog({ map, act, api, esc, toast: message => toasts.push(message), live: () => true, listening: () => false });
+  const dialog = projectBriefDialog({ map, act, api, esc, toast: message => toasts.push(message), live: () => true, listening: () => false, onStatus });
   const body = element('project-brief-body');
   const click = dataset => body.fire('click', { target: { closest: () => ({ dataset, disabled: false }) } });
   return { element, body, dialog, click, focused, toasts, fields };
@@ -273,19 +273,21 @@ test('the dialog asks for the files typed, lists each refused one, rewrites a fa
   const calls = [], routes = [];
   const act = async (nodeId, type, input, options) => { calls.push([nodeId, type, input]); if (type === 'request-map-job' && input.options.files.includes('.env')) { options.onError('These files cannot be used.', { errors: [{ path: '.env', message: 'Never read.' }] }); return false; } return true; };
   const api = async route => { routes.push(route); return { status: { overall: 'changed', files: [{ path: 'README.md', status: 'changed' }] } }; };
-  const io = fakeBriefDialog({ map: () => map, act, api });
+  let statusChanges = 0;
+  const io = fakeBriefDialog({ map: () => map, act, api, onStatus: () => statusChanges++ });
   try {
     await io.element('project-brief-open').fire('click');
     assert.equal(io.element('project-brief-dialog').open, true); assert.deepEqual(routes, [], 'no brief yet: nothing to check');
     await io.body.fire('input', { target: { id: 'project-brief-paths', value: 'README.md\n\n  .env  \n' } });
     await io.click({ briefAsk: '' });
     assert.deepEqual(calls.at(-1), [null, 'request-map-job', { jobType: PROJECT_BRIEF, options: { files: ['README.md', '.env'] } }]);
-    assert.match(io.body.innerHTML, /<li><code>\.env<\/code>: Never read\.<\/li>/, 'each refused path, by name'); assert.equal(io.focused.at(-1), '#project-brief-errors');
+    assert.match(io.body.innerHTML, /<li><code>\.env<\/code>: Never read\.<\/li>/, 'each refused path, by name'); assert.equal(io.focused.at(-1), '#project-brief-paths', 'announced; the paths stay to fix');
     map = { ...map, revision: 4, projectBrief: { draft, approved: null, statements: [] } }; io.dialog.mapChanged();
     await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(routes, ['/maps/map-1/project-brief']); assert.match(io.body.innerHTML, /README\.md is changed since the brief was written/);
     io.dialog.mapChanged(); await new Promise(resolve => setImmediate(resolve));
     assert.equal(routes.length, 1, 'once per revision'); assert.deepEqual(io.dialog.status().files, [{ path: 'README.md', status: 'changed' }]);
+    assert.equal(statusChanges, 1, 'the inspector is told, so a question a changed file prompted says so');
     await io.click({ briefEdit: 'f1' });
     assert.match(io.body.innerHTML, /data-brief-save="f1"/);
     io.fields['[data-brief-text]'] = { value: 'It must work with no signal.' };

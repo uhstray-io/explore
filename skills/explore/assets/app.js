@@ -747,7 +747,7 @@ const challenge = challengeDialog({ map: () => state.visibleMap, act, api, esc, 
   exploreAsDirection });
 const tools = toolsDialog({ map: () => state.map, act, api, esc, toast, listening: agentListening, onOpen: () => exporter.render() }); // Map tools: Check answers (F1).
 const adr = adrDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Decision records (F5).
-const projectBrief = projectBriefDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Project brief (G2).
+const projectBrief = projectBriefDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening, onStatus: () => renderDetail() }); // Project brief (G2).
 const handoff = handoffDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening, download }); // Implementation handoff (F4).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).

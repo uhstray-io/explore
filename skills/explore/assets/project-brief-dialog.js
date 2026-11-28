@@ -4,7 +4,8 @@
 import { projectBriefHtml, projectBriefOf, PROJECT_BRIEF } from './project-brief.js';
 import { controlKey, cssQuote } from './dialog-focus.js';
 
-export function projectBriefDialog({ map, act, api, esc, toast, live, listening }) {
+// `onStatus()` runs when the files' state changes, so the questions they prompted can say so.
+export function projectBriefDialog({ map, act, api, esc, toast, live, listening, onStatus = () => {} }) {
   const $ = selector => document.querySelector(selector), dialog = $('#project-brief-dialog'), body = $('#project-brief-body');
   const state = { editing: null, errors: [], paths: null, status: null, checked: null };
   let written = null;
@@ -20,11 +21,11 @@ export function projectBriefDialog({ map, act, api, esc, toast, live, listening 
   // How the brief's files stand: asked when the map opens, when the dialog opens, after each new revision, and on Check files.
   const check = async ({ force = false } = {}) => {
     const shown = map();
-    if (!shown || !shown.projectBrief) { state.status = null; state.checked = null; return; }
+    if (!shown || !shown.projectBrief) { if (state.status) { state.status = null; onStatus(); } state.checked = null; return; }
     const key = `${shown.id}@${shown.revision}`;
     if (!force && state.checked === key) return;
     state.checked = key;
-    try { const answer = await api(`/maps/${shown.id}/project-brief`); if (state.checked === key) { state.status = answer.status; render(); } }
+    try { const answer = await api(`/maps/${shown.id}/project-brief`); if (state.checked === key) { const changed = JSON.stringify(answer.status) !== JSON.stringify(state.status); state.status = answer.status; render(); if (changed) onStatus(); } }
     catch { state.checked = null; }
   };
   const brief = () => projectBriefOf(map());
@@ -46,7 +47,7 @@ export function projectBriefDialog({ map, act, api, esc, toast, live, listening 
       const ok = await act(null, 'request-map-job', { jobType: PROJECT_BRIEF, options: { files } }, { onError: (message, error) => { state.errors = error?.errors ?? [{ path: 'Files', message }]; } });
       target.disabled = false;
       if (ok) { state.paths = null; toast(listening() ? 'Your agent will write the brief next.' : 'Queued. Connect your agent to write the brief.'); }
-      render(); focus(ok ? '#project-brief-status' : '#project-brief-errors', '#project-brief-paths'); return;
+      render(); focus(ok ? '#project-brief-status' : '#project-brief-paths'); return; // The refusals are announced; the paths stay to fix.
     }
     if (data.projectBriefStop) { if (await act(null, 'cancel-job', { jobId: data.projectBriefStop })) toast('Stopped.'); render(); focus('#project-brief-paths'); return; }
     if (data.briefRemove) {
