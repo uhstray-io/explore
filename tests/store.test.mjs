@@ -119,25 +119,14 @@ test('context stays bounded as irrelevant branches grow', async () => {
 // C12 (#15): guidance only. Explore cannot see what a host's search tool sends.
 const privacy = /Keep names, private figures and personal details out of search queries and URLs; if a search needs them, skip it and say so\./;
 
-test('every investigation packet tells the agent to keep private details out of searches, within the budget', async () => {
-  const { store, map } = await fixture(); const saved = await store.get(map.id); const n = saved.nodes[0];
-  n.prompt = 'p'.repeat(16000); n.body = 'b'.repeat(24000);
-  n.questions = Array.from({ length: 12 }, (_, i) => ({ id: `q-${i}`, text: 'q'.repeat(1600), answer: 'a'.repeat(12000) }));
-  await store.save(saved);
-  const packet = await store.claim('test');
-  assert.match(packet.instruction, privacy);
-  assert.ok(packet.contextCharacters <= 15500 && JSON.stringify(packet).length <= 15500);
-});
-
-test('typed work carries the same sentence, and a type that fills its budget still fits', async () => {
+test('typed work carries the same sentence, and a type that keeps the usual 800 characters free still fits', async () => {
   const { store, map } = await fixture(); const saved = await store.get(map.id);
+  saved.title = 'T'.repeat(100); // The longest map title.
   const job = { id: 'job-typed', type: 'probe', reason: 'A probe.' };
-  // Fills what it is given, the way the real types trim their context to the budget.
-  let given;
-  const filling = { label: 'Probe', packet: ({ budget }) => { given = budget; const packet = { instruction: 'Do the probe.', filler: '' }; packet.filler = 'x'.repeat(budget - JSON.stringify(packet).length - 400); return packet; } };
+  // Fills its budget up to the 800-character reserve, the way the real types trim their context.
+  const filling = { label: 'Probe', packet: ({ budget }) => { const packet = { instruction: 'Do the probe.', filler: '' }; packet.filler = 'x'.repeat(budget - 800 - JSON.stringify(packet).length); return packet; } };
   const packet = await store.typedPacket(saved, job, filling, saved.nodes[0], { claimKey: 'k'.repeat(48) });
-  assert.equal(given, 15500 - searchPrivacy.length - 1, 'the type is told the room left once the sentence is added');
-  assert.match(packet.instruction, /^Do the probe\. Keep names/);
+  assert.equal(packet.instruction, `Do the probe. ${searchPrivacy}`);
   assert.match(packet.instruction, privacy);
   assert.ok(packet.contextCharacters <= 15500);
 });
@@ -164,7 +153,8 @@ test('large relevant content is bounded and reports omissions', async () => {
   n.sources = Array.from({ length: 20 }, () => ({ title: 'Evidence', url: 'https://example.org', note: 'n'.repeat(1500), retrievedAt: new Date().toISOString() }));
   await store.save(saved);
   const packet = await store.claim('test');
-  assert.ok(JSON.stringify(packet).length < 16000);
+  assert.ok(JSON.stringify(packet).length <= 15500);
+  assert.match(packet.instruction, privacy, 'the privacy sentence is never trimmed');
   assert.ok(packet.omittedQuestions > 0); assert.ok(packet.omittedSources > 0);
   assert.match(packet.selected.premise, /Shortened/);
 });

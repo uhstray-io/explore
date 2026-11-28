@@ -629,8 +629,7 @@ export class Store {
   }
   // Packet for a registered job type: shared identifying fields plus the type's own fields.
   async typedPacket(map, job, definition, node, { claimKey, budget = 15500 } = {}) {
-    // The type fits its fields into what is left once the privacy sentence is added.
-    const packet = { ...await definition.packet({ map, job, node, budget: budget - searchPrivacy.length - 1 }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
+    const packet = { ...await definition.packet({ map, job, node, budget }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
       jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
     need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);
     packet.instruction = `${packet.instruction.trim()} ${searchPrivacy}`;
