@@ -12,6 +12,7 @@ import { usageDialog } from './usage-dialog.js';
 import { recoverDialog } from './recover-dialog.js';
 import { questionClick } from './question-clicks.js';
 import { sinceVisitPanel } from './since-visit.js';
+import { questionFilters, moreFiltersPanel } from './more-filters.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
@@ -288,25 +289,29 @@ function closeOverview() {
 }
 function renderOverview() {
   if (!state.visibleMap) return;
-  const overview = mapOverview(state.visibleMap), focusedFilter = document.activeElement?.dataset.filter;
+  const overview = mapOverview(state.visibleMap), more = questionFilters(state.visibleMap), focusedFilter = document.activeElement?.dataset.filter;
   const focusedIdea = $('#overview-list').contains(document.activeElement) ? document.activeElement.dataset.focusNode : null;
   const html = overview.groups.map(group => `<button type="button" data-filter="${group.id}" aria-expanded="${state.filter === group.id}" aria-controls="overview-panel"><span>${group.label}</span><strong>${group.nodes.length}</strong></button>`).join('');
   if ($('#overview-filters').innerHTML !== html) $('#overview-filters').innerHTML = html;
   if (focusedFilter) $(`[data-filter="${focusedFilter}"]`)?.focus({ preventScroll: true });
-  const group = overview.groups.find(item => item.id === state.filter);
+  moreFilters.render(more.groups, state.filter);
+  const group = [...overview.groups, ...more.groups].find(item => item.id === state.filter);
   $('#overview-panel').hidden = !group;
   for (const card of document.querySelectorAll('.node')) card.classList.toggle('filter-muted', Boolean(group) && !group.nodes.some(node => node.id === card.dataset.node));
   if (!group) return;
   $('#overview-title').textContent = `${group.label} (${group.nodes.length})`;
   $('#overview-explanation').textContent = state.historyStep === null ? 'Choose an idea to inspect it. Opening this list never starts work.' : 'Today’s state of ideas visible at this growth step.';
-  const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${node.summary ? `<span>${esc(node.summary)}</span>` : ''}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
+  const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${group.lines ? group.lines(node).map(line => `<span>${esc(line)}</span>`).join('') : node.summary ? `<span>${esc(node.summary)}</span>` : ''}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
   // Flagged findings can be reviewed one at a time from here.
   const reviewAll = group.id === 'stale' && group.nodes.length && state.historyStep === null ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
   if ($('#overview-list').innerHTML !== reviewAll + list) $('#overview-list').innerHTML = reviewAll + list;
-  if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $(`[data-filter="${state.filter}"]`))?.focus({ preventScroll: true });
+  if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
+// The control that opened a filter: its progress button, or More filters.
+const filterControl = filter => $(`[data-filter="${filter}"]`) ?? $('#more-filters');
 function openFilter(filter) { state.filter = filter; $('#node-results').hidden = true; renderOverview(); }
 // Since you were last here (K2): a card above the overview when a map opens or the tab is shown again.
+const moreFilters = moreFiltersPanel({ esc, openFilter, focusList: () => $('#overview-list button')?.focus() });
 const sinceVisit = sinceVisitPanel({ esc, openFilter, focusAfterDismiss: () => $('#overview-filters button')?.focus() });
 // Shown again: refresh at once and render, so what arrived while hidden is summarised before anything else. The
 // render runs even when nothing changed, only to finish that summary.
@@ -322,9 +327,9 @@ $('#overview-filters').addEventListener('click', event => {
 $('#overview-filters').addEventListener('keydown', event => {
   if (event.key === 'ArrowDown' && state.filter) { event.preventDefault(); $('#overview-list button')?.focus(); }
 });
-$('#close-overview').addEventListener('click', () => { const filter = state.filter; closeOverview(); $(`[data-filter="${filter}"]`)?.focus(); });
+$('#close-overview').addEventListener('click', () => { const filter = state.filter; closeOverview(); filterControl(filter)?.focus(); });
 $('#overview-panel').addEventListener('keydown', event => {
-  if (event.key === 'Escape') { const filter = state.filter; closeOverview(); $(`[data-filter="${filter}"]`)?.focus(); }
+  if (event.key === 'Escape') { const filter = state.filter; closeOverview(); filterControl(filter)?.focus(); }
 });
 
 function renderHistory() {
