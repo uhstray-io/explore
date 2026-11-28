@@ -34,20 +34,23 @@ export function normalizeComparison(result, fail) {
   });
   if (normalized.length === 1) need(optionsLimit !== undefined, 'One option needs optionsLimit: say why there is no real alternative.');
   else need(optionsLimit === undefined, 'optionsLimit is allowed only with a single option.');
+  return { options: normalized, ...(normalized.length === 1 ? { optionsLimit: text(optionsLimit, 'optionsLimit', 600) } : {}), recommendation: normalizeRecommendation(recommendation, ids, fail) };
+}
+// One recommendation among the option `ids`: an option with why and its main trade-off, or optionId null with what
+// is missing. A comparison (C1) and a reconsideration with the user's criteria (C9) both follow it.
+export function normalizeRecommendation(recommendation, ids, fail) {
+  const need = (condition, message) => { if (!condition) fail(message); };
+  const text = (value, field, max, optional = false) => textField(value, field, max, fail, { optional });
   need(recommendation !== undefined, 'A recommendation is required with options: recommend one, or use optionId null and say what is missing.');
   need(recommendation && typeof recommendation === 'object' && !Array.isArray(recommendation), 'The recommendation must be an object.');
-  let chosen;
   if (recommendation.optionId === null) {
     need(typeof recommendation.missing === 'string' && recommendation.missing.trim(), 'Without a recommendation, say what is missing.');
-    chosen = { optionId: null, missing: text(recommendation.missing, 'What is missing', 600) };
+    return { optionId: null, missing: text(recommendation.missing, 'What is missing', 600) };
   }
-  else {
-    need(ids.has(recommendation.optionId), 'The recommendation names an option that is not in the list.');
-    const reconsiderIf = text(recommendation.reconsiderIf, 'Reconsider if', 600, true);
-    chosen = { optionId: recommendation.optionId, rationale: text(recommendation.rationale, 'The recommendation rationale', 800),
-      mainTradeoff: text(recommendation.mainTradeoff, 'The main trade-off', 600), ...(reconsiderIf ? { reconsiderIf } : {}) };
-  }
-  return { options: normalized, ...(normalized.length === 1 ? { optionsLimit: text(optionsLimit, 'optionsLimit', 600) } : {}), recommendation: chosen };
+  need(ids.has(recommendation.optionId), 'The recommendation names an option that is not in the list.');
+  const reconsiderIf = text(recommendation.reconsiderIf, 'Reconsider if', 600, true);
+  return { optionId: recommendation.optionId, rationale: text(recommendation.rationale, 'The recommendation rationale', 800),
+    mainTradeoff: text(recommendation.mainTradeoff, 'The main trade-off', 600), ...(reconsiderIf ? { reconsiderIf } : {}) };
 }
 
 // Plain-text lines for Markdown and section reads; the recommendation is always labelled as judgement.
@@ -63,13 +66,12 @@ export function comparisonLines(comparison, { level = 2 } = {}) {
     if (option.suggestedAnswer) lines.push(`Suggested answer (a draft, not the user's answer): ${option.suggestedAnswer}`);
     lines.push('');
   }
-  lines.push(`${heading} Recommendation`, '', '_The agent\'s judgement, not a decision._', '');
-  const r = comparison.recommendation;
-  if (!r || r.optionId === null) lines.push(`No recommendation yet. Missing: ${r?.missing ?? 'not recorded'}`);
-  else {
-    const title = comparison.options.find(option => option.id === r.optionId)?.title ?? r.optionId;
-    lines.push(`Recommended: ${title} (${r.optionId})`, `Why: ${r.rationale}`, `Main trade-off: ${r.mainTradeoff}`);
-    if (r.reconsiderIf) lines.push(`Reconsider if: ${r.reconsiderIf}`);
-  }
+  lines.push(`${heading} Recommendation`, '', '_The agent\'s judgement, not a decision._', '', ...recommendationLines(comparison.options, comparison.recommendation));
   return lines;
+}
+// A recommendation as plain lines, for a comparison and for a reconsideration in use (C9). `format` escapes text.
+export function recommendationLines(options, r, { format = text => text } = {}) {
+  if (!r || r.optionId === null) return [`No recommendation yet. Missing: ${format(r?.missing ?? 'not recorded')}`];
+  const title = options.find(option => option.id === r.optionId)?.title ?? r.optionId;
+  return [`Recommended: ${format(title)} (${r.optionId})`, `Why: ${format(r.rationale)}`, `Main trade-off: ${format(r.mainTradeoff)}`, ...(r.reconsiderIf ? [`Reconsider if: ${format(r.reconsiderIf)}`] : [])];
 }

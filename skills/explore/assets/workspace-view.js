@@ -205,19 +205,25 @@ export function restoreSummary({ counts, reopened, queuedCancelled = 0 }, { undo
 
 // Options the agent compared (C1), as compact cards. Only the recommended one is labelled, and the
 // whole section says it is the agent's view: the user still decides. `extra(option)` adds to a card (C3's notes).
-export function optionsHtml(node, esc, extra = () => '') {
+// `lead` is shown first, above the cards: a reconsideration the user adopted (C9), after which the comparison's own
+// recommendation reads as the original.
+export function optionsHtml(node, esc, extra = () => '', lead = '') {
   if (!node.options?.length) return '';
-  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${optionCardsHtml(node, esc, extra)}`;
+  return `<h3 class="section-label">Options</h3><p class="form-note">Your agent's comparison, not a decision. You choose.</p>${lead}${optionCardsHtml(node, esc, extra, { original: !!lead })}`;
 }
 // The cards and the recommendation for any comparison; `extra(option)` adds controls to a card.
-function optionCardsHtml(comparison, esc, extra = () => '') {
+function optionCardsHtml(comparison, esc, extra = () => '', { original = false } = {}) {
   const r = comparison.recommendation, list = (label, items) => items?.length ? `<p class="option-list"><strong>${label}</strong> ${items.map(esc).join(' · ')}</p>` : '';
-  const cards = comparison.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ' <span class="option-badge">Recommended</span>' : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}${extra(option)}</article>`).join('');
-  const chosen = comparison.options.find(option => option.id === r?.optionId);
-  const advice = chosen
+  const cards = comparison.options.map(option => `<article class="option-card${r?.optionId === option.id ? ' recommended' : ''}"><h4>${esc(option.title)}${r?.optionId === option.id ? ` <span class="option-badge">${original ? 'Originally recommended' : 'Recommended'}</span>` : ''}</h4><p>${esc(option.description)}</p><p class="option-fit"><strong>Fits when</strong> ${esc(option.fit)}</p>${list('Pros', option.pros)}${list('Cons', option.cons)}${extra(option)}</article>`).join('');
+  return `${comparison.optionsLimit ? `<p class="state-note">Only one real option: ${esc(comparison.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${original ? '<p class="option-original">Original recommendation</p>' : ''}${adviceHtml(comparison.options, r, esc)}</div>`;
+}
+// A recommendation's advice: why, the main trade-off and what would change it, or what is missing. Shared with the
+// reconsideration (C9), whose `options` are the `{ id, title }` it was asked about.
+export function adviceHtml(options, r, esc) {
+  const chosen = options.find(option => option.id === r?.optionId);
+  return chosen
     ? `<p><strong>Why ${esc(chosen.title)}:</strong> ${esc(r.rationale)}</p><p><strong>Main trade-off:</strong> ${esc(r.mainTradeoff)}</p>${r.reconsiderIf ? `<p><strong>Reconsider if:</strong> ${esc(r.reconsiderIf)}</p>` : ''}`
     : `<p><strong>No recommendation yet.</strong> ${esc(r?.missing ?? '')}</p>`;
-  return `${comparison.optionsLimit ? `<p class="state-note">Only one real option: ${esc(comparison.optionsLimit)}</p>` : ''}${cards}<div class="option-advice">${advice}</div>`;
 }
 // A suggested answer is added after the user's own draft, never replacing it.
 export function appendSuggestion(draft, suggestion) {
@@ -287,10 +293,15 @@ export function questionMenuHtml(question, { nodeId, kind, completed = false, la
 // Explain this question (B4): what the agent is doing about it, or its latest current help, under the
 // question. Help is never an answer: it is labelled so and never touches the answer field. It opens the
 // first time it appears and stays collapsed once seen.
+// A result's quiet footer (Z4): asking from the menu again opens a current result while nothing it read has changed;
+// Ask again always queues new work, for earlier research too.
+const askAgainHtml = (job, kind, { question, esc }) => `<p class="reuse-again"><button type="button" class="text-button" data-reuse-again="${kind}" data-node-id="${esc(job.nodeId)}" data-question-id="${esc(question.id)}" aria-label="${kind === 'research' ? 'Ask again for research' : 'Ask again for an explanation'}">Ask again</button></p>`;
+const finishedOn = job => (job.finishedAt ? new Date(job.finishedAt).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '');
+const dated = job => (job.finishedAt ? ` · ${finishedOn(job)}` : '');
 export function questionHelpHtml({ question, jobs, listening, seen, esc }) {
   const { pending, latest: help } = questionJobs(jobs, EXPLAIN, question.id);
   if (pending) return `<p class="question-help-status">${waitingWords(pending, listening, 'explaining this question')}</p>`;
-  return help && !help.stale ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer</summary><p class="question-help-text">${esc(help.result.help)}</p></details>` : '';
+  return help && !help.stale ? `<details class="question-help" data-help="${esc(help.id)}" data-editor="help-${esc(help.id)}"${seen.has(help.id) ? '' : ' open'}><summary>Help from your agent, not an answer${esc(dated(help))}</summary><p class="question-help-text">${esc(help.result.help)}</p>${askAgainHtml(help, 'help', { question, esc })}</details>` : '';
 }
 // What a queued or running question job is doing, promising nothing while no agent is listening.
 const waitingWords = (job, listening, doing) => job.status === 'running' ? `Your agent is ${doing}.` : listening ? 'Your agent will pick this up next.' : 'Queued for your agent.';
@@ -304,7 +315,7 @@ export function questionResearchHtml({ question, jobs, listening, seen, esc }) {
   const { summary, sources = [] } = job.result;
   const copy = option => option.suggestedAnswer ? `<button type="button" class="text-button" data-copy-answer="${esc(option.id)}" data-research-job="${esc(job.id)}" data-question-id="${esc(question.id)}"${job.stale ? ' disabled title="The question or its context changed since this research."' : ''}>Copy to my answer</button>` : '';
   const cited = sources.length ? `<ul class="research-sources">${sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> · ${esc(s.note)}</li>`).join('')}</ul>` : '';
-  return `<details class="question-help question-research" data-help="${esc(job.id)}" data-editor="help-${esc(job.id)}"${seen.has(job.id) ? '' : ' open'}><summary>${job.stale ? 'Earlier research' : 'Research from your agent, not your answer'}</summary>${job.stale ? '<p class="form-note">The question or its context changed since. Ask again for current research.</p>' : ''}${summary ? `<p class="question-help-text">${esc(summary)}</p>` : ''}${optionCardsHtml(job.result, esc, copy)}${cited}</details>`;
+  return `<details class="question-help question-research" data-help="${esc(job.id)}" data-editor="help-${esc(job.id)}"${seen.has(job.id) ? '' : ' open'}><summary>${job.stale ? 'Earlier research' : 'Research from your agent, not your answer'}${esc(dated(job))}</summary>${job.stale ? '<p class="form-note">The question or its context changed since. Ask again for current research.</p>' : ''}${summary ? `<p class="question-help-text">${esc(summary)}</p>` : ''}${optionCardsHtml(job.result, esc, copy)}${cited}${askAgainHtml(job, 'research', { question, esc })}</details>`;
 }
 // Tidy my wording (Z3), under the answer box: what the agent is doing, or the tidied wording beside the user's
 // own, with Use this wording and Keep mine. Using it only changes the draft; Restore my wording undoes that.

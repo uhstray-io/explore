@@ -110,6 +110,8 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 .assumptions-body{max-height:60dvh;overflow:auto;display:grid;gap:12px}.assumption-entry{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .assumption-question{margin:0 0 2px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.assumption-text{margin:0 0 4px;font-size:13px;color:var(--ink);overflow-wrap:anywhere}.assumption-change{margin:0 0 6px;font-size:12px;color:var(--ink);overflow-wrap:anywhere}
 .assumption-editor{display:grid;gap:6px;margin:0 0 8px}.assumption-editor textarea{width:100%}.assumption-dependents{margin:0 0 6px;font-size:12px}.assumption-dependents summary{cursor:pointer;color:var(--teal)}.assumption-dependents .relationship{padding:4px 0}
+/* Reuse earlier research (Z4): Ask again, quietly at the end of a current result. */
+.reuse-again{margin:6px 0 0;font-size:12px}
 /* Answer in a file (K11): the import preview. */
 .answers-body{max-height:55dvh;overflow:auto}.answer-preview{list-style:none;margin:0;padding:0;display:grid;gap:10px}.answer-preview li{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .answer-preview-question{margin:0 0 4px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.answer-preview-text{margin:0 0 4px;font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
@@ -119,3 +121,9 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 .inbox-thoughts{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:10px}.thought{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.thought-text{margin:0 0 4px;font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .thought-proposal{margin-top:6px;padding:6px 8px;border-left:3px solid var(--teal);font-size:12px;background:color-mix(in srgb,var(--teal) 6%,transparent)}.thought-proposal p{margin:0 0 4px;color:var(--ink)}.inbox-preview{margin:8px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;font-size:12px}
 .idea-notes{margin:0 0 10px;padding-left:18px;font-size:12px;color:var(--ink)}.idea-notes li{margin-bottom:4px;overflow-wrap:anywhere;white-space:pre-wrap}
+/* Compare with my criteria (C9): the editor rows, the options-by-criteria grid (stacked on narrow screens), and the adopted lead. */
+.criteria-body{max-height:65dvh;overflow:auto}.criteria-rows{list-style:none;margin:6px 0;padding:0;display:grid;gap:6px}.criteria-rows li{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.criteria-rows input{flex:1 1 200px;padding:7px 10px}.criteria-rows select{flex:none;padding:6px 8px}
+.criteria-grid-wrap{overflow-x:auto;margin:8px 0}.criteria-grid{width:100%;border-collapse:collapse;font-size:12px}.criteria-grid th,.criteria-grid td{padding:6px 8px;border:1px solid var(--line);text-align:left;vertical-align:top;color:var(--ink)}.criteria-grid small{display:block;font-size:10px;color:var(--muted)}
+.criteria-cell-label{display:none}
+@media(max-width:700px){.criteria-grid thead{display:none}.criteria-cell-label{display:block;margin-bottom:2px;font-weight:600;color:var(--muted)}.criteria-grid,.criteria-grid tbody,.criteria-grid tr,.criteria-grid th,.criteria-grid td{display:block;width:100%}.criteria-grid tr{margin-bottom:8px}}
+.criteria-entry{margin:4px 0 10px}.reconsidered{margin:6px 0 10px;padding:8px 10px;border-left:3px solid var(--teal);background:color-mix(in srgb,var(--teal) 6%,transparent)}.reconsidered p{margin:0 0 4px;font-size:12px}.reconsidered-label{font-weight:600;color:var(--teal)}.option-original{margin:0 0 4px;font-size:11px;font-weight:600;color:var(--muted)}
