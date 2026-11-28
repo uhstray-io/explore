@@ -1,12 +1,11 @@
-import { isOpen, answerStates } from './questions.js';
+import { isOpen, answerStates, answerRefusal } from './questions.js';
 import { branchComplete } from './graph.js';
-import { downloadName } from './workspace-view.js';
 
 // Answer questions in a Markdown file (K11): export a map's open questions, answer them in any editor, and import the
 // answers. Only text between an answer block's markers is read, matched by question ID; everything else in the file
-// is ignored, so editing it changes nothing. Shared by the browser, the CLI and the tests. Import never guesses: a
-// file it cannot read exactly is rejected with a line number, and nothing is saved.
-export const answerMax = 12000; // As the answer action allows.
+// is ignored, so editing it changes nothing. Shared by the browser, the CLI and the tests, and free of view code: the
+// dialog's markup is in answers-dialog.js. Import never guesses: a file it cannot read exactly is rejected with a line
+// number, and nothing is saved.
 const marker = { header: /^<!--\s*explore-answers\s+v1\s+map=(\S+)\s+revision=(\d+)\s*-->$/, question: /^<!--\s*question\s+(\S+)\s*-->$/, answer: /^<!--\s*answer\s*-->$/, end: /^<!--\s*end answer\s*-->$/ };
 const oneLine = text => String(text ?? '').replace(/\s+/g, ' ').trim();
 
@@ -14,7 +13,6 @@ const oneLine = text => String(text ?? '').replace(/\s+/g, ' ').trim();
 export function openQuestionsForFile(map) {
   return map.nodes.filter(node => !branchComplete(node)).map(node => ({ node, questions: (node.questions ?? []).filter(isOpen) })).filter(group => group.questions.length);
 }
-export const answerFilename = map => downloadName(map.title, '-questions.md');
 
 export function answerFileMarkdown(map) {
   const groups = openQuestionsForFile(map);
@@ -29,26 +27,30 @@ export function answerFileMarkdown(map) {
 }
 
 export class AnswerFileError extends Error {
-  constructor(line, message) { super(`Line ${line}: ${message}`); this.line = line; this.status = 400; }
+  constructor(line, message) { super(`Line ${line}: ${message}`); this.line = line; }
 }
 
-// { mapId, revision, answers: [{ questionId, answer, answerState?, line }] }, where `line` is the answer marker's line.
-// An empty block, or one holding only a state line, is skipped. Throws AnswerFileError for a file for another map, a
+// The text of an answer block: blank lines around it dropped, and the indentation its lines share removed.
+function blockText(lines) {
+  const first = lines.findIndex(line => line.trim()), last = lines.findLastIndex(line => line.trim());
+  if (first < 0) return '';
+  const kept = lines.slice(first, last + 1), indent = Math.min(...kept.filter(line => line.trim()).map(line => line.match(/^[ \t]*/)[0].length));
+  return kept.map(line => line.slice(Math.min(indent, line.match(/^[ \t]*/)[0].length)).trimEnd()).join('\n');
+}
+
+// { mapId, answers: [{ questionId, answer, answerState?, line }] }, where `line` is the answer marker's line. A first
+// line "state: decided|tentative|assumption" says how sure the answer is; any other "state:" line is answer text. An
+// empty block, or one holding only a state line, is skipped. Throws AnswerFileError for a file for another map, a
 // question twice, or a marker out of place.
 export function parseAnswerFile(text, { mapId }) {
-  const lines = String(text).replace(/\r\n?/g, '\n').split('\n'), answers = [], seen = new Map();
+  const lines = String(text).replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n'), answers = [], seen = new Map();
   const fail = (line, message) => { throw new AnswerFileError(line, message); };
   let header = null, question = null, block = null;
   const finish = ({ id, line, body }) => {
-    let rest = body, answerState;
-    const first = rest.findIndex(item => item.trim());
-    const state = first >= 0 ? rest[first].trim().match(/^state:\s*(\S+)$/i) : null;
-    if (state) {
-      answerState = state[1].toLowerCase();
-      if (!answerStates.includes(answerState)) fail(line + 1 + first, 'state must be decided, tentative or assumption.');
-      rest = rest.slice(first + 1);
-    }
-    const answer = rest.join('\n').trim();
+    const first = body.findIndex(item => item.trim());
+    const state = first >= 0 ? body[first].trim().match(/^state:\s*(\S+)$/i) : null;
+    const answerState = state && answerStates.includes(state[1].toLowerCase()) ? state[1].toLowerCase() : null;
+    const answer = blockText(answerState ? body.slice(first + 1) : body);
     if (answer) answers.push({ questionId: id, answer, ...(answerState ? { answerState } : {}), line });
   };
   lines.forEach((raw, index) => {
@@ -61,11 +63,15 @@ export function parseAnswerFile(text, { mapId }) {
     }
     if (which === 'header') {
       if (header) fail(n, 'The file has a second explore-answers header.');
-      const [, id, revision] = line.match(marker.header);
+      const id = line.match(marker.header)[1];
       if (id !== mapId) fail(n, `This file is for map ${id}, not ${mapId}.`);
-      header = { revision: Number(revision) };
+      header = true;
     } else if (which === 'question') {
-      if (!header) fail(1, 'This is not an Explore answers file: its explore-answers header is missing.');
+      if (!header) {
+        const later = lines.findIndex((other, at) => at > index && marker.header.test(other.trim()));
+        if (later >= 0) fail(later + 1, 'The explore-answers header must come before the questions.');
+        fail(1, 'This is not an Explore answers file: its explore-answers header is missing.');
+      }
       if (question) fail(question.line, `Question ${question.id} (line ${question.line}) has no answer block.`);
       const id = line.match(marker.question)[1];
       if (seen.has(id)) fail(n, `Question ${id} appears twice (first on line ${seen.get(id)}).`);
@@ -78,27 +84,42 @@ export function parseAnswerFile(text, { mapId }) {
   if (block) fail(block.line, `The answer to ${block.id} (line ${block.line}) has no <!-- end answer -->.`);
   if (question) fail(question.line, `Question ${question.id} (line ${question.line}) has no answer block.`);
   if (!header) fail(1, 'This is not an Explore answers file: its explore-answers header is missing.');
-  return { mapId, revision: header.revision, answers };
+  return { mapId, answers };
 }
 
-// What each answer would do on the map as it is now: ready, or why it would not be saved. `nodeId`, `question` and
-// `title` come from the map, so a question's text edited in the file never matters.
-export const previewWords = { ready: 'Ready to save', answered: 'Already answered: the saved answer is kept', superseded: 'From an earlier premise: not saved', completed: 'The branch is finished: not saved',
-  unknown: 'Unknown question', 'too-long': `Too long: at most ${answerMax.toLocaleString('en')} characters`, dismissed: 'Dismissed: not saved' };
+// What each answer would do on the map as it is now: 'ready', or why the answer action would refuse it
+// (answerRefusal, the rule the Store's answer action uses). `nodeId`, `question` and `title` come from the map, so a
+// question's text edited in the file never matters; `deferred` marks a question saved for later.
 export function answerPreview(map, answers) {
   const where = new Map(map.nodes.flatMap(node => (node.questions ?? []).map(question => [question.id, { node, question }])));
   return answers.map(item => {
     const found = where.get(item.questionId);
-    const status = !found ? 'unknown' : found.question.supersededAt ? 'superseded' : found.question.answer ? 'answered' : found.question.dismissedAt ? 'dismissed'
-      : branchComplete(found.node) ? 'completed' : item.answer.length > answerMax ? 'too-long' : 'ready';
-    return { ...item, status, nodeId: found?.node.id ?? null, question: found?.question.text ?? null, title: found?.node.title ?? null };
+    const refusal = answerRefusal({ completed: found ? branchComplete(found.node) : false, question: found?.question ?? null, answer: item.answer });
+    return { ...item, status: refusal?.status ?? 'ready', ...(refusal ? { reason: refusal.message } : {}), nodeId: found?.node.id ?? null, question: found?.question.text ?? null, title: found?.node.title ?? null, deferred: !!found?.question.deferredAt };
   });
 }
 
-// The preview, or after saving, the outcome: `failed` maps a question ID to why it was not saved.
-export function answerPreviewHtml(items, { esc, saved = null, failed = {} }) {
-  const outcome = item => (saved ? (saved.includes(item.questionId) ? 'Saved' : failed[item.questionId] ?? previewWords[item.status]) : previewWords[item.status]);
-  return `<ul class="answer-preview">${items.map(item => `<li class="${item.status === 'ready' && !failed[item.questionId] ? 'ready' : 'skipped'}">`
-    + `<p class="answer-preview-question">${item.question ? `${esc(item.title)} · ${esc(item.question)}` : `Unknown question ${esc(item.questionId)}`}</p>`
-    + `<p class="answer-preview-text">${esc(item.answer)}</p><p class="answer-preview-status">${esc(outcome(item))}${item.answerState ? ` · ${esc(item.answerState)}` : ''}</p></li>`).join('')}</ul>`;
+// Saves the ready answers, one answer action at a time, so each branch continues as if answered in the browser. For
+// each idea, answers to questions saved for later go first: answering the last question a branch waits on queues it,
+// and an agent listening may claim it at once. `send(item)` resolves true when saved, or false with `error(message)`
+// called; then `refresh()` re-reads the map, the answer is checked again and, if still ready, sent once more (the map
+// may have moved on, for instance when an agent claimed a branch). A failed refresh stops, and what is left is
+// reported as not attempted. Never undoes a save. Resolves { saved, failed: [{ questionId, error }], notAttempted }.
+export async function applyAnswers(items, { send, refresh, onProgress = () => {} }) {
+  const ready = items.filter(item => item.status === 'ready'), order = [...new Set(ready.map(item => item.nodeId))];
+  const queue = order.flatMap(nodeId => [...ready.filter(item => item.nodeId === nodeId && item.deferred), ...ready.filter(item => item.nodeId === nodeId && !item.deferred)]);
+  const saved = [], failed = [];
+  for (const [index, item] of queue.entries()) {
+    onProgress(index, queue.length);
+    let reason = 'Not saved.';
+    const attempt = () => send(item, message => { reason = message; });
+    if (await attempt()) { saved.push(item.questionId); continue; }
+    let current;
+    try { current = await refresh(); } catch (error) { failed.push({ questionId: item.questionId, error: reason }); return { saved, failed, notAttempted: queue.slice(index + 1).map(left => left.questionId), stopped: error.message }; }
+    const again = current ? answerPreview(current, [item])[0] : null;
+    if (again?.status === 'ready' && await attempt()) saved.push(item.questionId);
+    else failed.push({ questionId: item.questionId, error: again?.reason ?? reason });
+  }
+  onProgress(queue.length, queue.length);
+  return { saved, failed, notAttempted: [] };
 }

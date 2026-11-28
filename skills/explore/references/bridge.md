@@ -230,11 +230,11 @@ No additional provider connection is required to open a saved map. Existing form
 
 ## Answering in a file
 
-The user can answer open questions in a Markdown file, in any editor, and import the answers. Only text between a question's `<!-- answer -->` and `<!-- end answer -->` markers is read, matched by the question ID; an optional first line `state: decided|tentative|assumption` says how sure the answer is (Tentative without one). Only the user answers: never write into an answers file, and run these only when the user asks.
+The user can answer open questions in a Markdown file, in any editor, and import the answers. Only text between a question's `<!-- answer -->` and `<!-- end answer -->` markers is read, matched by the question ID; an optional first line `state: decided`, `state: tentative` or `state: assumption` says how sure the answer is (Tentative without one); any other "state:" line is part of the answer. Only the user answers: never write into an answers file, and run these only when the user asks.
 
 - `answers export --map ID --out FILE` writes every open question (saved-for-later ones too) on unfinished branches; it refuses to overwrite a file.
 - `answers import --map ID --file FILE` prints a preview: each answer's question and a status (`ready`, `answered`, `superseded`, `dismissed`, `completed`, `unknown` or `too-long`). It changes nothing. A file for another map, with a question twice or with a marker out of place is rejected with its line number.
-- Add `--apply` to save each ready answer as its own `answer` action, in order; the result lists `saved` and `failed`. A failure never undoes an earlier save, and an already answered question keeps its saved answer.
+- Add `--apply` to save each ready answer as its own `answer` action. For each idea, answers to questions saved for later go first and those the branch waits on last, since the last of those queues the branch. When an answer is refused (for instance because a listening agent claimed a branch and the map moved on), the map is read again and the answer, if still ready, is sent once more. The result lists `saved` and `failed`, and `notAttempted` if the server stopped. A failure never undoes an earlier save, and an already answered question keeps its saved answer.
 
 ## Export and import
 

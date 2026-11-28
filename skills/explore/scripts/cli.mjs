@@ -15,6 +15,11 @@ const option = (name, fallback) => {
   return args[i + 1];
 };
 const required = name => { const value = option(name); if (!value) throw new Error(`--${name} is required.`); return value; };
+// Writes a file that must not exist yet: an export never overwrites one.
+async function writeNew(out, text) {
+  try { await writeFile(out, text, { flag: 'wx' }); }
+  catch (error) { if (error.code === 'EEXIST') throw new Error('That file already exists. Choose a new --out path.'); throw error; }
+}
 // Commands whose reply carries Markdown: --format markdown prints it as it is; json prints the rest of the reply.
 const outputFormat = () => { const format = option('format', 'json'); if (!['json', 'markdown'].includes(format)) throw new Error('--format must be json or markdown.'); return format; };
 function inFormat(output, format, name) {
@@ -56,7 +61,7 @@ try {
         headers: { Authorization: `Bearer ${connection.token}`, ...(data ? { 'Content-Type': 'application/json' } : {}) },
         ...(data ? { body: JSON.stringify(data) } : {}), redirect: 'error', signal: AbortSignal.timeout(35000) });
       const value = await response.json();
-      if (!response.ok) throw new Error([value.error, ...(value.errors || []).map(e => `- ${e.code} ${e.field}: ${e.message}`)].join('\n'));
+      if (!response.ok) throw Object.assign(new Error([value.error, ...(value.errors || []).map(e => `- ${e.code} ${e.field}: ${e.message}`)].join('\n')), { status: response.status });
       return value;
     }
     const input = async () => JSON.parse(await readFile(path.resolve(required('file')), 'utf8'));
@@ -122,8 +127,7 @@ try {
         if (format === 'json' && option('node')) throw new Error('--node works with the diagram formats: a JSON export is always the complete map.');
         const file = format === 'json' ? null : exportAs(await api(`/api/maps/${mapId}`), format, { nodeId: option('node') ?? null });
         const text = file ? file.text : JSON.stringify(await api(`/api/maps/${mapId}/export`), null, 2) + '\n';
-        try { await writeFile(out, text, { flag: 'wx' }); }
-        catch (error) { if (error.code === 'EEXIST') throw new Error('That file already exists. Choose a new --out path.'); throw error; }
+        await writeNew(out, text);
         output = { exported: mapId, format, ...(file ? { ideas: file.count } : {}), file: out }; break;
       }
       case 'import': output = await api('/api/import', { data: await input(), asCopy: args.includes('--as-copy') }); break;
@@ -153,25 +157,23 @@ try {
       case 'answers': {
         // Answer questions in a Markdown file (K11). Only the user answers: the agent never fills one in, and imports one
         // only when the user asks. --apply sends each ready answer as its own answer action, as the browser does.
-        const { answerFileMarkdown, openQuestionsForFile, parseAnswerFile, answerPreview } = await import('../assets/answer-file.js');
+        const { answerFileMarkdown, openQuestionsForFile, parseAnswerFile, answerPreview, applyAnswers } = await import('../assets/answer-file.js');
         const mapId = required('map'), short = text => (text.length > 200 ? `${text.slice(0, 199)}…` : text);
         if (args[1] === 'export') {
           const out = path.resolve(required('out')), map = await api(`/api/maps/${mapId}`);
-          try { await writeFile(out, answerFileMarkdown(map), { flag: 'wx' }); }
-          catch (error) { if (error.code === 'EEXIST') throw new Error('That file already exists. Choose a new --out path.'); throw error; }
+          await writeNew(out, answerFileMarkdown(map));
           output = { exported: mapId, questions: openQuestionsForFile(map).reduce((total, group) => total + group.questions.length, 0), file: out };
         } else if (args[1] === 'import') {
           let map = await api(`/api/maps/${mapId}`);
           const preview = answerPreview(map, parseAnswerFile(await readFile(path.resolve(required('file')), 'utf8'), { mapId }).answers);
           output = { mapId, preview: preview.map(({ questionId, status, question, answer, answerState }) => ({ questionId, status, question, answer: short(answer), ...(answerState ? { answerState } : {}) })) };
           if (args.includes('--apply')) {
-            const saved = [], failed = [];
-            for (const item of preview.filter(entry => entry.status === 'ready')) {
+            const send = async (item, fail) => {
               const input = { type: 'answer', nodeId: item.nodeId, questionId: item.questionId, answer: item.answer, ...(item.answerState ? { answerState: item.answerState } : {}) };
-              try { map = await api(`/api/maps/${mapId}/action`, { ...input, expectedRevision: map.revision }); saved.push(item.questionId); }
-              catch (error) { failed.push({ questionId: item.questionId, error: error.message }); map = await api(`/api/maps/${mapId}`); }
-            }
-            output.applied = { saved, failed };
+              try { map = await api(`/api/maps/${mapId}/action`, { ...input, expectedRevision: map.revision }); return true; } catch (error) { fail(error.message); return false; }
+            };
+            const { saved, failed, notAttempted, stopped } = await applyAnswers(preview, { send, refresh: async () => (map = await api(`/api/maps/${mapId}`)) });
+            output.applied = { saved, failed, ...(notAttempted.length ? { notAttempted, stopped } : {}) };
           }
         } else throw new Error('Use answers export --map ID --out FILE, or answers import --map ID --file FILE [--apply].');
         break;
