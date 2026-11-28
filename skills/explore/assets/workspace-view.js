@@ -1,8 +1,8 @@
-import { presentation, treeOrder, branchComplete } from './graph.js';
+import { treeOrder, branchComplete } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY, answerStateLabels, effectiveAnswerState, certaintyText,
   hasCurrentAnswer, isOpen, isSavedForLater, importanceLevels, importanceName } from './questions.js';
 
-const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+export const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 
 // One question at a time (B10). The batch is the questions from the agent's newest result (by jobId;
 // a regenerated question takes its original's place). Older maps without jobId treat all open
@@ -463,22 +463,6 @@ export function restartPreviewHtml(preview, { esc, expanded = false }) {
 export function downloadName(title, ending) {
   const name = String(title || 'exploration').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').replace(/[. ]+$/g, '').trim().slice(0, 100) || 'exploration';
   return `${name}${ending}`;
-}
-export const briefFilename = title => downloadName(title, '-brief.md');
-
-// Import (I2): a map with this ID is already here and the file differs. Nothing has been changed yet.
-export function importConflictHtml({ existing, incoming }, { esc }) {
-  const when = at => Number.isNaN(Date.parse(at)) ? '' : ` · updated ${esc(new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }))}`;
-  const side = (label, map) => `<div class="import-side"><h3 class="section-label">${label}</h3>${map.unreadable ? '<p class="form-note">A map folder with this ID is here but cannot be opened.</p>' : `<p><strong>${esc(map.title)}</strong></p><p class="form-note">${count(map.ideas, 'idea')} · revision ${esc(map.revision)}${when(map.updatedAt)}</p>`}</div>`;
-  return `<p>A map with the same ID is already in this workspace, and the file is different. Nothing has been changed.</p><div class="import-sides">${side('Already here', existing)}${side('In the file', incoming)}</div>`;
-}
-
-export function briefPreview(brief) {
-  const counts = brief.counts;
-  // Show questions and answers separately so long prompts cannot hide the answer.
-  const itemsWithAnswers = brief.sections.map(section => ({ ...section, items: section.items.map(item => item.question ? { ...item, text: `Question: ${item.question}\nAnswer: ${item.text}` } : item) }));
-  brief = { ...brief, sections: itemsWithAnswers };
-  return `${brief.originalIdea ? `<h3>Original idea</h3><blockquote>${escapeHtml(brief.originalIdea)}</blockquote>` : ''}<h3>Progress</h3><p>${counts.nodes} ideas; ${counts.explored} explored; ${counts.accepted} accepted and current; ${counts.stale} need review; ${counts.awaitingAnswer} awaiting answers.</p><p class="brief-scope-note">A bounded summary of saved material. Sections may overlap; explored findings have not necessarily been verified.</p>${brief.sections.map(section => `<section class="brief-section"><h3>${escapeHtml(section.label)}</h3>${section.items.length ? section.items.map(item => `<article class="brief-item"><strong>${escapeHtml(item.title)}</strong><small class="brief-item-state">${escapeHtml(presentation(item).label)}</small><p>${escapeHtml(item.text)}</p><small class="brief-reference">${escapeHtml(item.nodeId)}${item.questionId ? ` · ${escapeHtml(item.questionId)}` : ''}</small></article>`).join('') : '<p class="brief-empty">None recorded in this scope.</p>'}${section.omitted ? `<p class="brief-omitted">${section.omitted} more ${section.omitted === 1 ? 'record' : 'records'} in this section. Open the map to inspect the rest.</p>` : ''}</section>`).join('')}`;
 }
 
 export function historyStepLabel(step, total) {
