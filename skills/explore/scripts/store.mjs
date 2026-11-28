@@ -13,7 +13,7 @@ import { normalizeComparison, comparisonLines } from './options.mjs';
 import { downstreamOf } from '../assets/graph.js';
 import { modelHintFor, normalizeExecution } from './research-model.mjs';
 import { normalizeLimitations, limitationLines } from './limitations.mjs';
-import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryLines } from './glossary.mjs';
+import { normalizeGlossaryProposals, addProposals, glossaryForPacket, glossaryInstruction, glossaryUse, glossaryRoom, glossaryLines } from './glossary.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
@@ -628,12 +628,14 @@ export class Store {
   }
   // Packet for a registered job type: shared identifying fields plus the type's own fields.
   async typedPacket(map, job, definition, node, { claimKey, budget = 15500 } = {}) {
-    // Typed work reads the agreed glossary too (K9), unless its type opts out; the type fits its fields into the room left.
-    const glossary = definition.glossary === false ? null : glossaryForPacket(map, node);
-    const packet = { ...await definition.packet({ map, job, node, budget: glossary ? budget - JSON.stringify(glossary).length : budget }), ...glossary, mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
+    const packet = { ...await definition.packet({ map, job, node, budget }), mapId: map.id, mapTitle: map.title, mapRevision: map.revision,
       jobId: job.id, jobType: job.type, claimKey, reason: job.reason };
     need(typeof packet.instruction === 'string' && packet.instruction.trim(), `${definition.label} work has no instruction.`, 500);
-    packet.instruction = `${packet.instruction.trim()}${glossary?.glossary.length ? ` ${glossaryUse}` : ''} ${searchPrivacy}`;
+    // Typed work reads the agreed glossary too (K9), unless its type opts out. Like an investigation, the work's own
+    // content comes first: the glossary gets only the room left, so it can never cut that content or fail the job.
+    const shared = definition.glossary === false ? null : glossaryForPacket(map, node, budget - JSON.stringify(packet).length - searchPrivacy.length - glossaryRoom);
+    if (shared) Object.assign(packet, shared);
+    packet.instruction = `${packet.instruction.trim()}${shared?.glossary.length ? ` ${glossaryUse}` : ''} ${searchPrivacy}`;
     packet.contextCharacters = JSON.stringify(packet).length;
     need(packet.contextCharacters <= budget, `${definition.label} work is larger than the ${budget}-character packet budget.`, 500);
     packet.approximateTokens = Math.ceil(packet.contextCharacters / 4);

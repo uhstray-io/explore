@@ -105,3 +105,33 @@ test('the brief bounds the glossary with the rest and says where every term is',
   assert.match(brief.markdown, /more terms omitted\. README\.md's Glossary section lists every agreed term\./);
   assert.match(brief.markdown, /more terms omitted\. map\.json holds every proposal\./);
 });
+
+test('typed work keeps its own content whole: the glossary gets only the room left, and never fails a job', async () => {
+  const glossary = Array.from({ length: 10 }, (_, i) => entry(`term-${i}`, `Unrelated${i}`, { definition: 'd'.repeat(590) }));
+  // Help me answer on an idea with long findings and eight long answers.
+  {
+    const { store, map, act } = await workspace();
+    const first = await store.claim('agent', map.id);
+    let saved = await store.complete(map.id, first.jobId, first.claimKey, { summary: 'S.', body: 'b'.repeat(4000), questions: ['Which phones?'] });
+    saved = await store.get(map.id);
+    for (let i = 0; i < 8; i++) saved.nodes[0].questions.push({ id: `q-answered-${i}`, text: `Answered question ${i} ${'t'.repeat(300)}?`, answer: 'a'.repeat(1000), jobId: first.jobId });
+    saved.glossary = glossary; await store.save(saved);
+    await act({ type: 'request-research', nodeId: map.rootId, questionId: saved.nodes[0].questions[0].id });
+    const research = await store.claim('agent', map.id);
+    assert.equal(research.jobType, 'question-research'); assert.equal(research.node.findings.length, 4000, 'the findings are not cut for the glossary');
+    assert.ok(research.omittedGlossaryTerms > 0 && research.contextCharacters <= 15500);
+  }
+  // Regenerate on an idea with sixty open questions: it reads them all and does not trim itself.
+  {
+    const { store, map, act } = await workspace();
+    const first = await store.claim('agent', map.id);
+    let saved = await store.complete(map.id, first.jobId, first.claimKey, { summary: 'S.', body: 'B.', questions: ['Which phones?'] });
+    saved = await store.get(map.id);
+    for (let i = 0; i < 60; i++) saved.nodes[0].questions.push({ id: `q-open-${i}`, text: `Open question ${i}: ${'x'.repeat(200)}?`, answer: null, jobId: first.jobId });
+    saved.glossary = glossary; await store.save(saved);
+    await act({ type: 'regenerate-question', nodeId: map.rootId, questionId: saved.nodes[0].questions[0].id });
+    const regenerate = await store.claim('agent', map.id);
+    assert.equal(regenerate?.jobType, 'regenerate-question', 'the job runs instead of failing for its size');
+    assert.ok(regenerate.contextCharacters <= 15500);
+  }
+});

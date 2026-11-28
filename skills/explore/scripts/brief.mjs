@@ -6,7 +6,7 @@ import { linkSuffix } from './links.mjs';
 import { markdownText as line } from '../assets/workspace-view.js';
 import { branchIds } from '../assets/graph.js';
 import { limitationLabel } from '../assets/limitations.js';
-import { agreedTerms, proposedTerms } from './glossary.mjs';
+import { agreedTerms, proposedTerms } from '../assets/glossary.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 

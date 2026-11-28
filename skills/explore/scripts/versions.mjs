@@ -165,6 +165,12 @@ export class Versions {
 }
 
 // What restoring `snapshot` would change in `current`, and which finished branches it would reopen.
+// How many glossary entries differ between two maps, added or removed (an edit counts both ways).
+function glossaryDifference(a, b) {
+  const entries = map => new Set((map.glossary ?? []).map(entry => JSON.stringify(entry)));
+  const left = entries(a), right = entries(b);
+  return [...right].filter(entry => !left.has(entry)).length + [...left].filter(entry => !right.has(entry)).length;
+}
 export function compareVersion(current, snapshot, isCompleted) {
   const index = nodes => new Map(nodes.map(node => [node.id, node]));
   const now = index(current.nodes), then = index(snapshot.nodes);
@@ -177,7 +183,7 @@ export function compareVersion(current, snapshot, isCompleted) {
       nodesChanged: [...then.keys()].filter(id => now.has(id) && JSON.stringify(now.get(id)) !== JSON.stringify(then.get(id))).length,
       linksAdded: [...thenEdges].filter(key => !nowEdges.has(key)).length,
       linksRemoved: [...nowEdges].filter(key => !thenEdges.has(key)).length,
-      termsChanged: (() => { const terms = map => new Set((map.glossary ?? []).map(entry => JSON.stringify(entry))); const now = terms(current), then = terms(snapshot); return [...then].filter(entry => !now.has(entry)).length + [...now].filter(entry => !then.has(entry)).length; })(),
+      termsChanged: glossaryDifference(current, snapshot),
     },
     reopened: [...then.keys()].filter(id => now.has(id) && isCompleted(current, now.get(id)) && !isCompleted(snapshot, then.get(id))),
   };

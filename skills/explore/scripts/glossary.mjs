@@ -94,23 +94,25 @@ export function addProposals(map, proposals, { jobId, store }) {
 // Whether `text` uses `name` as a whole word ("ant" is not in "important"), ignoring case.
 const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const mentions = (text, name) => new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(name)}(?![\\p{L}\\p{N}])`, 'iu').test(text);
-// Agreed terms for a packet, within 3,000 characters: the ones the idea's title, premise or findings use first,
-// then alphabetical. Proposed terms never go. An investigation drops the rest first when it is over budget.
-export function glossaryForPacket(map, node = null) {
+// Agreed terms for a packet, within `room` characters and never more than 3,000: the ones the idea's title, premise or
+// findings use first, then alphabetical. Proposed terms never go. An investigation drops the rest first when over
+// budget; typed work offers only the room its own content left.
+export function glossaryForPacket(map, node = null, room = limits.packetCharacters) {
   const text = node ? `${node.title} ${node.prompt ?? ''} ${node.body ?? ''} ${node.summary ?? ''}` : '';
-  const used = entry => (text && mentions(text, entry.term) ? 0 : 1);
-  const ordered = agreedTerms(map).map(({ term: name, definition: meaning }) => ({ term: name, definition: meaning }))
-    .sort((a, b) => used(a) - used(b) || a.term.localeCompare(b.term));
-  const glossary = [];
+  const ranked = agreedTerms(map).map(({ term: name, definition: meaning }) => ({ entry: { term: name, definition: meaning }, unused: text && mentions(text, name) ? 0 : 1 }))
+    .sort((a, b) => a.unused - b.unused || a.entry.term.localeCompare(b.entry.term));
+  const glossary = [], cap = Math.min(room, limits.packetCharacters);
   let size = 2;
-  for (const entry of ordered) {
+  for (const { entry } of ranked) {
     const next = JSON.stringify(entry).length + (glossary.length ? 1 : 0);
-    if (size + next > limits.packetCharacters) break;
+    if (size + next > cap) break;
     glossary.push(entry); size += next;
   }
-  return { glossary, omittedGlossaryTerms: ordered.length - glossary.length };
+  return { glossary, omittedGlossaryTerms: ranked.length - glossary.length };
 }
 export const glossaryUse = "Use the glossary's terms as defined.";
+// What the glossary adds to a packet besides its terms: the field names, the omitted count and the sentence.
+export const glossaryRoom = 100;
 export const glossaryInstruction = `${glossaryUse} If you need a new term or a different meaning, propose it in \`glossary\`.`;
 
 // The README's Glossary section: agreed terms only.
@@ -118,4 +120,3 @@ export function glossaryLines(map) {
   const agreed = agreedTerms(map);
   return agreed.length ? ['', '## Glossary', '', ...agreed.map(entry => `- **${markdownText(entry.term)}**: ${markdownText(entry.definition)}`)] : [];
 }
-export { agreedTerms, proposedTerms };
