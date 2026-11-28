@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { pinsOf, resolvePins, pinnedAnswersHtml, pinToggleHtml } from '../skills/explore/assets/pinned-answers.js';
 import { doneWhenSection, doneWhenMenuItem, canExplore } from '../skills/explore/assets/done-when.js';
 import * as questionHelpers from '../skills/explore/assets/questions.js';
 import { openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, tidyArrived, runNoteHtml } from '../skills/explore/assets/workspace-view.js';
@@ -57,7 +58,7 @@ function harness({ question = false } = {}) {
   focusDraft('node-a-title', 'Submitted title');
   const pending = new Promise(resolve => { complete = resolve; });
   const context = vm.createContext({ state, document, $: () => detail,
-    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
+    glyphs: { research: 'x' }, esc: String, prose: String, presentation: () => ({ label: 'Unexplored' }), ...questionHelpers, connectionsHtml, linkEditorHtml, questionHelpHtml, questionResearchHtml, researchSuggestion, questionTidyHtml, nodeMenuHtml, runNoteHtml, doneWhenSection, doneWhenMenuItem, canExplore, pinsOf, resolvePins, pinnedAnswersHtml, pinToggleHtml, nodeReference, optionsHtml, appendSuggestion, questionMenuHtml, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml,
     act: () => pending, toast: () => {}, FormData: class {
       constructor(form) { this.entries = form.querySelectorAll().map(field => [field.name, field.value]); }
       [Symbol.iterator]() { return this.entries[Symbol.iterator](); }
@@ -188,6 +189,25 @@ test('refresh restores keyboard focus to the same detail action, submit button, 
     assert.equal(h.document.activeElement?.tagName, spec.tagName);
     assert.deepEqual(h.document.activeElement?.dataset, spec.dataset || {});
     assert.equal(h.state.detailDeferred, false);
+  }
+});
+
+test('refresh restores focus to the same pin control, even when another names the same answer', () => {
+  const specs = [
+    { tagName: 'BUTTON', dataset: { pinAnswer: 'node-a', questionId: 'question-a' } },
+    { tagName: 'BUTTON', dataset: { pinUnpin: 'node-a', questionId: 'question-a' } },
+    { tagName: 'BUTTON', dataset: { pinUnpin: 'node-b', questionId: 'question-b' } },
+    { tagName: 'BUTTON', dataset: { pinGo: 'node-b' } },
+    { tagName: 'SUMMARY', editor: { dataset: { editor: 'pins' } } },
+  ];
+  for (const target of specs) {
+    const h = harness(); h.render();
+    for (const spec of specs.filter(spec => spec !== target)) h.focusControl(spec);
+    const before = h.focusControl(target);
+    h.render();
+    assert.notEqual(h.document.activeElement, before, 'The refreshed DOM uses a new control.');
+    assert.equal(h.document.activeElement?.tagName, target.tagName);
+    assert.deepEqual(h.document.activeElement?.dataset, target.dataset || {});
   }
 });
 

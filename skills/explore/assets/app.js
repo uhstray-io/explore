@@ -3,6 +3,7 @@ import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { changesDialog } from './changes-dialog.js';
+import { pinsOf, resolvePins, pinnedAnswersHtml, pinToggleHtml, pinClick } from './pinned-answers.js';
 import { doneWhenSection, doneWhenClick, doneWhenKey, doneWhenMenuItem, canExplore } from './done-when.js';
 import { branchRestorePanel } from './branch-restore.js';
 import { exportPanel } from './export-dialog.js';
@@ -603,7 +604,7 @@ function openEditor(name) {
 function detailFocusKey(element) {
   const form = element.closest('form'), editor = element.closest('details[data-editor]');
   return JSON.stringify([element.tagName, element.getAttribute('href'),
-    ...['explore', 'cancel', 'accept', 'branchBrief', 'select', 'copyLink', 'menu'].map(key => element.dataset[key] || null),
+    ...['explore', 'cancel', 'accept', 'branchBrief', 'select', 'copyLink', 'menu', 'pinAnswer', 'pinGo', 'pinUnpin', 'questionId'].map(key => element.dataset[key] || null),
     form?.dataset.question || form?.id || null, editor?.dataset.editor || null]);
 }
 function renderDetail(force = false) {
@@ -655,7 +656,7 @@ function renderDetail(force = false) {
   const dismissed = questions.filter(q => q.dismissedAt && q.replacedBy !== 'pending');
   const canRestore = q => live && n.status === 'awaiting-answer' && !q.replacedBy;
   const importance = q => importanceLabel(q.importance) ? `<small class="certainty-label">${importanceLabel(q.importance)}</small>` : '';
-  const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${importance(q)}${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}${(q.previousAnswers || []).map(p => `<small class="certainty-label">Earlier answer: ${esc(p.answer)}</small>`).join('')}${!historic && !q.supersededAt ? questionMenuHtml(q, { nodeId: n.id, kind: 'answered', completed, esc }) + (completed ? '' : questionResearchHtml(agentWork(q))) + changeEditor(q) : ''}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
+  const record = q => `<div class="answer"><strong>${esc(q.text)}</strong>${importance(q)}${q.answer ? `${q.supersededAt ? '<em>Answer from an earlier premise.</em><br>' : ''}${esc(q.answer)}${certainty(q)}${answeredBy(q)}${!historic ? pinToggleHtml({ nodeId: n.id, questionId: q.id, pins: pinsOf(state.map), esc }) : ''}${(q.previousAnswers || []).map(p => `<small class="certainty-label">Earlier answer: ${esc(p.answer)}</small>`).join('')}${!historic && !q.supersededAt ? questionMenuHtml(q, { nodeId: n.id, kind: 'answered', completed, esc }) + (completed ? '' : questionResearchHtml(agentWork(q))) + changeEditor(q) : ''}` : q.supersededAt ? 'Superseded by a changed premise; no answer is needed.' : historic ? 'Unanswered. Return to live to continue this question.' : q.deferredAt ? 'Saved for later. Add a new direction to explore it.' : 'Unanswered historical question. Add a new direction to investigate it.'}</div>`;
   const waiting = live ? questions.filter(q => isOpen(q) && q.deferredAt) : [];
   const listHtml = questions.filter(q => !waiting.includes(q) && !dismissed.includes(q)).map(q => live && q.replacedBy === 'pending' && !q.supersededAt ? pendingBox(q) : live && isBlocking(q) ? questionForm(q, false) : record(q)).join('');
   // One question at a time: a counter, the current question, earlier answers collapsed, and Show all.
@@ -691,6 +692,7 @@ function renderDetail(force = false) {
     ${job?.error ? `<p class="state-note warning">${esc(job.error)}</p>` : ''}
     ${!historic ? `<div class="detail-actions">${canExplore(n, completed) ? `<button class="primary" data-explore="${n.id}">${n.status === 'suggested' ? 'Explore this branch' : 'Retry exploration'}</button>` : ''}${!completed && ['queued', 'running'].includes(n.status) ? `<button class="secondary" data-cancel="${n.id}">Stop exploration</button>` : ''}${n.status === 'explored' && n.reviewState !== 'accepted' && !n.stale ? `<button class="secondary" data-accept="${n.id}">Accept finding</button>` : ''}<button class="secondary" data-branch-brief="${n.id}">Branch brief</button></div>` : ''}
     ${doneWhenSection(n, { esc, completed, live: !historic, editing: state.doneWhenEditing === n.id, drafts: state.drafts })}
+    ${pinnedAnswersHtml(resolvePins(state.visibleMap, pinsOf(state.map)), { esc, selectedId: n.id, open: questions.some(isBlocking), historic })}
     ${questionHtml}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
     ${n.body && n.body !== n.summary ? `<h3 class="section-label">${n.status === 'suggested' ? 'What to explore' : 'Notes & findings'}</h3><div class="prose">${prose(n.body)}</div>` : ''}
@@ -865,6 +867,7 @@ document.addEventListener('click', async event => {
   if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeMenus(); if (opening) openMenu(menuToggle); return; }
   if (!event.target.closest('.item-menu')) closeMenus();
   if (await questionClick(event, { state, act, toast, renderDetail, closeMenus, agentListening, loadRestartPreview })) return;
+  if (await pinClick(event, { act, focusNode, toast })) return;
   if (await doneWhenClick(event, { state, act, toast, renderDetail })) { closeMenus(); return; } // Also Explore and Retry.
   for (const [attribute, action, message] of [['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
     const button = event.target.closest(`[data-${attribute}]`);
