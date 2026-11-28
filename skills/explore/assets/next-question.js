@@ -1,6 +1,6 @@
 import { downstreamOf, branchIds, branchComplete } from './graph.js';
 import { isBlocking, importanceRank, importanceLabel } from './questions.js';
-import { questionSequence } from './workspace-view.js';
+import { questionSequence, overviewFilters } from './workspace-view.js';
 
 // Suggest the next question (B3): one idea waiting for an answer, and the question its inspector shows first, with
 // the reasons. Worked out in the browser from the saved map: no agent, no job, no change to the map.
@@ -9,8 +9,8 @@ import { questionSequence } from './workspace-view.js';
 const band = count => (count >= 6 ? 2 : count >= 1 ? 1 : 0);
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-// What builds on an idea, split into its branch below it and ideas linked as depending on it. Both come from the
-// same walk, so they always add up.
+// What builds on an idea, split into its branch below it and ideas linked as depending on it. "Below" counts only
+// ideas the walk reached, so the two always add up.
 export function downstreamCounts(map, nodeId) {
   const downstream = downstreamOf(map, [nodeId]);
   const below = [...branchIds(map, nodeId)].filter(id => id !== nodeId && downstream.has(id)).length;
@@ -20,9 +20,10 @@ export function downstreamCounts(map, nodeId) {
 // { status: 'suggested', candidate, reasons, counts } or { status: 'none-open' | 'all-dismissed' }. Candidates are
 // the ideas the "Needs your answer" filter lists; each offers the question its inspector shows first. `dismissed`
 // holds candidate keys set aside with Not now.
+const waitingForAnswer = overviewFilters.find(filter => filter.id === 'answer').matches;
 export function suggestNextQuestion(map, { dismissed = new Set() } = {}) {
   const all = map.nodes.flatMap((node, order) => {
-    if (node.status !== 'awaiting-answer' || branchComplete(node)) return [];
+    if (!waitingForAnswer(node) || branchComplete(node)) return [];
     const question = questionSequence(node).current;
     if (!question) return [];
     // A dismissal holds while the question, its idea's status and its review flag stay as they were.
@@ -37,7 +38,7 @@ export function suggestNextQuestion(map, { dismissed = new Set() } = {}) {
   // Impact band, then a flagged branch, then unblocking it, then the agent's importance, then map order.
   const rank = item => [-band(counts.get(item.node.id).total), item.node.stale ? 0 : 1, item.blocking === 1 ? 0 : 1, importanceRank(item.question.importance), item.order];
   const compare = (a, b) => { const x = rank(a), y = rank(b); return x.map((value, i) => value - y[i]).find(Boolean) ?? 0; };
-  const best = [...shown].sort(compare)[0], { node, question } = best, downstream = counts.get(node.id);
+  const best = shown.sort(compare)[0], { node, question } = best, downstream = counts.get(node.id);
   const reasons = [
     ...(downstream.total ? [`${plural(downstream.total, 'idea')} ${downstream.total === 1 ? 'builds' : 'build'} on this branch (${downstream.below} below it, ${downstream.linked} linked as depending on it).`] : []),
     ...(node.stale ? ['This branch is flagged for review; answering lets it run again.'] : []),

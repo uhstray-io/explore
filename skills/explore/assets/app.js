@@ -307,7 +307,7 @@ function renderOverview() {
   const list = group.nodes.length ? group.nodes.map(node => `<button type="button" class="overview-idea" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}${group.note?.(node) ?? ''}</small>${group.lines(node).map(line => `<span>${esc(line.text)}</span>${line.detail ? `<span class="overview-detail">${esc(line.detail)}</span>` : ''}`).join('')}</button>`).join('') : `<p class="overview-empty">${esc(group.empty)}</p>`;
   // Live only: the suggested next question leads "Needs your answer", and flagged findings can be reviewed one at a time.
   const lead = state.historyStep !== null ? '' : group.id === 'answer' ? nextQuestion.html(state.map) : group.id === 'stale' && group.nodes.length ? `<button type="button" class="secondary review-all" data-review-start="">Review flagged (${group.nodes.length})</button>` : '';
-  if ($('#overview-list').innerHTML !== lead + list) $('#overview-list').innerHTML = lead + list;
+  if (state.overviewList !== lead + list) $('#overview-list').innerHTML = state.overviewList = lead + list; // Never compare with innerHTML read back.
   if (focusedIdea) ([...$('#overview-list').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || filterControl(state.filter))?.focus({ preventScroll: true });
 }
 // The control that opened a filter: its progress button, or More filters.
