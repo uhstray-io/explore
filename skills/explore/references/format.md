@@ -76,7 +76,7 @@ A read-only viewer file (`POST /api/maps/:id/viewer` with `{ expectedRevision, n
 An export is `{ format: "explore-map", version: 1, exportedAt, map }`, where `map` is the saved map without claim data (`claimKey`, `claimHash`, `inputSignature`). Everything else travels, including history, growth, positions and settings that live in the map. Nothing from `.explore/` is read.
 
 An import accepts an export or a bare format-1 `map.json`. It is untrusted data and must pass the validator (`scripts/map-validation.mjs`) with no errors, or nothing is written. Then one of four things happens:
-- **No map with that ID:** the map is saved under its ID.
+- **No map with that ID:** the map is saved under its ID. A copy (asked for, or when the ID is taken) gets a new ID and "(copy)" in its title; pin and archive state stay with the original.
 - **Identical content:** if a map with that ID matches (ignoring `revision`, `updatedAt` and claim data), nothing is written and the existing map opens.
 - **Different content:** the import is a conflict. Nothing is written, and the user may import a copy instead.
 - **A copy:** asked for, or the ID is outside the `map-` + 8 hex format. It gets a new map ID, a " (copy)" title and `importedFrom: { mapId, revision, exportedAt }`. Idea IDs and content are unchanged.

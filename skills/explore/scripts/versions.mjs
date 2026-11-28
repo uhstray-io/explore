@@ -51,7 +51,7 @@ function readHeader(id, mapId, bytes, size) {
   if (!(record?.format === 'explore-version' && record.version === 1 && record.mapId === mapId && typeof record.at === 'string' && Array.isArray(record.labels) && record.map && Number.isSafeInteger(record.revision)))
     return { header: null, problem: 'invalid-version' };
   const header = describe(id, record, size), problem = readProblem(record.map, mapId);
-  return { header: problem ? { ...header, problem } : header };
+  return { header: problem ? { ...header, problem } : header, record };
 }
 const describe = (id, record, bytes) => ({ id, mapId: record.mapId, revision: record.revision, at: record.at, labels: record.labels,
   ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.checkpoint ? { checkpoint: true } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
@@ -102,13 +102,13 @@ export class Versions {
     return { versions: versions.map(({ contentHash, mapId: _, ...version }) => version), unusable: rejected,
       earlierMissing: !versions.length || versions.at(-1).revision > 1, limits: this.limits };
   }
+  // One version by the same rule the list uses: what the list does not offer, this refuses.
   async get(mapId, id) {
-    let record;
-    try { record = JSON.parse(await readFile(this.file(mapId, id), 'utf8')); }
-    catch (error) { if (error instanceof VersionProblem) throw error; throw new VersionProblem('Version not found.', 404); }
-    need(record?.format === 'explore-version' && record.mapId === mapId && record.map, 'Version not found.', 404);
-    need(record.version === 1, 'This version was saved by a newer version of Explore. Update Explore to use it.', 409);
-    return { version: describe(id, record, 0), map: record.map };
+    const file = this.file(mapId, id), bytes = await readFile(file).catch(() => null);
+    const { header, record, problem } = readHeader(id, mapId, bytes, bytes?.length ?? 0);
+    need(problem !== 'unsupported-version', 'This version was saved by a newer version of Explore. Update Explore to use it.', 409);
+    need(header, 'Version not found.', 404);
+    return { version: header, map: record.map };
   }
   async findContent(mapId, map) { const target = contentHash(map); return (await this.scan(mapId)).find(version => version.contentHash === target) || null; }
   // Records the map as it is about to be saved. A snapshot identical to the newest version is not written again.

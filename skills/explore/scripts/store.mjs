@@ -14,7 +14,7 @@ import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
 import { sourceList } from './fields.mjs';
 import { signature, signatureMatches, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
-import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
+import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap, unreadableReasons } from './map-validation.mjs';
 
 const now = () => new Date().toISOString();
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`;
@@ -815,7 +815,7 @@ export class Store {
       const { version, map: saved } = await this.versions.get(mapId, versionId);
       // The rule that opens a map, as the list uses: what the list offers can be copied.
       const problem = readProblem(saved, mapId);
-      need(!problem, `This version cannot be used: ${unreadableMessages[problem]}`, 409);
+      need(!problem, `This version’s map ${unreadableReasons[problem]}, so it cannot be copied.`, 409);
       const map = this.asCopy(this.asImported(saved, { error: 'Recovered while queued or running. Retry to continue.' }), { suffix: ' (recovered)', provenance: { recoveredFrom: { mapId, version: version.id, revision: saved.revision } } });
       return { recovered: await this.saveNew(map, { label: 'map-recovered', refusal: 'This version has parts Explore cannot show, so it was not copied.' }) };
     });

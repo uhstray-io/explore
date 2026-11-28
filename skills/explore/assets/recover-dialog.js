@@ -37,7 +37,7 @@ export function recoverDialog({ api, esc, openMap, refresh }) {
         if (current !== mapId || !box) return; // Another map's recovery opened meanwhile.
         box.innerHTML = `<p class="form-note">${esc(versionLabel(preview.version))}, revision ${esc(preview.version.revision)}: ${preview.map.nodes.length} ${preview.map.nodes.length === 1 ? 'idea' : 'ideas'}, read-only.</p>${exportAs(preview.map, 'svg').text}`;
         box.hidden = false; box.scrollIntoView({ block: 'nearest' });
-      } catch (error) { status.textContent = error.message; }
+      } catch (error) { if (current === mapId) status.textContent = error.message; }
       return;
     }
     button.disabled = true;
@@ -47,7 +47,7 @@ export function recoverDialog({ api, esc, openMap, refresh }) {
       if (current !== mapId) return;
       status.innerHTML = `Copied as a new map. <button type="button" class="text-button" data-recover-open="${esc(recovered)}">Open the copy</button>`;
       status.querySelector('[data-recover-open]').focus(); // The Copy button is disabled; keep the keyboard nearby.
-    } catch (error) { status.textContent = error.message; }
+    } catch (error) { if (current === mapId) status.textContent = error.message; }
     button.disabled = false;
   });
   status.addEventListener('click', event => { const button = event.target.closest('[data-recover-open]'); if (button) { dialog.close(); openMap(button.dataset.recoverOpen); } });

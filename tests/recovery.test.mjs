@@ -96,7 +96,7 @@ test('versions that cannot be used are listed with a reason and refused, and a n
     assert.deepEqual(listed.unusable, [{ id: brokenId, problem: 'conflict-markers' }]);
     assert.equal(listed.versions.find(version => version.id === badMapId).problem, 'invalid-map');
     const refused = await call('/recover-copy', { mapId: map.id, version: badMapId });
-    assert.equal(refused.status, 409); assert.doesNotMatch(JSON.stringify(refused.body), /[A-Za-z]:\\|\/Users\/|\.test-output/, 'no paths in errors');
+    assert.equal(refused.status, 409); assert.equal(refused.body.error, 'This version’s map is missing required parts or belongs to another folder, so it cannot be copied.'); assert.doesNotMatch(JSON.stringify(refused.body), /[A-Za-z]:\\|\/Users\/|\.test-output/, 'no paths in errors');
     assert.equal((await call('/recover-copy', { mapId: map.id, version: 'nope' })).status, 404);
     // A map saved by a newer Explore is read for recovery but never written.
     const file = path.join(dir, 'ideas', map.id, 'map.json'), newer = JSON.stringify({ ...JSON.parse(await readFile(file, 'utf8')), schemaVersion: 2 });
@@ -139,6 +139,10 @@ test('version files are checked before anything shows them: a text revision, a n
     const listed = (await call(`/maps/${map.id}/versions`)).body;
     assert.ok(listed.versions.every(version => Number.isSafeInteger(version.revision)));
     assert.deepEqual(listed.unusable, [{ id: '20200102T000000000Z-aaaaaa', problem: 'unsupported-version' }, { id: '20200101T000000000Z-aaaaaa', problem: 'invalid-version' }]);
+    // What the list rejects, a direct request refuses too.
+    assert.equal((await call(`/maps/${map.id}/versions/20200101T000000000Z-aaaaaa`)).status, 404);
+    assert.equal((await call('/recover-copy', { mapId: map.id, version: '20200101T000000000Z-aaaaaa' })).status, 404);
+    assert.equal((await call('/recover-copy', { mapId: map.id, version: '20200102T000000000Z-aaaaaa' })).status, 409);
     // A history folder that is a link is never read, so nothing behind it is offered.
     const outside = path.join(dir, 'outside'); await rename(folder, outside);
     try { await symlink(outside, folder, 'junction'); } catch { t.skip('Links cannot be made here.'); return; }
