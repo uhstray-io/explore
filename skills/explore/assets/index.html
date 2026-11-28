@@ -9,7 +9,8 @@
     <aside class="rail" id="map-navigation" aria-label="Your explorations" inert>
       <a class="brand" href="/" aria-label="Explore home"><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M9 9v22M9 20h12M21 20V9h10M21 20v11h10"/><circle cx="9" cy="9" r="3"/><circle cx="9" cy="31" r="3"/><circle cx="31" cy="9" r="3"/><circle cx="31" cy="31" r="3"/></svg><span>Explore</span></a>
       <button id="new-map" class="primary new-map"><span aria-hidden="true">＋</span> New exploration</button><button id="import-map" type="button" class="text-button import-map">Import a map</button><input id="import-file" type="file" accept=".json,application/json" hidden>
-      <div class="rail-heading">Your explorations</div>
+      <input id="map-search" class="map-search" type="search" placeholder="Search all maps" aria-label="Search all maps" autocomplete="off"><div id="map-search-results" class="map-search-results" hidden></div>
+      <div class="rail-heading">Your explorations <button type="button" id="archived-toggle" class="text-button" aria-pressed="false">Archived</button></div>
       <nav id="map-list" aria-label="Saved explorations"></nav>
       <div class="rail-bottom"><button type="button" id="storage-open" class="text-button">Storage</button><div class="local-badge"><span></span> Saved in this repo</div><p id="workspace-name"></p><p id="contributor"></p></div>
     </aside>

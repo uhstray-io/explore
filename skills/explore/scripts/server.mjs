@@ -12,6 +12,8 @@ import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
 import { changesSince } from './changes.mjs';
+import { searchMaps } from './search.mjs';
+import { listedMaps } from '../assets/rail.js';
 import { createStorage } from './storage.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
@@ -56,7 +58,14 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
       if (req.method === 'GET' && url.pathname === '/api/session') return send(res, 200, { token, version, workspace: path.basename(workspace), workspacePath: workspace, skillPath: fileURLToPath(new URL('../SKILL.md', import.meta.url)), dataDirectory: store.directory });
       if (url.pathname.startsWith('/api/')) {
         if (req.headers.authorization !== `Bearer ${token}`) throw new Problem('Open the workspace again to reconnect.', 401);
-        if (req.method === 'GET' && url.pathname === '/api/maps') return send(res, 200, { maps: await store.list(), bridge: bridgeStatus() });
+        if (req.method === 'GET' && url.pathname === '/api/maps') {
+          // Archived maps leave the default list, except one with work waiting, which is never hidden (I1).
+          const archived = url.searchParams.get('archived') || 'exclude';
+          if (!['exclude', 'include', 'only'].includes(archived)) throw new Problem('Use archived=exclude, include or only.');
+          const maps = listedMaps(await store.list(), archived);
+          return send(res, 200, { maps, bridge: bridgeStatus() });
+        }
+        if (req.method === 'GET' && url.pathname === '/api/search') { const q = url.searchParams; return send(res, 200, await searchMaps(store, { query: q.get('query'), offset: q.get('offset') ?? 0, limit: q.get('limit') ?? undefined, revision: q.get('revision') ?? undefined })); }
         if (req.method === 'GET' && url.pathname === '/api/storage') return send(res, 200, await storage.inventory());
         if (req.method === 'GET' && url.pathname === '/api/settings') return send(res, 200, await store.getSettings());
         if (req.method === 'GET' && url.pathname === '/api/contributor') { const actor = await contributor(); return send(res, 200, actor ? { name: actor.name, source: 'git' } : { name: null }); }
@@ -135,7 +144,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };

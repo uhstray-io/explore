@@ -82,6 +82,7 @@ const oneOf = (values, options) => rule(value => values.has(value), { code: 'unk
 const anId = ({ unreadable = false, ...options } = {}) => rule(validId, { code: 'invalid-id', ...options, unreadable: unreadable ? value => !isText(value) : false });
 const shapes = {
   map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
+    library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
     history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
@@ -90,7 +91,7 @@ const shapes = {
     stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }) },
   question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }) },
   source: { title: text({ unreadable: true }), url: rule(httpUrl, { code: 'source-url' }) },
-  edge: { from: anId(), to: anId(), type: oneOf(edgeTypes) },
+  edge: { from: anId(), to: anId(), type: oneOf(edgeTypes), addedBy: oneOf(new Set(['user']), { optional: true }), note: text({ optional: true }) },
   job: { id: anId(), status: oneOf(jobStates), nodeId: anId({ optional: true, nullable: true }) },
   batch: { sequence: rule(Number.isSafeInteger, { code: 'invalid-growth' }), at: text({ code: 'invalid-growth' }), nodeIds: list({ code: 'invalid-growth' }), edges: list({ code: 'invalid-growth' }) },
 };

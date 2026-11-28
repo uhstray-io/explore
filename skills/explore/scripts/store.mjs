@@ -4,15 +4,16 @@ import { randomUUID, createHash } from 'node:crypto';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
-import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
+import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
 import { unwrapExport, mapSummary, maxImportIdeas } from './transfer.mjs';
 import { questionFeedback } from './question-actions.mjs';
+import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
 import { sourceList } from './fields.mjs';
-import { signature, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
+import { signature, signatureMatches, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap } from './map-validation.mjs';
 
 const now = () => new Date().toISOString();
@@ -117,6 +118,7 @@ export class Store {
     const known = this.adopted.get(mapId);
     this.adopted.set(mapId, { fingerprint, bytes });
     if (!known || known.fingerprint === fingerprint) return; // The first read after start adopts silently.
+    if (presentationOnly(known.bytes, bytes)) return; // Pin and archive state alone is not news (I1).
     const change = { at: now(), preserved: null, inGit: false };
     this.outside.set(mapId, change);
     // Keep the version that was replaced as a version, unless version history or Git already has it,
@@ -152,22 +154,30 @@ export class Store {
     await rm(dir, { recursive: true, force: true });
   }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
-  async list() {
+  // Every map folder, loaded or with the reason it could not be: one broken map never stops a reader (I1 search).
+  async eachMap() {
     await mkdir(this.directory, { recursive: true });
-    const entries = await readdir(this.directory, { withFileTypes: true });
+    const out = [];
+    for (const entry of (await readdir(this.directory, { withFileTypes: true })).filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
+      try { out.push({ id: entry.name, map: await this.get(entry.name) }); }
+      catch (error) { if (!(error instanceof Problem && error.code === 'not-found')) out.push({ id: entry.name, error }); } // A folder left behind by a branch switch is not a map.
+    }
+    return out;
+  }
+  async list() {
     const maps = [], readable = [];
-    for (const entry of entries.filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
-      let m;
-      try { m = await this.get(entry.name); }
-      catch (error) {
-        if (error instanceof Problem && error.code === 'not-found') continue; // A folder left behind by a branch switch is not a map.
-        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id: entry.name, unreadable: true, problem: error.code }); continue; }
+    for (const { id, map: m, error } of await this.eachMap()) {
+      if (error) {
+        if (error instanceof Problem && Object.hasOwn(unreadableMessages, error.code)) { maps.push({ id, unreadable: true, problem: error.code }); continue; }
         throw error;
       }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
-        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length });
+        count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length,
+        pinned: !!m.library?.pinned, archived: !!m.library?.archived, busy: m.jobs.some(j => j.status === 'queued' || j.status === 'running'),
+        changedAt: m.history.at(-1)?.at ?? m.updatedAt });
     }
-    return [...readable.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), ...maps];
+    // Pinned maps first, then the most recently changed (I1).
+    return [...readable.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.changedAt.localeCompare(a.changedAt)), ...maps];
   }
   // A save writes only over the version its change was based on; otherwise someone changed the file meanwhile.
   // Each content change is recorded as a version just before map.json is replaced; moving ideas and the
@@ -237,7 +247,7 @@ export class Store {
         ...dismissedQuestions.map(q => `- ${q.text}${q.ratingReason ? ` — ${q.ratingReason}` : ''}${q.replacedBy === 'pending' ? ' (a replacement is on its way)' : q.replacedBy ? ' (replaced)' : ''}`));
       if (n.sources.length) lines.push('', '## Evidence', ...n.sources.flatMap(evidenceLine));
       const edges = map.edges.filter(e => e.from === n.id || e.to === n.id);
-      if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}`));
+      if (edges.length) lines.push('', '## Relationships', ...edges.map(e => `- ${e.from} ${e.type} ${e.to}${linkSuffix(e)}`));
       const earlierRuns = map.jobs.filter(j => j.nodeId === n.id && isInvestigation(j) && j.result && (j.stale || j.result.summary !== n.summary || j.result.body !== n.body));
       for (const j of earlierRuns) {
         lines.push('', j.restartedAt ? '## Earlier result before this branch was restarted' : '## Earlier investigation result', '', `Job: ${j.id}${j.restartedAt ? ` | Kept from before the restart on ${j.restartedAt.slice(0, 10)}; the full branch is in its checkpoint version.` : j.stale ? ' | A premise changed while this investigation was running.' : ' | Retained history; use the current premise and findings above.'}`, '', j.result.summary, '', j.result.body);
@@ -687,14 +697,14 @@ export class Store {
       if (!isInvestigation(job)) {
         // The result stays on the job record: only investigations change an idea.
         // Like an investigation, work whose idea changed while it ran is kept but marked stale.
-        const stale = definition.isStale ? !!definition.isStale({ map, job, node: n }) : !!(job.inputSignature && n && job.inputSignature !== signature(map, n));
+        const stale = definition.isStale ? !!definition.isStale({ map, job, node: n }) : !!(job.inputSignature && n && !signatureMatches(map, n, job.inputSignature));
         Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale });
         // A type may record its result for the user to review (map jobs add a proposal); it never changes ideas.
         if (definition.store) definition.store({ map, job, result: job.result, stale, makeId: id, at: now() });
         this.event(map, 'job-result', job.nodeId, `${definition.label}; ${job.id}`);
         return { map: await this.save(map), warnings: [] };
       }
-      const stale = job.inputSignature !== signature(map, n);
+      const stale = !signatureMatches(map, n, job.inputSignature);
       Object.assign(job, { status: 'completed', finishedAt: now(), result: normalized, stale }, warnings.length ? { resultWarnings: warnings.map(({ code, field }) => ({ code, field })) } : {});
       if (stale) {
         this.flagForReview(n, { sourceId: n.id, kind: 'result-during-change' }); n.status = 'interrupted';

@@ -24,6 +24,8 @@
 import { mapJobTypes, mapJobActions } from './map-jobs.mjs';
 import { questionJobTypes, questionActions } from './question-actions.mjs';
 import { restartActions } from './restart.mjs';
+import { libraryActions } from './library.mjs';
+import { linkActions } from './links.mjs';
 import { listenSetting } from '../assets/listening.js';
 
 export const INVESTIGATE = 'investigate';
@@ -54,7 +56,7 @@ export function createRegistry({ jobTypes = {}, actions = {}, settings = {} } = 
 }
 
 // Map-wide reviews such as Check answers are part of every default registry.
-export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions } });
+export const defaultRegistry = createRegistry({ jobTypes: { ...mapJobTypes, ...questionJobTypes }, actions: { ...mapJobActions, ...questionActions, ...restartActions, ...linkActions, ...libraryActions } });
 
 export function jobTypeOf(job) { return job.type || INVESTIGATE; }
 export function isInvestigation(job) { return jobTypeOf(job) === INVESTIGATE; }
