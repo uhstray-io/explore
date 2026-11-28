@@ -82,7 +82,9 @@ When a prior premise changes, check relevant dependency links and stale findings
 
 ## Stop with a useful result
 
-Before investigating further, judge what would count as enough for this branch. Completion may mean a comparison that enables a choice, a bounded explanation, a tested hypothesis, or a concrete next experiment. Stop when further work is unlikely to change that outcome within the user's scope; explicitly leave residual uncertainty rather than implying exhaustive research.
+When the packet's `selected.doneWhen` is set, the user has said what would be enough for this branch, such as "a shortlist of two" or "a yes or no". Aim for it and stop when it is met; offer further work only as inactive suggestions. If it cannot be met, ask a question when a user choice is needed; otherwise finish and say what is missing and why. The summary states whether the stopping point was met.
+
+Without `doneWhen`, judge what would count as enough for this branch before investigating further. Completion may mean a comparison that enables a choice, a bounded explanation, a tested hypothesis, or a concrete next experiment. Stop when further work is unlikely to change that outcome within the user's scope; explicitly leave residual uncertainty rather than implying exhaustive research.
 
 A result should say what was learned, why it matters for the goal, what remains uncertain, and any distinct next directions. The summary should carry the main conclusion or current blocking point. The body should preserve enough evidence and reasoning to be useful after the chat is gone; avoid repeating the packet or padding every section. Do not close an unresolved branch merely to reset its job. Use questions for a real user dependency and `fail` for an execution block.
 

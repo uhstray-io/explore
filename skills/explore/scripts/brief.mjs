@@ -1,4 +1,5 @@
 import { Problem, hasFindings } from './store.mjs';
+import { normalizeDoneWhen, doneWhenMax } from '../assets/done-when.js';
 import { isOpen, isBlocking, certaintyText, effectiveAnswerState, importanceRank, importanceLabel } from '../assets/questions.js';
 import { proposalOutdated } from './map-jobs.mjs';
 import { linkSuffix } from './links.mjs';
@@ -42,7 +43,7 @@ export function mapBrief(map, nodeId = null) {
     }).filter(Boolean))],
     ['risks', 'Risk investigations — not verified risks', nodes.filter(n => n.kind === 'risk').map(n => entry(n))],
     ['directions', 'Unexplored directions', nodes.filter(n => n.status === 'suggested').map(n => entry(n, n.prompt || n.summary))],
-    ['active', 'Queued, running, or interrupted work', nodes.filter(n => ['queued', 'running', 'interrupted'].includes(n.status)).map(n => entry(n))],
+    ['active', 'Queued, running, or interrupted work', nodes.filter(n => ['queued', 'running', 'interrupted'].includes(n.status)).map(n => entry(n, n.summary, n.doneWhen ? { doneWhen: clip(normalizeDoneWhen(n.doneWhen), doneWhenMax) } : {}))],
     ['relationships', 'Recorded semantic relationships — not verified conclusions', map.edges.filter(e => e.type !== 'contains' && (ids.has(e.from) || ids.has(e.to))).map(e => {
       const node = map.nodes.find(n => n.id === e.from);
       return node ? entry(node, `${e.type}: ${map.nodes.find(n => n.id === e.to)?.title || e.to}${linkSuffix(e)}`, { to: e.to, relation: e.type, ...(e.addedBy ? { addedBy: e.addedBy } : {}) }) : null;
@@ -65,7 +66,7 @@ export function mapBrief(map, nodeId = null) {
     for (const section of brief.sections) {
       lines.push('', `## ${section.label}`, '');
       for (const item of section.items) {
-        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}`);
+        lines.push(`- **${line(item.title)}** (${item.status}; ${item.reviewState}${item.stale ? '; stale' : ''}) [${item.nodeId}](nodes/${item.nodeId}.md)${item.questionId ? ` — question ${item.questionId}` : ''}${importanceLabel(item.importance) ? ` (${importanceLabel(item.importance)})` : ''}: ${item.question ? `Question: ${line(item.question)} Answer: ` : ''}${line(item.text)}${item.certainty ? ` (${line(item.certainty)})` : ''}${item.doneWhen ? ` — Done when: ${line(item.doneWhen)}` : ''}`);
       }
       if (!section.total) lines.push('_None recorded in this scope._');
       if (section.omitted) lines.push(`_${section.omitted} more records omitted. Use paged map reads and targeted node sections._`);

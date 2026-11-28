@@ -3,6 +3,7 @@ import { growthTimeline, mapAtGrowthStep } from './history.js';
 import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { changesDialog } from './changes-dialog.js';
+import { doneWhenSection, doneWhenClick, doneWhenKey, doneWhenMenuItem, canExplore } from './done-when.js';
 import { branchRestorePanel } from './branch-restore.js';
 import { exportPanel } from './export-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
@@ -15,7 +16,7 @@ import { answerStates, answerStateLabels, isOpen, isBlocking, effectiveAnswerSta
 import { mapOverview, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
+const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
 // Help from the agent opens the first time it appears; once seen, it opens collapsed. Remembered in this
 // browser only, as a convenience.
 function readSeenHelp() { try { return new Set(JSON.parse(localStorage.getItem('explore-help-seen') || '[]')); } catch { return new Set(); } }
@@ -619,6 +620,7 @@ function renderDetail(force = false) {
   for (const editor of detail.querySelectorAll('details[data-editor]')) state.editors[`${previousNode}:${editor.dataset.editor}`] = editor.open;
   const focus = active ? active.dataset.draft ? { key: active.dataset.draft, start: active.selectionStart, end: active.selectionEnd } : { control: detailFocusKey(active) } : null;
   const scroll = previousNode === state.selected ? detail.scrollTop : 0;
+  if (previousNode !== state.selected) state.doneWhenEditing = null; // Editing ends when another idea is shown.
   detail.dataset.nodeId = state.selected || '';
   const n = state.visibleMap.nodes.find(n => n.id === state.selected);
   if (!n) { detail.innerHTML = `<div class="detail-empty"><span>◇</span>${historic ? 'Select an idea visible at this growth step to read today’s findings.' : 'Select an idea to look closer.'}</div>`; return; }
@@ -678,7 +680,7 @@ function renderDetail(force = false) {
     // A resolved finding re-renders before the walk-through moves on; leaving is up to Done or an empty queue.
     if (index >= 0) reviewHtml = reviewStepHtml({ map: state.map, nodeId: n.id, index, total: queue.length, esc });
   }
-  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
+  $('#detail').innerHTML = `${reviewHtml}<div class="detail-kind"><span class="kind-tag"><b aria-hidden="true">${glyphs[n.kind]}</b>${n.kind.charAt(0).toUpperCase() + n.kind.slice(1)}</span><span class="status-label ${pending ? 'pending' : ''}">${esc(presentation(n).label)}</span>${nodeMenuHtml(n, { esc, live: !historic, items: [doneWhenMenuItem(n, { esc, completed, live: !historic })] })}</div>${state.linkFallbackFor === n.id && state.map ? `<div class="copy-fallback"><label for="link-fallback">Copy this link</label><input id="link-fallback" readonly value="${esc(nodeReference(state.map.id, n))}"></div>` : ''}<h2>${esc(n.title)}</h2><p class="detail-summary">${esc(n.summary)}</p>${n.acceptedBy?.name ? `<p class="accepted-by">Accepted by ${esc(n.acceptedBy.name)}</p>` : ''}${optionsHtml(n, esc)}
     ${historic ? `<p class="state-note history-detail-note">${state.versionPreview ? `A saved version from ${esc(new Date(state.versionPreview.version.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }))}, read-only. These are the findings and status as they were then.` : 'Read-only growth history. These are today’s findings and status, not a past version of the research.'}</p>` : ''}
     ${state.versionPreview && n.id !== state.versionPreview.map.rootId ? branchRestore.html(n.id) : ''}
     ${n.stale ? `<p class="state-note warning">An earlier premise changed. These findings need another look before you rely on them.${!historic && !reviewHtml ? ` <button type="button" class="text-button" data-review-start="${n.id}">Review this</button>` : ''}</p>` : ''}
@@ -687,7 +689,8 @@ function renderDetail(force = false) {
     ${n.status === 'queued' && !historic ? `<p class="state-note">${agentListening() ? 'Your agent will pick up this branch next.' : 'Saved in the queue. Connect your agent to start this investigation.'}</p>` : ''}
     ${n.status === 'running' && !historic ? '<p class="state-note">Your agent is exploring this direction. New questions and findings will appear here.</p>' : ''}
     ${job?.error ? `<p class="state-note warning">${esc(job.error)}</p>` : ''}
-    ${!historic ? `<div class="detail-actions">${!completed && ['suggested', 'interrupted'].includes(n.status) ? `<button class="primary" data-explore="${n.id}">${n.status === 'suggested' ? 'Explore this branch' : 'Retry exploration'}</button>` : ''}${!completed && ['queued', 'running'].includes(n.status) ? `<button class="secondary" data-cancel="${n.id}">Stop exploration</button>` : ''}${n.status === 'explored' && n.reviewState !== 'accepted' && !n.stale ? `<button class="secondary" data-accept="${n.id}">Accept finding</button>` : ''}<button class="secondary" data-branch-brief="${n.id}">Branch brief</button></div>` : ''}
+    ${!historic ? `<div class="detail-actions">${canExplore(n, completed) ? `<button class="primary" data-explore="${n.id}">${n.status === 'suggested' ? 'Explore this branch' : 'Retry exploration'}</button>` : ''}${!completed && ['queued', 'running'].includes(n.status) ? `<button class="secondary" data-cancel="${n.id}">Stop exploration</button>` : ''}${n.status === 'explored' && n.reviewState !== 'accepted' && !n.stale ? `<button class="secondary" data-accept="${n.id}">Accept finding</button>` : ''}<button class="secondary" data-branch-brief="${n.id}">Branch brief</button></div>` : ''}
+    ${doneWhenSection(n, { esc, completed, live: !historic, editing: state.doneWhenEditing === n.id, drafts: state.drafts })}
     ${questionHtml}
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
     ${n.body && n.body !== n.summary ? `<h3 class="section-label">${n.status === 'suggested' ? 'What to explore' : 'Notes & findings'}</h3><div class="prose">${prose(n.body)}</div>` : ''}
@@ -862,12 +865,14 @@ document.addEventListener('click', async event => {
   if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeMenus(); if (opening) openMenu(menuToggle); return; }
   if (!event.target.closest('.item-menu')) closeMenus();
   if (await questionClick(event, { state, act, toast, renderDetail, closeMenus, agentListening, loadRestartPreview })) return;
-  for (const [attribute, action, message] of [['explore', 'activate', 'Exploration queued.'], ['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
+  if (await doneWhenClick(event, { state, act, toast, renderDetail })) { closeMenus(); return; } // Also Explore and Retry.
+  for (const [attribute, action, message] of [['cancel', 'cancel', 'Cancelled. An active agent may finish its current step.'], ['accept', 'accept', 'Finding accepted.']]) {
     const button = event.target.closest(`[data-${attribute}]`);
     if (button) { button.disabled = true; if (await act(button.dataset[attribute], action)) toast(message); button.disabled = false; return; }
   }
   const card = event.target.closest('.node'); if (card) focusNode(card.dataset.node);
 });
+$('#detail').addEventListener('keydown', doneWhenKey);
 $('#detail').addEventListener('input', event => { if (event.target.dataset.draft) state.drafts[event.target.dataset.draft] = event.target.value; });
 $('#detail').addEventListener('submit', async event => {
   event.preventDefault(); if (state.historyStep !== null) return;
