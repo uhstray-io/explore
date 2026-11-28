@@ -61,7 +61,7 @@ try {
         headers: { Authorization: `Bearer ${connection.token}`, ...(data ? { 'Content-Type': 'application/json' } : {}) },
         ...(data ? { body: JSON.stringify(data) } : {}), redirect: 'error', signal: AbortSignal.timeout(35000) });
       const value = await response.json();
-      if (!response.ok) throw Object.assign(new Error([value.error, ...(value.errors || []).map(e => `- ${e.code} ${e.field}: ${e.message}`)].join('\n')), { status: response.status });
+      if (!response.ok) throw new Error([value.error, ...(value.errors || []).map(e => `- ${e.code} ${e.field}: ${e.message}`)].join('\n'));
       return value;
     }
     const input = async () => JSON.parse(await readFile(path.resolve(required('file')), 'utf8'));
@@ -157,24 +157,17 @@ try {
       case 'answers': {
         // Answer questions in a Markdown file (K11). Only the user answers: the agent never fills one in, and imports one
         // only when the user asks. --apply sends each ready answer as its own answer action, as the browser does.
-        const { answerFileMarkdown, openQuestionsForFile, parseAnswerFile, answerPreview, applyAnswers } = await import('../assets/answer-file.js');
+        const { answerFileMarkdown, openQuestionsForFile, parseAnswerFile, answerPreview, applyOverApi } = await import('../assets/answer-file.js');
         const mapId = required('map'), short = text => (text.length > 200 ? `${text.slice(0, 199)}…` : text);
         if (args[1] === 'export') {
           const out = path.resolve(required('out')), map = await api(`/api/maps/${mapId}`);
           await writeNew(out, answerFileMarkdown(map));
           output = { exported: mapId, questions: openQuestionsForFile(map).reduce((total, group) => total + group.questions.length, 0), file: out };
         } else if (args[1] === 'import') {
-          let map = await api(`/api/maps/${mapId}`);
+          const map = await api(`/api/maps/${mapId}`);
           const preview = answerPreview(map, parseAnswerFile(await readFile(path.resolve(required('file')), 'utf8'), { mapId }).answers);
           output = { mapId, preview: preview.map(({ questionId, status, question, answer, answerState }) => ({ questionId, status, question, answer: short(answer), ...(answerState ? { answerState } : {}) })) };
-          if (args.includes('--apply')) {
-            const send = async (item, fail) => {
-              const input = { type: 'answer', nodeId: item.nodeId, questionId: item.questionId, answer: item.answer, ...(item.answerState ? { answerState: item.answerState } : {}) };
-              try { map = await api(`/api/maps/${mapId}/action`, { ...input, expectedRevision: map.revision }); return true; } catch (error) { fail(error.message); return false; }
-            };
-            const { saved, failed, notAttempted, stopped } = await applyAnswers(preview, { send, refresh: async () => (map = await api(`/api/maps/${mapId}`)) });
-            output.applied = { saved, failed, ...(notAttempted.length ? { notAttempted, stopped } : {}) };
-          }
+          if (args.includes('--apply')) output.applied = await applyOverApi(preview, { api, mapId, map });
         } else throw new Error('Use answers export --map ID --out FILE, or answers import --map ID --file FILE [--apply].');
         break;
       }

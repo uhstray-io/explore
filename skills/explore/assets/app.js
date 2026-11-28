@@ -707,7 +707,7 @@ function act(nodeId, type, extra = {}, { onError = toast } = {}) {
       try {
         const current = await api(`/maps/${mapId}`);
         // The refusal already explained any pull, so it is not announced again later.
-        state.outsideSeen[mapId] = current.outsideChange?.at;
+        if (onError === toast) state.outsideSeen[mapId] = current.outsideChange?.at;
         if (state.map?.id === mapId) { state.map = current; renderMap(); }
       } catch { connectionView(true); }
       return false;

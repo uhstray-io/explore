@@ -43,7 +43,7 @@ function blockText(lines) {
 // empty block, or one holding only a state line, is skipped. Throws AnswerFileError for a file for another map, a
 // question twice, or a marker out of place.
 export function parseAnswerFile(text, { mapId }) {
-  const lines = String(text).replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n'), answers = [], seen = new Map();
+  const lines = String(text).replace(/\r\n?/g, '\n').split('\n'), answers = [], seen = new Map(); // A BOM is trimmed with the first line.
   const fail = (line, message) => { throw new AnswerFileError(line, message); };
   let header = null, question = null, block = null;
   const finish = ({ id, line, body }) => {
@@ -99,15 +99,19 @@ export function answerPreview(map, answers) {
   });
 }
 
-// Saves the ready answers, one answer action at a time, so each branch continues as if answered in the browser. For
-// each idea, answers to questions saved for later go first: answering the last question a branch waits on queues it,
-// and an agent listening may claim it at once. `send(item)` resolves true when saved, or false with `error(message)`
+// Saves the ready answers, one answer action at a time, so each branch continues as if answered in the browser. In two
+// passes: first every answer that does not finish its idea (saved-for-later ones, then all but the last one the
+// branch waits on), then each idea's last waiting answer. Answering the last question a branch waits on queues it,
+// and an agent listening may claim it at once; answers to an idea linked to a claimed one can still make that run
+// stale, as answering them in the browser would. `send(item)` resolves true when saved, or false with `error(message)`
 // called; then `refresh()` re-reads the map, the answer is checked again and, if still ready, sent once more (the map
 // may have moved on, for instance when an agent claimed a branch). A failed refresh stops, and what is left is
 // reported as not attempted. Never undoes a save. Resolves { saved, failed: [{ questionId, error }], notAttempted }.
 export async function applyAnswers(items, { send, refresh, onProgress = () => {} }) {
   const ready = items.filter(item => item.status === 'ready'), order = [...new Set(ready.map(item => item.nodeId))];
-  const queue = order.flatMap(nodeId => [...ready.filter(item => item.nodeId === nodeId && item.deferred), ...ready.filter(item => item.nodeId === nodeId && !item.deferred)]);
+  const waiting = nodeId => ready.filter(item => item.nodeId === nodeId && !item.deferred);
+  const queue = [...order.flatMap(nodeId => [...ready.filter(item => item.nodeId === nodeId && item.deferred), ...waiting(nodeId).slice(0, -1)]),
+    ...order.map(nodeId => waiting(nodeId).at(-1)).filter(Boolean)];
   const saved = [], failed = [];
   for (const [index, item] of queue.entries()) {
     onProgress(index, queue.length);
@@ -122,4 +126,16 @@ export async function applyAnswers(items, { send, refresh, onProgress = () => {}
   }
   onProgress(queue.length, queue.length);
   return { saved, failed, notAttempted: [] };
+}
+
+// The CLI's way to apply answers over the bridge API: each answer is an action on the map as last read, and `refresh`
+// re-reads it. `api(route, body?)` is the CLI's request. Resolves what --apply reports.
+export async function applyOverApi(preview, { api, mapId, map }) {
+  let current = map;
+  const send = async (item, fail) => {
+    const input = { type: 'answer', nodeId: item.nodeId, questionId: item.questionId, answer: item.answer, ...(item.answerState ? { answerState: item.answerState } : {}) };
+    try { current = await api(`/api/maps/${mapId}/action`, { ...input, expectedRevision: current.revision }); return true; } catch (error) { fail(error.message); return false; }
+  };
+  const { saved, failed, notAttempted, stopped } = await applyAnswers(preview, { send, refresh: async () => (current = await api(`/api/maps/${mapId}`)) });
+  return { saved, failed, ...(notAttempted.length ? { notAttempted, stopped } : {}) };
 }

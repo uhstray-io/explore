@@ -53,7 +53,6 @@ export function normalizeQuestion(value, fail) {
   }
   return question;
 }
-// A saved answer that still stands: not from an earlier premise and not set aside.
 // Why the answer action would refuse an answer, or null when it would save it: the one rule the Store and an answers
 // file's preview (K11) share. `completed` says whether the branch is finished; `question` is null when unknown.
 export const answerMax = 12000;
@@ -66,6 +65,7 @@ export function answerRefusal({ completed, question, answer }) {
   if (typeof answer === 'string' && answer.length > answerMax) return { status: 'too-long', message: `Answer must be at most ${answerMax} characters.`, code: 400 };
   return null;
 }
+// A saved answer that still stands: not from an earlier premise and not set aside.
 export function hasCurrentAnswer(question) { return !!question.answer && !question.supersededAt && !question.dismissedAt; }
 // When the current answer was given: a changed answer counts from its change.
 export function answeredSince(question) { return question.changedAt ?? question.answeredAt ?? null; }

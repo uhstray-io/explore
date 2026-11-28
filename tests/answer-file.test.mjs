@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
-import { answerFileMarkdown, parseAnswerFile, answerPreview, applyAnswers, openQuestionsForFile } from '../skills/explore/assets/answer-file.js';
+import { answerFileMarkdown, parseAnswerFile, answerPreview, applyAnswers, applyOverApi, openQuestionsForFile } from '../skills/explore/assets/answer-file.js';
 import { answersDialog, answerPreviewHtml, answerFilename } from '../skills/explore/assets/answers-dialog.js';
 
 // Answer questions in a Markdown file (K11, #57). Illustrative fixtures only, never ideas/.
@@ -82,7 +82,8 @@ test('the preview says what each answer would do, by the answer action\'s own ru
   assert.doesNotMatch(html, /<b>|<root>|<decides>/); assert.match(html, /Ready to save · Decided/);
   assert.match(html, /Already answered: the saved answer is kept/); assert.match(html, /Unknown question q-zzzzzzzz/);
   assert.match(html, /<p class="answer-preview-text">x{2000}…<\/p>/, 'a long answer is shown shortened');
-  assert.match(answerPreviewHtml(preview, { esc, saved: ['q-aaaaaaaa'], failed: new Map([['toString', 'x']]) }), /Saved · /, 'outcomes are looked up by ID, never on an object\'s own names');
+  const odd = answerPreview(map, [{ questionId: 'toString', answer: 'x', line: 9 }]);
+  for (const outcome of [{}, { saved: [], failed: new Map() }]) assert.doesNotMatch(answerPreviewHtml(odd, { esc, ...outcome }), /function/, 'an ID named like an object\'s own property is still an unknown question');
 });
 
 test('answers are saved one at a time, saved-for-later ones first within an idea, and a failure is checked again and retried once', async () => {
@@ -93,6 +94,9 @@ test('answers are saved one at a time, saved-for-later ones first within an idea
   const send = async next => { active++; most = Math.max(most, active); await new Promise(resolve => setImmediate(resolve)); active--; sent.push(next.questionId); return true; };
   let result = await applyAnswers(items, { send, refresh: async () => null, onProgress: (done, total) => progress.push(`${done}/${total}`) });
   assert.deepEqual(sent, ['q-3', 'q-1', 'q-2'], 'the idea\'s saved-for-later answer goes before the one that queues it; ideas in file order; only ready ones');
+  const twoPass = [];
+  await applyAnswers([item('a1', 'n1'), item('a2', 'n1'), item('b1', 'n2'), item('b2', 'n2')], { send: async next => { twoPass.push(next.questionId); return true; }, refresh: async () => null });
+  assert.deepEqual(twoPass, ['a1', 'b1', 'a2', 'b2'], 'every idea\'s last waiting answer goes after all the others');
   assert.equal(most, 1, 'never two at once'); assert.deepEqual(result, { saved: ['q-3', 'q-1', 'q-2'], failed: [], notAttempted: [] }); assert.deepEqual(progress, ['0/3', '1/3', '2/3', '3/3']);
   // The map moved on (an agent claimed a branch): the answer is still ready, so it is sent again.
   const map = { nodes: [{ id: 'n1', status: 'awaiting-answer', questions: [{ id: 'q-1', text: 'Q?', answer: null }] }] };
@@ -107,6 +111,25 @@ test('answers are saved one at a time, saved-for-later ones first within an idea
   // The server went away: stop, and say what was not attempted.
   result = await applyAnswers([item('q-1', 'n1'), item('q-2', 'n2')], { send: async (next, fail) => { fail('fetch failed'); return false; }, refresh: async () => { throw new Error('fetch failed'); } });
   assert.deepEqual(result, { saved: [], failed: [{ questionId: 'q-1', error: 'fetch failed' }], notAttempted: ['q-2'], stopped: 'fetch failed' });
+});
+
+test('the CLI applies each answer on the map as last read, re-reads it when the map moved on, and keeps what it saved when the server stops', async () => {
+  const map = (revision, ids, answered = []) => ({ revision, nodes: [{ id: 'n1', status: 'awaiting-answer', questions: ids.map(id => ({ id, text: id, answer: answered.includes(id) ? 'x' : null })) }] });
+  const two = ['q-1', 'q-2'], calls = [];
+  let revision = 5, refused = false;
+  const api = async (route, body) => {
+    if (!body) { calls.push(['read']); return map(revision, two, ['q-1']); }
+    calls.push([body.questionId, body.expectedRevision, body.answerState ?? null]);
+    if (body.questionId === 'q-2' && !refused) { refused = true; revision = 9; throw new Error('This map changed. Refresh and try again.'); }
+    revision++; return map(revision, two);
+  };
+  const preview = answerPreview(map(5, two), [{ questionId: 'q-1', answer: 'A', line: 1 }, { questionId: 'q-2', answer: 'B', line: 2, answerState: 'decided' }]);
+  assert.deepEqual(await applyOverApi(preview, { api, mapId: 'm', map: map(5, two) }), { saved: ['q-1', 'q-2'], failed: [] });
+  assert.deepEqual(calls, [['q-1', 5, null], ['q-2', 6, 'decided'], ['read'], ['q-2', 9, 'decided']], 'each answer on the map as last read; a refusal re-reads it once');
+  const three = ['q-1', 'q-2', 'q-3'];
+  const gone = async (route, body) => { if (body?.questionId === 'q-1') return map(6, three); throw new Error('fetch failed'); };
+  const stopped = await applyOverApi(answerPreview(map(5, three), three.map((questionId, i) => ({ questionId, answer: 'A', line: i + 1 }))), { api: gone, mapId: 'm', map: map(5, three) });
+  assert.deepEqual(stopped, { saved: ['q-1'], failed: [{ questionId: 'q-2', error: 'fetch failed' }], notAttempted: ['q-3'], stopped: 'fetch failed' });
 });
 
 async function workspace() {
@@ -176,10 +199,10 @@ function fakeDialog({ map, act, live = () => true }) {
 
 test('the browser exports a file, previews an import, and saves the ready answers one at a time, listing what failed', async () => {
   let map = fixture();
-  const calls = [], disabledWhileSaving = [];
+  const calls = [], disabledWhileSaving = [], progress = [];
   let io;
   const act = async (nodeId, type, input, { onError }) => {
-    calls.push([nodeId, type, input]); disabledWhileSaving.push(io.element('answers-save').disabled);
+    calls.push([nodeId, type, input]); disabledWhileSaving.push(io.element('answers-save').disabled); progress.push(io.element('answers-summary').textContent);
     if (input.questionId === 'q-later000') { onError('The map changed.'); return false; }
     return true;
   };
@@ -188,10 +211,10 @@ test('the browser exports a file, previews an import, and saves the ready answer
     io.element('tools-dialog').open = true;
     await io.element('answers-export').fire('click');
     assert.equal(io.downloads[0].name, 'Field notes- offline-questions.md'); assert.equal(io.downloads[0].type, 'text/markdown');
-    const text = fill(io.downloads[0].text, { 'q-aaaaaaaa': 'state: assumption\nThe lead.', 'q-later000': 'Later.', 'q-eeeeeeee': 'Sync daily.' }).replace('<!-- question q-later000 -->', '<!-- question q-later000 -->');
-    io.element('answers-file').value = 'C:\\fakepath\\answers.md';
+    const text = fill(io.downloads[0].text, { 'q-aaaaaaaa': 'state: assumption\nThe lead.', 'q-later000': 'Later.', 'q-eeeeeeee': 'Sync daily.' });
+    io.element('answers-file').value = 'C:\\fakepath\\answers.md'; io.element('answers-status').textContent = 'An old message.';
     await io.element('answers-import').fire('click');
-    assert.equal(io.element('answers-file').clicked, 1); assert.equal(io.element('answers-file').value, '', 'the same file can be read again');
+    assert.equal(io.element('answers-file').clicked, 1); assert.equal(io.element('answers-file').value, '', 'the same file can be read again'); assert.equal(io.element('answers-status').textContent, '', 'an old message goes');
     map.nodes[1].questions[0].answer = 'Answered meanwhile.'; // Not ready: never sent.
     io.element('answers-file').files = [{ text: async () => text }]; await io.element('answers-file').fire('change');
     assert.equal(io.element('answers-dialog').open, true); assert.equal(io.element('tools-dialog').open, false);
@@ -199,12 +222,17 @@ test('the browser exports a file, previews an import, and saves the ready answer
     await io.element('answers-save').fire('click');
     assert.deepEqual(calls, [['root', 'answer', { questionId: 'q-later000', answer: 'Later.' }], ['root', 'answer', { questionId: 'q-later000', answer: 'Later.' }], ['root', 'answer', { questionId: 'q-aaaaaaaa', answer: 'The lead.', answerState: 'assumption' }]],
       'the saved-for-later answer first, retried once after a re-read; the answered one never');
-    assert.ok(disabledWhileSaving.every(Boolean), 'Save is disabled while saving');
+    assert.ok(disabledWhileSaving.every(Boolean), 'Save is disabled while saving'); assert.deepEqual(progress, ['Saving 1 of 2…', 'Saving 1 of 2…', 'Saving 2 of 2…']);
     assert.match(io.element('answers-summary').textContent, /^Saved 1 answer\. 2 were not saved\./); assert.match(io.element('answers-body').innerHTML, /The map changed\./);
     assert.equal(io.element('answers-save').hidden, true, 'saving happens once'); assert.equal(io.element('answers-summary').focused, 1, 'focus moves to the outcome');
     io.element('answers-file').files = [{ text: async () => text.replace('map=map-1a2b3c4d', 'map=map-00000000') }]; await io.element('answers-file').fire('change');
     assert.match(io.element('answers-status').textContent, /^Line 2: This file is for map map-00000000, not map-1a2b3c4d\. Nothing was saved\.$/, 'said in Map tools, where the user is');
     assert.equal(calls.length, 3, 'a rejected file saves nothing');
+    await io.element('tools-dialog').fire('close');
+    assert.equal(io.element('answers-status').textContent, '', 'closing Map tools clears it');
+    for (const question of map.nodes[0].questions) if (['q-aaaaaaaa', 'q-later000'].includes(question.id)) question.answer = 'Saved.';
+    io.element('answers-file').files = [{ text: async () => text }]; await io.element('answers-file').fire('change'); // Everything is answered now.
+    assert.match(io.element('answers-summary').textContent, /^0 answers ready to save. \d will not be saved.$/, 'nothing to save promises nothing'); assert.equal(io.element('answers-save').hidden, true);
   } finally { delete globalThis.document; }
 });
 

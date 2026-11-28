@@ -25,6 +25,7 @@ export function answersDialog({ map, live, act, esc, download }) {
   const $ = selector => document.querySelector(selector), dialog = $('#answers-dialog'), body = $('#answers-body'), summary = $('#answers-summary'), save = $('#answers-save'), picker = $('#answers-file'), status = $('#answers-status');
   const count = n => `${n} ${n === 1 ? 'answer' : 'answers'}`;
   let preview = [];
+  $('#tools-dialog').addEventListener('close', () => { status.textContent = ''; });
   $('#answers-export').addEventListener('click', () => {
     const current = map(); if (!current) return;
     download(answerFileMarkdown(current), 'text/markdown', answerFilename(current)); status.textContent = '';
