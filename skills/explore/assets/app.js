@@ -7,8 +7,11 @@ import { glossaryDialog } from './glossary-dialog.js';
 import { sourcesDialog } from './sources-dialog.js';
 import { assumptionsDialog } from './assumptions-dialog.js';
 import { answersDialog } from './answers-dialog.js';
+import { inboxDialog } from './inbox-dialog.js';
+import { notesHtml } from './inbox.js';
 import { criteriaDialog } from './criteria-dialog.js';
 import { challengeDialog } from './challenge-dialog.js';
+import { adrDialog } from './adr-dialog.js';
 import { criteriaEntryHtml, reconsideredHtml } from './criteria.js';
 import { briefDialog } from './brief-dialog.js';
 import { importDialog } from './import-dialog.js';
@@ -152,7 +155,7 @@ function renderMap(fit = false, preserveView = false) {
   sinceVisit.render(state.map, { historic });
   state.timeline = growthTimeline(state.historySource || state.map);
   state.visibleMap = historic ? mapAtGrowthStep(state.historySource, state.historyStep) : state.map;
-  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); challenge.mapChanged();
+  state.selected = visibleSelection(state.visibleMap, state.selected); sources.mapChanged(); assumptions.mapChanged(); criteria.mapChanged(); inbox.mapChanged(); adr.mapChanged(); challenge.mapChanged();
   const topologyChanged = state.layoutMap !== state.map.id || state.layoutCount !== state.map.nodes.length;
   state.layoutMap = state.map.id; state.layoutCount = state.map.nodes.length;
   $('#welcome').classList.add('hidden'); $('#workspace').classList.remove('hidden');
@@ -674,6 +677,7 @@ function renderDetail(force = false) {
     ${nearby.length ? `<h3 class="section-label">Nearby ideas</h3>${nearby.slice(0, 12).map(node => `<button class="relationship" data-select="${node.id}">${node.id === n.parentId ? 'Back to parent' : esc(presentation(node).label)}<strong>${esc(node.title)}</strong></button>`).join('')}${nearby.length > 12 ? '<p class="form-note">More directions are available through Find an idea.</p>' : ''}` : ''}
     ${hypothesisHtml(n, { esc, live: !historic, drafts: state.drafts })}
     ${!historic ? impactHtml(state.visibleMap, n, { esc }) : ''}
+    ${notesHtml(n, { esc })}
     ${n.body && n.body !== n.summary ? `<h3 class="section-label">${n.status === 'suggested' ? 'What to explore' : 'Notes & findings'}</h3><div class="prose">${prose(n.body)}</div>` : ''}
     ${job?.stale && job.result ? `<h3 class="section-label">Result from the earlier premise</h3><div class="prose">${prose(job.result.body)}</div>` : ''}
     ${claimsHtml(n, { esc })}${n.sources.length ? `<h3 class="section-label">Sources & evidence</h3>${n.sources.map(s => `<a class="evidence-link" href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)} <span aria-hidden="true">↗</span><small>${esc(s.note)}</small></a>`).join('')}` : ''}
@@ -696,14 +700,14 @@ function renderDetail(force = false) {
   detail.scrollTop = scroll;
 }
 // `onError(message)` reports a refusal instead of the toast (a batch lists its own).
-function act(nodeId, type, extra = {}, { onError = toast } = {}) {
+function act(nodeId, type, extra = {}, { onError = toast, route = 'action' } = {}) {
   if (!state.map || state.historyStep !== null) return Promise.resolve(false);
   const mapId = state.map.id;
   const execute = async () => {
     if (state.map?.id !== mapId || state.historyStep !== null) return false;
     state.mutating = true;
     try {
-      const result = await api(`/maps/${mapId}/action`, { nodeId, type, expectedRevision: state.map.revision, expectedFingerprint: state.map.fingerprint ?? undefined, ...extra });
+      const result = await api(`/maps/${mapId}/${route}`, { nodeId, type, expectedRevision: state.map.revision, expectedFingerprint: state.map.fingerprint ?? undefined, ...extra });
       state.mutations++;
       if (state.map?.id === mapId) { state.map = result; renderMap(); checkGitStatus(); }
       return true;
@@ -753,10 +757,12 @@ const outline = outlinePanel({ $, $$: selector => [...document.querySelectorAll(
   if (refocus) $(`[data-node="${state.selected}"]`)?.focus({ preventScroll: true });
 } });
 const glossary = glossaryDialog({ act, map: () => state.map, esc, toast });
+const inbox = inboxDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, readOnly: () => readOnlyNote(state), listening: agentListening, focusNode }); // The inbox (K8).
 const criteria = criteriaDialog({ map: () => state.visibleMap, act, esc, toast, listening: agentListening }); // Criteria (C9), opened only on the live map.
 answersDialog({ map: () => state.map, live: () => state.historyStep === null, act, esc, download }); // Answer in a file (K11).
 const challenge = challengeDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening, select: focusNode, // Challenge decisions (F2).
   exploreAsDirection: ({ nodeId, title, body }) => { Object.assign(state.drafts, { [`${nodeId}-title`]: title, [`${nodeId}-branch`]: body }); focusNode(nodeId); openEditor('suggest'); } });
+const adr = adrDialog({ map: () => state.visibleMap, act, api, esc, toast, live: () => state.historyStep === null, listening: agentListening }); // Decision records (F5).
 const sources = sourcesDialog({ esc, map: () => state.visibleMap, note: () => readOnlyNote(state), focusNode }); // The source library (K10).
 const assumptions = assumptionsDialog({ act, map: () => state.visibleMap, note: () => readOnlyNote(state), esc, toast, focusNode }); // The register (K6).
 const showBrief = briefDialog({ api, map: () => state.map, download });

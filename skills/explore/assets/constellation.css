@@ -113,11 +113,21 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 /* Reuse earlier research (Z4): Ask again, quietly at the end of a current result. */
 .reuse-again{margin:6px 0 0;font-size:12px}
 /* Challenge decisions (F2): the answers to choose, and the hypotheses to keep or dismiss. */
-.adr-choices{max-height:40dvh;overflow:auto;margin:6px 0 10px}.review-refs{margin:0 0 6px;font-size:12px;color:var(--muted)}
+.review-refs{margin:0 0 6px;font-size:12px;color:var(--muted)}
+/* Decision records (F5): the choices, the editable draft, and the exact file before it is saved. */
+.adr-choices{max-height:40dvh;overflow:auto;margin:6px 0 10px}.adr-text{width:100%;font:12px/1.5 ui-monospace,Consolas,monospace}.adr-items{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:10px}
+.adr-item{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.adr-title{margin:0 0 6px;font-size:13px;color:var(--ink);overflow-wrap:anywhere}
+.adr-path{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.adr-path input#adr-number{width:5em}.adr-path input#adr-slug{flex:1 1 200px}
+.adr-file{max-height:40dvh;overflow:auto;margin:6px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;font:12px/1.5 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 /* Answer in a file (K11): the import preview. */
 .answers-body{max-height:55dvh;overflow:auto}.answer-preview{list-style:none;margin:0;padding:0;display:grid;gap:10px}.answer-preview li{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .answer-preview-question{margin:0 0 4px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.answer-preview-text{margin:0 0 4px;font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .answer-preview-status{margin:0;font-size:11px;color:var(--teal)}.answer-preview li.skipped .answer-preview-status{color:var(--orange)}
+/* Thought inbox (K8): capture, open thoughts with the agent's proposals, and an idea's notes. */
+.inbox-capture{display:grid;gap:6px;margin:8px 0 12px}.inbox-capture textarea{width:100%}.inbox-capture button{justify-self:start}.inbox-thoughts .form-note{margin:4px 0}
+.inbox-thoughts{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:10px}.thought{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}.thought-text{margin:0 0 4px;font-size:13px;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.thought-proposal{margin-top:6px;padding:6px 8px;border-left:3px solid var(--teal);font-size:12px;background:color-mix(in srgb,var(--teal) 6%,transparent)}.thought-proposal p{margin:0 0 4px;color:var(--ink)}.inbox-preview{margin:8px 0;padding:8px 10px;border:1px dashed var(--line);border-radius:8px;font-size:12px}
+.idea-notes{margin:0 0 10px;padding-left:18px;font-size:12px;color:var(--ink)}.idea-notes li{margin-bottom:4px;overflow-wrap:anywhere;white-space:pre-wrap}
 /* Compare with my criteria (C9): the editor rows, the options-by-criteria grid (stacked on narrow screens), and the adopted lead. */
 .criteria-body{max-height:65dvh;overflow:auto}.criteria-rows{list-style:none;margin:6px 0;padding:0;display:grid;gap:6px}.criteria-rows li{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.criteria-rows input{flex:1 1 200px;padding:7px 10px}.criteria-rows select{flex:none;padding:6px 8px}
 .criteria-grid-wrap{overflow-x:auto;margin:8px 0}.criteria-grid{width:100%;border-collapse:collapse;font-size:12px}.criteria-grid th,.criteria-grid td{padding:6px 8px;border:1px solid var(--line);text-align:left;vertical-align:top;color:var(--ink)}.criteria-grid small{display:block;font-size:10px;color:var(--muted)}
