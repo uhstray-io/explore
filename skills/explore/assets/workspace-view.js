@@ -1,3 +1,4 @@
+import { executionText } from './research-model.js';
 import { presentation, treeOrder, branchComplete } from './graph.js';
 import { isBlocking, importanceLabel, highestImportance, canResearch, questionJobs, EXPLAIN, RESEARCH, TIDY, answerStateLabels, effectiveAnswerState, certaintyText,
   hasCurrentAnswer, isOpen, isSavedForLater, importanceLevels, importanceName } from './questions.js';
@@ -6,6 +7,7 @@ import { isBlocking, importanceLabel, highestImportance, canResearch, questionJo
 // a regenerated question takes its original's place). Older maps without jobId treat all open
 // questions as one batch. Handled means answered, saved for later, or dismissed; a regeneration still
 // on its way counts toward the total and waits at the end.
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
 export function questionSequence(node) {
   const live = node.questions.filter(q => !q.supersededAt);
   const byId = new Map(live.map(q => [q.id, q]));
@@ -90,9 +92,10 @@ export const topicProfileLabel = value => (typeof value === 'string' && Object.h
 // Under an idea's findings: how much map context its last investigation used, and which guidance it followed.
 export function runNoteHtml(job) {
   if (!job) return '';
-  // Numbers and fixed labels only: nothing from the file reaches the page as markup.
+  // Numbers, fixed labels and the agent's escaped report: nothing from the file reaches the page as markup.
   const characters = Number.isFinite(job.contextCharacters) ? job.contextCharacters : 0, guidance = topicProfileLabel(job.result?.topicProfile);
-  const parts = [characters ? `Last investigation used ${characters.toLocaleString()} characters of map context. Only relevant context is sent.` : '', guidance ? `Guidance: ${guidance}.` : ''].filter(Boolean);
+  const parts = [characters ? `Last investigation used ${characters.toLocaleString()} characters of map context. Only relevant context is sent.` : '', guidance ? `Guidance: ${guidance}.` : '',
+    job.execution ? escapeHtml(executionText(job.execution)) : ''].filter(Boolean);
   return parts.length ? `<p class="run-note">${parts.join(' ')}</p>` : '';
 }
 
@@ -467,7 +470,7 @@ export function importConflictHtml({ existing, incoming }, { esc }) {
 }
 
 export function briefPreview(brief) {
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+  const esc = escapeHtml;
   const counts = brief.counts;
   // Show questions and answers separately so long prompts cannot hide the answer.
   const itemsWithAnswers = brief.sections.map(section => ({ ...section, items: section.items.map(item => item.question ? { ...item, text: `Question: ${item.question}\nAnswer: ${item.text}` } : item) }));

@@ -32,12 +32,14 @@ import { branchRestoreActions } from './branch-restore.mjs';
 import { libraryActions } from './library.mjs';
 import { linkActions } from './links.mjs';
 import { listenSetting } from '../assets/listening.js';
+import { researchModelSetting } from '../assets/research-model.js';
 
 export const INVESTIGATE = 'investigate';
 
 const builtInJobTypes = { [INVESTIGATE]: { label: 'Branch investigation', target: 'node' } };
-// How long an agent keeps listening for work (K1): every server reports it, so every registry has it.
-const builtInSettings = { listenMinutes: listenSetting };
+// How long an agent keeps listening for work (K1), and the model the user would like research to use (Z5): the
+// server reads both, so every registry has them.
+const builtInSettings = { listenMinutes: listenSetting, researchModelHint: researchModelSetting };
 // Store.action handles these itself; a registry entry may not replace them.
 const builtInActions = new Set(['activate', 'answer', 'suggest', 'cancel', 'cancel-job', 'accept', 'revise', 'fork-revision', 'position', 'restore-version', 'name-version', 'unname-version', 'change-answer', 'reaffirm', 'clear-finding']);
 const targets = new Set(['node', 'map']);

@@ -57,6 +57,8 @@ To create a map, the input file is `{ "title": "Short name", "idea": "The user's
 }
 ```
 
+When the user has named a research model, a branch investigation packet carries `modelHint: { model, note }`. It is the user's permission to delegate that investigation to a subagent running the named model. Follow it only where your host can choose a subagent's model; Claude Code's subagent tool accepts a per-call model (seen in a Claude Code session, November 2026), and Codex and Copilot support is unverified. Never switch the main conversation's model, ask for API keys, or fail a job because the hint cannot be followed; do the work yourself instead. Report what happened in optional `execution: { "delegated": true|false, "model": "as reported", "note": "optional" }` (each text at most 200 characters). It is kept on the job beside the worker and shown as reported by the agent; Explore cannot verify it.
+
 Optional `topicProfile` names the research guidance you followed: `general`, `software-versions`, `products-services` or `concepts-tradeoffs` (see "Choose a topic profile" in `exploration.md`). Any other value is rejected. It is kept with the result and shown under the findings.
 
 This format is for `jobType: "investigate"`, the branch investigation. Other job types are described below.
