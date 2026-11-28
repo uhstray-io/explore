@@ -634,7 +634,7 @@ export class Store {
     // Typed work reads the agreed glossary too (K9), unless its type opts out. Like an investigation, the work's own
     // content comes first: the glossary gets only the room left, so it can never cut that content or fail the job.
     const shared = definition.glossary === false ? null : glossaryForPacket(map, node, budget - JSON.stringify(packet).length - searchPrivacy.length - glossaryRoom);
-    if (shared) Object.assign(packet, shared);
+    if (shared?.glossary.length) Object.assign(packet, shared); // With no room or no terms, nothing is added.
     packet.instruction = `${packet.instruction.trim()}${shared?.glossary.length ? ` ${glossaryUse}` : ''} ${searchPrivacy}`;
     packet.contextCharacters = JSON.stringify(packet).length;
     need(packet.contextCharacters <= budget, `${definition.label} work is larger than the ${budget}-character packet budget.`, 500);
