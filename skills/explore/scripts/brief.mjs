@@ -53,7 +53,7 @@ export function mapBrief(map, nodeId = null) {
     // Older results could not record these, so an empty section never reads as "none found".
     ['limitations', 'Conflicts and evidence gaps — unresolved', nodes.flatMap(n => (n.limitations || []).map(record => entry(n, `${limitationLabel(record.kind)}: ${clip(record.summary, 180)} Next step: ${clip(record.nextStep, 100)}`, { limitationId: record.id, kind: record.kind }))),
       '_None recorded. Results saved before this feature could not record them._'],
-    ['reviews', 'Agent reviews waiting for you — not conclusions', (map.proposals || []).filter(proposal => !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
+    ['reviews', 'Agent reviews waiting for you — not conclusions', (map.proposals || []).filter(proposal => (proposal.type ?? 'check-answers') === 'check-answers' && !proposalOutdated(map, proposal)).flatMap(proposal => proposal.items.filter(item => item.review === 'unreviewed').map(item => {
       const node = nodes.find(n => item.refs.some(ref => ref.nodeId === n.id));
       return node ? entry(node, `${reviewWords[item.category] || item.category}: ${item.explanation}`, { proposalId: proposal.id, itemId: item.id }) : null;
     }).filter(Boolean))],

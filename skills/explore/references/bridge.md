@@ -208,7 +208,7 @@ Only the user asks for this (`request-map-job` with `adr-draft`); never request 
 }
 ```
 
-The title is at most 120 characters and each section at most 6,000. Where the user never gave a reason, write "Not recorded"; never invent one. `refs` names records you were given, each once; anything else rejects the result. Explore renders the record from a fixed template (Status: Proposed, the date it is saved, and a sources section with map, node and question IDs) and keeps it as one proposal item. The user edits and accepts it (`adr-accept`, user-only), and only the browser's Save file writes it to `docs/adr/`, never over an existing file. You only draft: never write an ADR file yourself.
+The title is at most 120 characters and each section at most 6,000. Where the user never gave a reason, write "Not recorded"; never invent one. The title is one line. `refs` names at least one record you were given, each once; anything else rejects the result. Records that would not fit are shortened and marked `shortened`, with `retrieval` saying how to read them in full. Explore renders the record from a fixed template (Status: Proposed, the date it is saved, and a sources section with map, node and question IDs) and keeps it as one proposal item. The user edits and accepts it (`review-proposal` with `decision` and the edited `text`, user-only), and only the browser's Save file writes it to `docs/adr/`, never over an existing file. You only draft: never write an ADR file yourself, and never call the ADR file route, which is the browser's.
 
 ## Mutations
 

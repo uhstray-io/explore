@@ -141,6 +141,8 @@ export const mapJobActions = {
   'review-proposal': { target: 'map', apply: ({ map, input, store, actor }) => {
     const proposal = (map.proposals || []).find(p => p.id === input.proposalId), item = proposal?.items.find(i => i.id === input.itemId);
     need(item, 'That review point no longer exists.', 404);
+    const own = store.jobType(proposal.type ?? CHECK_ANSWERS)?.review;
+    if (own) { own({ map, proposal, item, input, actor }); Object.assign(item, { review: input.decision, reviewedAt: new Date().toISOString(), ...(actor?.name ? { reviewedBy: { name: actor.name } } : {}) }); store.event(map, 'proposal-reviewed', null, `${proposal.id}/${item.id}: ${input.decision}`); return; }
     need(['accepted', 'dismissed'].includes(input.decision), 'Choose Keep or Dismiss.');
     Object.assign(item, { review: input.decision, reviewedAt: new Date().toISOString(), ...(actor?.name ? { reviewedBy: { name: actor.name } } : {}) });
     store.event(map, 'proposal-reviewed', null, `${proposal.id}/${item.id}: ${input.decision}`);

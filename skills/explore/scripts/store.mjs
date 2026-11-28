@@ -459,7 +459,7 @@ export class Store {
       const mapLevel = mapLevelActions.has(input.type) || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);
       if (!mapLevel) need(n, 'Node not found.', 404);
-      if (declared) { await declared.apply({ map, node: n, input, store: this, actor, file }); return this.save(map, { actor }); }
+      if (declared) { const undo = await declared.apply({ map, node: n, input, store: this, actor, file }); return this.save(map, { actor }).catch(async error => { if (typeof undo === 'function') await undo(); throw error; }); }
       // Naming a version changes only that version's file, so the map is not saved again.
       if (input.type === 'name-version' || input.type === 'unname-version') {
         await this.withMapLock(map.id, () => this.versions.name(map.id, input.version, input.type === 'name-version' ? input.name : null));
