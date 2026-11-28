@@ -1,13 +1,24 @@
 export const workLabels = { suggested: 'Unexplored', queued: 'Queued', running: 'Researching', 'awaiting-answer': 'Needs your answer', explored: 'Explored', interrupted: 'Ready to retry' };
 
+// What review says about an idea's findings, or '' when nothing has been decided.
+export function reviewWord(node) {
+  return node.stale ? 'needs review' : node.reviewState === 'accepted' ? 'accepted' : node.reviewState === 'cleared' ? 'no longer relevant' : '';
+}
 export function presentation(node) {
   const work = workLabels[node.status] || node.status;
-  return {
-    label: [work, node.stale ? 'needs review' : node.reviewState === 'accepted' ? 'accepted' : node.reviewState === 'cleared' ? 'no longer relevant' : ''].filter(Boolean).join(' · '),
-    lit: node.status === 'explored' && !node.stale,
-  };
+  return { label: [work, reviewWord(node)].filter(Boolean).join(' · '), lit: node.status === 'explored' && !node.stale };
+}
+// An idea and everything below it, by parent, as a Set of IDs. Empty when the idea is not in the map.
+export function branchIds(map, nodeId) {
+  const children = new Map();
+  for (const node of map.nodes) { if (!children.has(node.parentId)) children.set(node.parentId, []); children.get(node.parentId).push(node.id); }
+  const ids = new Set(map.nodes.some(node => node.id === nodeId) ? [nodeId] : []);
+  for (const id of ids) for (const child of children.get(id) ?? []) ids.add(child); // A Set visits what is added while iterating.
+  return ids;
 }
 
+// The least distance the layout leaves between two ideas' centres (more beside the root). Exports scale by it.
+export const minimumSpacing = 58;
 // Saved coordinates are absolute centers. Layout never writes, activates, or edits nodes.
 export function constellationLayout(map) {
   const nodes = new Map(map.nodes.map(node => [node.id, node]));
@@ -101,7 +112,7 @@ export function constellationLayout(map) {
   for (let step = 0; step < 35; step++) {
     for (let a = 0; a < points.length; a++) for (let b = a + 1; b < points.length; b++) {
       const dx = points[b].x - points[a].x, dy = points[b].y - points[a].y;
-      const clearance = (map.nodes[a].id === root.id || map.nodes[b].id === root.id) ? 68 : 58;
+      const clearance = (map.nodes[a].id === root.id || map.nodes[b].id === root.id) ? minimumSpacing + 10 : minimumSpacing;
       if (Math.abs(dx) >= clearance || Math.abs(dy) >= clearance) continue;
       const distance = Math.hypot(dx, dy) || 1;
       if (distance >= clearance) continue;

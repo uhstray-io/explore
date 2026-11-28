@@ -300,7 +300,7 @@ export function gitCheckDelay({ last, mapId, now, force = false, every = 10000 }
 }
 
 // How a connection reads from one idea's side (D1): "Depends on X" from the dependent, "Needed by X" from the other.
-const outgoing = { depends_on: 'Depends on', supports: 'Supports', contradicts: 'Contradicts', related_to: 'Related to' };
+export const outgoing = { depends_on: 'Depends on', supports: 'Supports', contradicts: 'Contradicts', related_to: 'Related to' };
 const incoming = { depends_on: 'Needed by', supports: 'Supported by', contradicts: 'Contradicted by', related_to: 'Related to' };
 export const connectionLabel = (edge, nodeId) => (edge.from === nodeId ? outgoing : incoming)[edge.type];
 // Connected thinking: each link with its direction; one the user added shows its note and, while live, Remove.

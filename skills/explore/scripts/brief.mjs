@@ -3,6 +3,7 @@ import { isOpen, isBlocking, certaintyText, effectiveAnswerState, importanceRank
 import { proposalOutdated } from './map-jobs.mjs';
 import { linkSuffix } from './links.mjs';
 import { markdownText as line } from '../assets/workspace-view.js';
+import { branchIds } from '../assets/graph.js';
 
 const reviewWords = { 'possible-tension': 'Possible tension', 'unresolved-choice': 'Unresolved choice', 'untested-assumption': 'Untested assumption' };
 
@@ -14,14 +15,7 @@ const clip = (value, limit) => {
 // An extractive index: acceptance and freshness come from the map, never from a model.
 export function mapBrief(map, nodeId = null) {
   if (nodeId && !map.nodes.some(node => node.id === nodeId)) throw new Problem('Node not found.', 404);
-  const ids = new Set(nodeId ? [nodeId] : map.nodes.map(node => node.id));
-  if (nodeId) {
-    let changed = true;
-    while (changed) {
-      changed = false;
-      for (const node of map.nodes) if (ids.has(node.parentId) && !ids.has(node.id)) { ids.add(node.id); changed = true; }
-    }
-  }
+  const ids = nodeId ? branchIds(map, nodeId) : new Set(map.nodes.map(node => node.id));
   const nodes = map.nodes.filter(node => ids.has(node.id));
   const count = predicate => nodes.filter(predicate).length;
   const entry = (node, text = node.summary, extra = {}) => ({ nodeId: node.id, title: clip(node.title, 100), text: clip(text, 320),

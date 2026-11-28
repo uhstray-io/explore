@@ -202,7 +202,7 @@ No additional provider connection is required to open a saved map. Existing form
 
 ## Export and import
 
-Only when the user asks: `export --map ID --out FILE` writes the complete map as JSON (no claim data) and refuses to overwrite a file. `import --file FILE [--as-copy]` imports an export or a `map.json`. An identical map returns `{ existing }`; a different map with the same ID returns `{ conflict }` and writes nothing, so ask the user whether to import a copy. An imported map never starts work.
+Only when the user asks: `export --map ID --out FILE` writes the complete map as JSON (no claim data) and refuses to overwrite a file. Add `--format mermaid|canvas|svg|print` for a Mermaid flowchart, a JSON Canvas 1.0 file (Obsidian), a standalone SVG or a script-free printable HTML page (the user prints it and saves a PDF), and `--node ID` for that idea and everything below it. These show each idea's work and review state, never jobs, workers or paths, and refuse more than 500 ideas or 4 MiB rather than cut anything: export a branch instead. `import --file FILE [--as-copy]` imports an export or a `map.json`. An identical map returns `{ existing }`; a different map with the same ID returns `{ conflict }` and writes nothing, so ask the user whether to import a copy. An imported map never starts work.
 
 ## Process lifetime
 
