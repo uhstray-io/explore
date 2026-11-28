@@ -25,7 +25,7 @@ export function normalizeLimitations(result, checked, fail) {
   return { limitations: limitations.map((record, index) => {
     const label = `Limitation ${index + 1}`;
     need(record && typeof record === 'object' && !Array.isArray(record), `${label} must be an object.`);
-    recordId(record.id, label, 'Limitation', ids, fail);
+    recordId(record.id, { label, kind: 'Limitation', seen: ids }, fail);
     need(Object.hasOwn(limitationKinds, record.kind), `${label}: kind must be conflict or missing-evidence.`);
     const summary = textField(record.summary, `${label} summary`, 600, fail), nextStep = textField(record.nextStep, `${label} Next step`, 400, fail);
     const sources = list(record.sources, 'sources', 'source', 20, label, url => citedSource(url, urls, label, fail));

@@ -256,12 +256,13 @@ export class Store {
       '', '> Read this overview, then only relevant node documents. Node files are generated; use the application or CLI to make changes.',
       '', '## Original idea', '', map.originalIdea || map.nodes[0].prompt || map.nodes[0].body, '', '## Exploration', ''];
     for (const n of map.nodes) {
+      const findings = hasFindings(map, n);
       overview.push(`- [${n.title.replace(/[\[\]]/g, '')}](nodes/${n.id}.md): ${n.status}; ${n.reviewState}${n.stale ? '; needs review after a premise changed' : ''}. ${n.summary.replace(/\n/g, ' ')}`);
       const lines = [`# ${n.title}`, '', `Node: ${n.id} | Kind: ${n.kind} | Work: ${n.status} | Review: ${n.reviewState}`,
-        `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, ...(n.doneWhen ? ['', `Done when: ${literal(normalizeDoneWhen(n.doneWhen))}`] : []), '', hasFindings(map, n) ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
+        `${generatedFrom(map.revision)} Edit through Explore.`, ...(n.acceptedBy?.name ? [`Accepted by ${literal(n.acceptedBy.name)}.`] : []), '', '## Premise', '', n.prompt || n.body, ...(n.doneWhen ? ['', `Done when: ${literal(normalizeDoneWhen(n.doneWhen))}`] : []), '', findings ? '## Findings' : '## Current premise (not researched findings)', '', n.summary, '', n.body];
       const guidance = topicProfileLabel(map.jobs.filter(j => currentRun(n, j)).at(-1)?.result?.topicProfile);
-      if (findingsBasis(n, hasFindings(map, n)) === 'reasoning') lines.push('', `_${reasoningLabel}._`);
-      if (guidance && hasFindings(map, n)) lines.push('', `_Guidance: ${guidance}_`);
+      if (findingsBasis(n, findings) === 'reasoning') lines.push('', `_${reasoningLabel}._`);
+      if (guidance && findings) lines.push('', `_Guidance: ${guidance}_`);
       if (n.options?.length) lines.push('', ...comparisonLines(n));
       if (n.limitations?.length) lines.push('', ...limitationLines(n));
       if (n.claims?.length) lines.push('', ...claimLines(n));

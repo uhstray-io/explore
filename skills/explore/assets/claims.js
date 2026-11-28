@@ -17,7 +17,7 @@ export const basisHtml = node => (findingsBasis(node, node.hasFindings) === 'rea
 export function claimsHtml(node, { esc }) {
   if (!node.claims?.length) return '';
   const support = claim => (claim.support?.length
-    ? claim.support.map(item => `<details class="claim-support"><summary>Supported by ${esc(sourceTitle(node, item.source))}</summary><blockquote>${esc(item.passage)}</blockquote>${item.locator ? `<p class="claim-locator">${esc(item.locator)}</p>` : ''}<a href="${esc(item.source)}" target="_blank" rel="noreferrer">Open the source</a></details>`).join('')
+    ? claim.support.map((item, index) => `<details class="claim-support" data-editor="claim-${esc(claim.id)}-${index}"><summary>Supported by ${esc(sourceTitle(node, item.source))}</summary><blockquote>${esc(item.passage)}</blockquote>${item.locator ? `<p class="claim-locator">${esc(item.locator)}</p>` : ''}<a href="${esc(item.source)}" target="_blank" rel="noreferrer">Open the source</a></details>`).join('')
     : '<p class="claim-unknown">Support unknown</p>');
   return `<h3 class="section-label">Key claims</h3><p class="form-note">Your agent's reading of its sources, not a verification.</p><div class="claims">${node.claims.map(claim => `<div class="claim"><p>${esc(claim.text)}</p>${support(claim)}</div>`).join('')}</div>`;
 }

@@ -20,7 +20,7 @@ export function normalizeClaims(result, checked, fail) {
   return { claims: claims.map((claim, index) => {
     const label = `Claim ${index + 1}`;
     need(claim && typeof claim === 'object' && !Array.isArray(claim), `${label} must be an object.`);
-    recordId(claim.id, label, 'Claim', ids, fail);
+    recordId(claim.id, { label, kind: 'Claim', seen: ids }, fail);
     const support = claim.support ?? [];
     need(Array.isArray(support) && support.length <= 3, `${label}: support must be a list of at most 3 passages.`);
     return { id: claim.id, text: textField(claim.text, `${label} text`, 500, fail), support: support.map(item => {

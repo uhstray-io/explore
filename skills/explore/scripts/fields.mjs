@@ -10,7 +10,8 @@ export function textField(value, field, max, fail, { optional = false } = {}) {
 }
 // A record's identifier, unique among `seen`: a letter, then letters, digits, _ or -, at most 32 in all.
 const idPattern = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
-export function recordId(value, label, kind, seen, fail) {
+// `label` names this record in a message ("Claim 2"), `kind` its list ("Claim").
+export function recordId(value, { label, kind, seen }, fail) {
   if (typeof value !== 'string' || !idPattern.test(value)) fail(`${label} needs an identifier that starts with a letter (letters, digits, _ or -, at most 32).`);
   if (seen.has(value)) fail(`${kind} identifiers must be unique.`);
   seen.add(value);

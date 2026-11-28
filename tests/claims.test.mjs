@@ -108,5 +108,8 @@ test('the inspector names each claimâ€™s support or says it is unknown, never â€
   assert.match(html, /Works &lt;offline&gt;\./); assert.doesNotMatch(html, /<offline>/);
   assert.match(html, /<summary>Supported by Vendor docs<\/summary>[\s\S]*All edits are stored on the device first\.[\s\S]*Offline mode[\s\S]*<a href="https:\/\/example\.org\/a" target="_blank" rel="noreferrer">/);
   assert.match(html, /class="claim-unknown">Support unknown</);
+  const twice = claimsHtml({ ...node, claims: [{ ...supported, support: [supported.support[0], { source: B, passage: 'Rare.' }] }] }, { esc });
+  assert.deepEqual([...twice.matchAll(/<details class="claim-support" data-editor="([^"]+)">/g)].map(match => match[1]), ['claim-offline-0', 'claim-offline-1'],
+    'the inspector keeps each passage open or closed across a redraw, as it does for other disclosures');
   assert.doesNotMatch(html, /verified/i);
 });

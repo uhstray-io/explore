@@ -20,7 +20,7 @@ export function normalizeComparison(result, fail) {
   const ids = new Set(), titles = new Set();
   const normalized = options.map((option, index) => {
     need(option && typeof option === 'object' && !Array.isArray(option), `Option ${index + 1} must be an object.`);
-    recordId(option.id, `Option ${index + 1}`, 'Option', ids, fail);
+    recordId(option.id, { label: `Option ${index + 1}`, kind: 'Option', seen: ids }, fail);
     const title = text(option.title, 'Option title', 150);
     need(!titles.has(normal(title)), 'Option titles must differ.'); titles.add(normal(title));
     const list = (value, field) => {
