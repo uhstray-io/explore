@@ -126,7 +126,7 @@ test('the dialog groups the entries, says what would change each one, and offers
 });
 
 // A small fake DOM for the dialog: elements by ID, with listeners and a modal state.
-function fakeDialog({ map, live = () => true, reply = true }) {
+function fakeDialog({ map, note = () => '', reply = true }) {
   const elements = new Map(), calls = [], toasts = [], chosen = [];
   const element = id => {
     if (!elements.has(id)) {
@@ -138,7 +138,7 @@ function fakeDialog({ map, live = () => true, reply = true }) {
     return elements.get(id);
   };
   globalThis.document = { querySelector: selector => element(selector.replace(/^#/, '')) };
-  const dialog = assumptionsDialog({ act: async (...args) => { calls.push(args); return reply; }, map, live, esc, toast: message => toasts.push(message), focusNode: id => chosen.push(id) });
+  const dialog = assumptionsDialog({ act: async (...args) => { calls.push(args); return reply; }, map, note, esc, toast: message => toasts.push(message), focusNode: id => chosen.push(id) });
   const click = dataset => element('assumptions-body').fire('click', { target: { closest: () => ({ dataset }) } });
   return { element, calls, toasts, chosen, dialog, click };
 }
@@ -163,6 +163,15 @@ test('the dialog opens from Map tools, saves and removes a note through the acti
     assert.deepEqual(io.calls.at(-1), ['root', 'set-disprove-if', { questionId: 'q-root', text: '' }]);
     await io.click({ focusNode: 'a' });
     assert.equal(io.element('assumptions-dialog').open, false); assert.deepEqual(io.chosen, ['a']);
+  } finally { delete globalThis.document; }
+});
+
+test('in growth history or a saved version the dialog shows the inspector\'s read-only note and offers no edits', async () => {
+  const map = registerMap(), io = fakeDialog({ map: () => map, note: () => 'Read-only growth history. These are today’s findings and status, not a past version of the research.' });
+  try {
+    await io.element('assumptions-open').fire('click');
+    assert.match(io.element('assumptions-body').innerHTML, /^<p class="form-note">Read-only growth history\. [^<]*<\/p><h3 class="section-label">Your assumptions<\/h3>/);
+    assert.doesNotMatch(io.element('assumptions-body').innerHTML, /data-assumption-edit/);
   } finally { delete globalThis.document; }
 });
 

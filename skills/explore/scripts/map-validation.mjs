@@ -1,4 +1,5 @@
 import { modes, goalMax } from '../assets/guidance.js';
+import { stanceWords } from '../assets/stance.js';
 // Map validation (H1): the one place that decides what a map.json may contain. The Store reads every map
 // through decodeMap and readProblem, so it refuses exactly the problems marked `unreadable`; the validate
 // command reports all of them. Pure and dependency-free. Each problem has a code, a location such as
@@ -103,7 +104,7 @@ const shapes = {
   question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }), disproveIf: text({ optional: true }) },
   assumption: { statement: text(), wouldChangeIf: text() },
   term: { id: anId(), term: text({ unreadable: true }), definition: text({ unreadable: true }), status: oneOf(new Set(['agreed', 'proposed'])) },
-  source: { title: text({ unreadable: true }), url: rule(httpUrl, { code: 'source-url' }) },
+  source: { title: text({ unreadable: true }), url: rule(httpUrl, { code: 'source-url' }), stance: oneOf(new Set(Object.keys(stanceWords)), { optional: true, nullable: true }) },
   edge: { from: anId(), to: anId(), type: oneOf(edgeTypes), addedBy: oneOf(new Set(['user']), { optional: true }), note: text({ optional: true }) },
   job: { id: anId(), status: oneOf(jobStates), nodeId: anId({ optional: true, nullable: true }) },
   batch: { sequence: rule(Number.isSafeInteger, { code: 'invalid-growth' }), at: text({ code: 'invalid-growth' }), nodeIds: list({ code: 'invalid-growth' }), edges: list({ code: 'invalid-growth' }) },
