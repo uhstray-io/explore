@@ -377,6 +377,17 @@ export function nodeMenuHtml(node, { esc, live = false, items = [] }) {
   return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open>Add a connection</button>`] : []), ...items.filter(Boolean)]);
 }
 
+// Find an idea's rule, which the command palette shares: the title or summary contains the text, ignoring case.
+export function ideaMatches(nodes, query) {
+  const text = String(query ?? '').trim().toLowerCase();
+  return nodes.filter(node => `${node.title} ${node.summary || ''}`.toLowerCase().includes(text));
+}
+// The command palette's results: available actions whose label contains the text, then, once there is text, up to
+// 12 matching ideas.
+export function commandResults(commands, nodes, query) {
+  const text = String(query ?? '').trim().toLowerCase();
+  return { actions: commands.filter(command => command.label.toLowerCase().includes(text)), ideas: text ? ideaMatches(nodes, text).slice(0, 12) : [] };
+}
 // Text compared the way people read it: case, repeated whitespace and trailing punctuation ignored.
 export const comparableText = value => String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim().replace(/[\s?.!,;:…]+$/, '');
 // Text that reads as itself in Markdown, on one line.

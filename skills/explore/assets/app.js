@@ -15,9 +15,10 @@ import { questionClick } from './question-clicks.js';
 import { limitationsHtml, optionLimitationNotes, limitationClick } from './limitations.js';
 import { sinceVisitPanel } from './since-visit.js';
 import { moreFiltersPanel } from './more-filters.js';
+import { commandPalette } from './command-palette.js';
 import { nextQuestionPanel } from './next-question.js';
 import { answerStates, answerStateLabels, isOpen, isBlocking, isSavedForLater, effectiveAnswerState, certaintyText, answeredSince, importanceLabel } from './questions.js';
-import { mapOverview, overviewFilters, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
+import { mapOverview, overviewFilters, ideaMatches, visibleSelection, briefFilename, briefPreview, historyStepLabel, starterIdeas, openMapChange, unreadableLabel, outsideChangeNote, versionLabel, undoTarget, restoreSummary, optionsHtml, answerChoices, checkAnswersHtml, questionMenuHtml, menuFocusIndex, questionSequence, reviewQueue, reviewStepHtml, restartPreviewHtml, importanceHtml, nodeMenuHtml, nodeReference, parseNodeReference, nodeAddress, parseAddress, missingMapMessage, missingIdeaMessage, importConflictHtml, questionHelpHtml, gitStatusLabel, gitStatusDetail, gitCheckDelay, questionResearchHtml, questionTidyHtml, tidyArrived, connectionsHtml, linkEditorHtml, runNoteHtml } from './workspace-view.js';
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const state = { token: '', map: null, visibleMap: null, maps: [], selected: null, bridge: {}, scale: 1, x: 0, y: 0, positions: {}, drafts: {}, editors: {}, refreshing: null, heldToasts: null, filter: null, historyStep: null, historySource: null, brief: null, doneWhenEditing: null, mutations: 0, outsideSeen: {}, tidyRestore: {}, helpSeen: readSeenHelp() };
@@ -266,8 +267,7 @@ function searchNodes() {
     $('#node-results').innerHTML = `<p role="status">A link to an idea</p><button type="button" data-open-reference="${reference.mapId}/${reference.nodeId}"><strong>Open referenced idea</strong></button>`;
     $('#node-results').hidden = false; return;
   }
-  const query = $('#find-node').value.trim().toLowerCase();
-  const matches = state.visibleMap.nodes.filter(node => `${node.title} ${node.summary || ''}`.toLowerCase().includes(query));
+  const matches = ideaMatches(state.visibleMap.nodes, $('#find-node').value);
   $('#node-results').innerHTML = `<p role="status">${matches.length ? `${matches.length} ${matches.length === 1 ? 'idea' : 'ideas'}${matches.length > 12 ? ' · showing 12, type more to narrow' : ''}` : 'No matching ideas'}</p>` + matches.slice(0, 12).map(node => `<button type="button" data-focus-node="${node.id}"><strong>${esc(node.title)}</strong><small>${esc(presentation(node).label)}</small></button>`).join('');
   $('#node-results').hidden = false;
   if (focusedIdea) ([...$('#node-results').querySelectorAll('[data-focus-node]')].find(button => button.dataset.focusNode === focusedIdea) || $('#find-node')).focus({ preventScroll: true });
@@ -767,6 +767,7 @@ for (const button of document.querySelectorAll('.close-dialog')) button.addEvent
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
 // Changes since a commit (E4): opened from Map tools; it is told when the map moves on.
 const changes = changesDialog({ api, map: () => state.map, download });
+commandPalette({ $, $$: selector => [...document.querySelectorAll(selector)], esc, state, focusNode, openEditor });
 // Restore one branch (E2) from a previewed version's inspector.
 const branchRestore = branchRestorePanel({ api, act, esc, mapId: () => state.map?.id, version: () => state.versionPreview?.version, returnLive, reopen: id => previewVersion(id), toast, rerender: () => renderDetail(true),
   afterRestore: () => { state.versions = null; loadVersions(); } });
