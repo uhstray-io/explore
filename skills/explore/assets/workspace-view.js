@@ -324,9 +324,10 @@ export function linkEditorHtml(node, map, { esc, drafts = {}, shown = false }) {
   return `<details data-editor="link"${shown ? ' open' : ' hidden'}><summary>Add a connection</summary><form id="link-form" data-node-id="${id}"><label for="link-relation-${id}">This idea</label><select id="link-relation-${id}" name="relation" data-draft="link-relation-${id}">${Object.entries(outgoing).map(([value, label]) => option(value, label.toLowerCase(), draft('link-relation') ?? 'depends_on')).join('')}</select><label for="link-to-${id}">Which idea</label><select id="link-to-${id}" name="to" data-draft="link-to-${id}" required><option value="">Choose an idea…</option>${others.map(other => option(other.id, esc(other.title), draft('link-to'))).join('')}</select><label for="link-note-${id}">Why (optional)</label><textarea id="link-note-${id}" name="note" rows="2" maxlength="1000" data-draft="link-note-${id}">${esc(draft('link-note') ?? '')}</textarea>${working ? '<p class="form-note">Your agent is exploring a branch now. If that work reads either idea, its result will come back for review instead of being applied.</p>' : ''}<button class="secondary" type="submit">Add connection</button></form></details>`;
 }
 // The idea ⋯ menu (H2): Copy link.
-export function nodeMenuHtml(node, { esc, live = false }) {
+// `doneWhen`: whether the branch's stopping point can be set now (K4).
+export function nodeMenuHtml(node, { esc, live = false, doneWhen = false }) {
   const id = esc(node.id);
-  return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open>Add a connection</button>`] : [])]);
+  return menuHtml(id, 'More for this idea', [`<button type="button" role="menuitem" tabindex="-1" data-copy-link="${id}">Copy link</button>`, ...(live ? [`<button type="button" role="menuitem" tabindex="-1" data-link-open>Add a connection</button>`] : []), ...(live && doneWhen ? [`<button type="button" role="menuitem" tabindex="-1" data-done-when-edit="${id}">Set when it’s done</button>`] : [])]);
 }
 
 // Text that reads as itself in Markdown, on one line.
