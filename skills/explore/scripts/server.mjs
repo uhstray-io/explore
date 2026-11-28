@@ -11,6 +11,7 @@ import { exportMap } from './transfer.mjs';
 import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
+import { usageStats } from './stats.mjs';
 import { viewerFile } from './viewer.mjs';
 import { previewBranchRestore } from './branch-restore.mjs';
 import { changesSince } from './changes.mjs';
@@ -79,6 +80,8 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           try { selection = url.searchParams.get('selection') ? JSON.parse(url.searchParams.get('selection')) : undefined; } catch { throw new Problem('The selection is not valid JSON.'); }
           return send(res, 200, await store.previewMapJob(previewRoute[1], url.searchParams.get('type'), selection));
         }
+        // Usage across saved maps (J1): read only; a map that cannot be read is listed, not counted.
+        if (req.method === 'GET' && url.pathname === '/api/stats') return send(res, 200, usageStats(await store.eachMap({ adopt: false }), { archived: url.searchParams.get('archived') === 'include' ? 'include' : 'exclude' }));
         // Version history: listing and previewing never write anything. A branch preview (E2) shows what
         // restoring one idea and everything below it from that version would change.
         const branchRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions\/([A-Za-z0-9-]+)\/branch$/);
@@ -154,7 +157,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/viewer-picker.js': 'viewer-picker.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/usage-dialog.js': 'usage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
