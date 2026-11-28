@@ -11,6 +11,7 @@ import { exportMap } from './transfer.mjs';
 import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
+import { previewBranchRestore } from './branch-restore.mjs';
 import { changesSince } from './changes.mjs';
 import { searchMaps } from './search.mjs';
 import { listedMaps } from '../assets/rail.js';
@@ -77,7 +78,13 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           try { selection = url.searchParams.get('selection') ? JSON.parse(url.searchParams.get('selection')) : undefined; } catch { throw new Problem('The selection is not valid JSON.'); }
           return send(res, 200, await store.previewMapJob(previewRoute[1], url.searchParams.get('type'), selection));
         }
-        // Version history: listing and previewing never write anything.
+        // Version history: listing and previewing never write anything. A branch preview (E2) shows what
+        // restoring one idea and everything below it from that version would change.
+        const branchRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions\/([A-Za-z0-9-]+)\/branch$/);
+        if (req.method === 'GET' && branchRoute) {
+          const q = url.searchParams;
+          return send(res, 200, await previewBranchRestore(store, branchRoute[1], branchRoute[2], { nodeId: q.get('node'), offset: q.get('offset'), limit: q.get('limit') }));
+        }
         const versionsRoute = url.pathname.match(/^\/api\/maps\/([a-z0-9-]+)\/versions(?:\/([A-Za-z0-9-]+))?$/);
         if (req.method === 'GET' && versionsRoute && !versionsRoute[2]) { await store.get(versionsRoute[1]); return send(res, 200, await store.versions.list(versionsRoute[1])); }
         if (req.method === 'GET' && versionsRoute) {
@@ -144,7 +151,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
         if (match?.[2] === 'fail') return send(res, 200, store.view(await store.fail(match[1], body.jobId, body.claimKey, body.reason)));
         throw new Problem('Route not found.', 404);
       }
-      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
+      const names = { '/': 'index.html', '/app.js': 'app.js', '/graph.js': 'graph.js', '/history.js': 'history.js', '/workspace-view.js': 'workspace-view.js', '/questions.js': 'questions.js', '/changes-dialog.js': 'changes-dialog.js', '/branch-restore.js': 'branch-restore.js', '/export-formats.js': 'export-formats.js', '/export-dialog.js': 'export-dialog.js', '/rail.js': 'rail.js', '/storage-dialog.js': 'storage-dialog.js', '/history-limits.js': 'history-limits.js', '/alerts.js': 'alerts.js', '/since-visit.js': 'since-visit.js', '/question-clicks.js': 'question-clicks.js', '/listening.js': 'listening.js', '/agent-dialog.js': 'agent-dialog.js', '/style.css': 'style.css', '/constellation.css': 'constellation.css', '/favicon.svg': 'favicon.svg' };
       if (req.method !== 'GET' || !names[url.pathname]) throw new Problem('Page not found.', 404);
       const file = names[url.pathname];
       const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
