@@ -106,3 +106,5 @@ body{background:var(--surface)}.app-shell{background:var(--surface);min-height:5
 .assumptions-body{max-height:60dvh;overflow:auto;display:grid;gap:12px}.assumption-entry{padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
 .assumption-question{margin:0 0 2px;font-size:11px;color:var(--muted);overflow-wrap:anywhere}.assumption-text{margin:0 0 4px;font-size:13px;color:var(--ink);overflow-wrap:anywhere}.assumption-change{margin:0 0 6px;font-size:12px;color:var(--ink);overflow-wrap:anywhere}
 .assumption-editor{display:grid;gap:6px;margin:0 0 8px}.assumption-editor textarea{width:100%}.assumption-dependents{margin:0 0 6px;font-size:12px}.assumption-dependents summary{cursor:pointer;color:var(--teal)}.assumption-dependents .relationship{padding:4px 0}
+/* Reuse earlier research (Z4): the offer above an earlier result. */
+.reuse-offer{margin:6px 0;padding:6px 8px;border-left:3px solid var(--teal);font-size:12px;line-height:1.5;color:var(--ink);background:color-mix(in srgb,var(--teal) 6%,transparent)}

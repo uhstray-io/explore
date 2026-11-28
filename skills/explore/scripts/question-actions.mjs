@@ -165,6 +165,7 @@ export const questionJobTypes = {
     },
   },
   [RESEARCH]: {
+    reusable: true, requestInput: ({ node, subjectId }) => { const question = node.questions.find(q => q.id === subjectId); return question ? { question: question.text } : undefined; }, // Z4
     label: 'Research a question', target: 'node',
     // The question (with its current answer, if any), its idea with findings and the user's other answers there,
     // and the same nearby ideas an investigation reads, nearest first; the farthest are left out first when the
@@ -198,6 +199,7 @@ export const questionJobTypes = {
     recheck: true, // Checked again whenever the map is shown, so research reads as earlier as soon as its context changes.
   },
   [EXPLAIN]: {
+    reusable: true, requestInput: ({ node, subjectId }) => { const question = node.questions.find(q => q.id === subjectId); return question ? { question: question.text } : undefined; }, // Z4
     label: 'Explain a question', target: 'node',
     // The question, its idea and the path up to the root; nothing from other branches, drafts or research.
     packet: ({ map, job, node, budget }) => {

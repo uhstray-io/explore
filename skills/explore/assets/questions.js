@@ -88,5 +88,11 @@ export function questionJobs(jobs, type, questionId) {
   const mine = (jobs || []).filter(job => job.type === type && job.subjectId === questionId);
   return { pending: mine.find(job => job.status === 'queued' || job.status === 'running') ?? null, latest: mine.filter(job => job.status === 'completed' && job.result).at(-1) ?? null };
 }
+// The earlier result of `type` on a question that can be offered instead of asking again (Z4): the newest finished
+// one, when nothing is waiting and the Store says nothing it used has changed (`contextUnchanged`); otherwise null.
+export function reusableResult(jobs, type, subjectId) {
+  const { pending, latest } = questionJobs(jobs, type, subjectId);
+  return !pending && latest?.contextUnchanged ? latest : null;
+}
 // Help me answer is offered on a question still asked on an unfinished branch, answered or not.
 export function canResearch(question, { completed = false } = {}) { return !completed && !question.supersededAt && !question.dismissedAt && !question.replacedBy; }

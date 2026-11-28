@@ -26,6 +26,7 @@ import { questionFeedback } from './question-actions.mjs';
 import { linkSuffix } from './links.mjs';
 import { checkAgainstMap, existingChild } from './result-checks.mjs';
 import { sourceList } from './fields.mjs';
+import { requestKey, reuseKey, contextUnchanged } from './reuse.mjs';
 import { signature, signatureMatches, nearbyIdeas, nearbyBrief, certaintyFields, ownFindings } from './neighbourhood.mjs';
 import { nodeKinds, semanticRelations, mapFolderPattern, isOpenJob, openJobKey, unreadableMessages, readProblem, generatedFrom, readMapFile, maxMapBytes, validateMap, unreadableReasons } from './map-validation.mjs';
 
@@ -388,7 +389,8 @@ export class Store {
     if (subjectId !== null) validId(subjectId);
     const existing = map.jobs.find(j => isOpenJob(j) && openJobKey(j) === openJobKey({ type, nodeId, subjectId }));
     if (existing) return existing;
-    const job = { id: id('job'), type, nodeId, ...(subjectId !== null ? { subjectId } : {}), status: 'queued', reason: text(reason || definition.label, 'Reason', 2000), ...(input !== undefined ? { input } : {}), ...(transient ? { transient: true } : {}), createdAt: now() };
+    const reuse = definition.reusable ? { requestKey: requestKey({ type, nodeId, subjectId, input }) } : {}; // Z4: the same request again.
+    const job = { id: id('job'), type, nodeId, ...(subjectId !== null ? { subjectId } : {}), ...reuse, status: 'queued', reason: text(reason || definition.label, 'Reason', 2000), ...(input !== undefined ? { input } : {}), ...(transient ? { transient: true } : {}), createdAt: now() };
     map.jobs.push(job);
     this.event(map, 'job-queued', nodeId, `${definition.label}. ${job.reason}`);
     return job;
@@ -683,7 +685,7 @@ export class Store {
             this.stopCompletedRepeat(map, n); await this.save(map); continue;
           }
           const claimKey = randomUUID(); // Returned once in the packet; the map keeps only its hash.
-          Object.assign(job, { status: 'running', worker, claimHash: claimHashOf(claimKey), startedAt: now(), ...(n ? { inputSignature: signature(map, n) } : {}) });
+          Object.assign(job, { status: 'running', worker, claimHash: claimHashOf(claimKey), startedAt: now(), ...(n ? { inputSignature: signature(map, n) } : {}), ...(n && definition.reusable ? { reuseKey: reuseKey(map, n, definition) } : {}) });
           let packet;
           // The user's research model (Z5), for branch research only. A settings file that cannot be read means no hint.
           const modelHint = investigation ? modelHintFor(await this.getSettings().then(settings => settings.researchModelHint, () => '')) : null;
@@ -946,7 +948,8 @@ export class Store {
   }
   // The map as the browser and CLI see it. Work this version cannot run is marked so nothing waits on it.
   view(map) {
-    const clone = publicMap(map, { resultIsStale: job => this.resultIsStale(map, job) });
+    const clone = publicMap(map, { resultIsStale: job => this.resultIsStale(map, job),
+      contextUnchanged: job => contextUnchanged(map, job, this.jobType(jobTypeOf(job)), { stale: this.resultIsStale(map, job) }) });
     for (const job of clone.jobs) if (!this.jobType(jobTypeOf(job))) job.unsupported = true;
     return Object.assign(clone, this.tracking(map.id));
   }
@@ -968,10 +971,14 @@ export class Store {
 
 // `resultIsStale(job)` lets the Store mark results that became stale after they arrived, before the input
 // signature it needs is removed.
-export function publicMap(map, { resultIsStale = () => false } = {}) {
+export function publicMap(map, { resultIsStale = () => false, contextUnchanged: unchanged = () => false } = {}) {
   const clone = structuredClone(map);
   for (const node of clone.nodes) Object.assign(node, { completed: isCompleted(map, node), hasFindings: hasFindings(map, node) });
-  for (const job of clone.jobs) { if (resultIsStale(job)) job.stale = true; delete job.claimKey; delete job.claimHash; delete job.inputSignature; }
+  for (const job of clone.jobs) {
+    if (resultIsStale(job)) job.stale = true;
+    if (unchanged(job)) job.contextUnchanged = true; // Z4: only the derived answer, never the keys.
+    delete job.claimKey; delete job.claimHash; delete job.inputSignature; delete job.requestKey; delete job.reuseKey;
+  }
   for (const proposal of clone.proposals || []) proposal.stale = !!proposal.stale || proposalOutdated(map, proposal);
   return clone;
 }
