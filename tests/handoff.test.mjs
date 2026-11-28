@@ -321,3 +321,17 @@ test('the dialog drops a preview once the choice or the map changes, starts afre
     assert.deepEqual(calls.at(-1), [null, 'cancel-job', { jobId: 'job-1' }]);
   } finally { delete globalThis.document; }
 });
+
+test('with two accepted handoffs, Copy and Download give the one clicked', async () => {
+  const map = fixture();
+  map.proposals[0].items[0] = { ...map.proposals[0].items[0], review: 'accepted', text: '# First', reviewedAt: '2026-11-27T12:00:00.000Z' };
+  map.proposals.push({ id: 'proposal-2', type: HANDOFF, included: [{ nodeId: 'root' }], items: [{ id: 'item-2', title: 'Second', format: 'tasks', refs: [{ nodeId: 'root' }], text: '# Second', original: '# Second', review: 'accepted', reviewedAt: '2026-11-28T12:00:00.000Z' }] });
+  const downloads = [], copied = [];
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => copied.push(text) } }, configurable: true });
+  const io = fakeDialog({ map: () => map, act: async () => true, api: async () => ({}), downloads });
+  try {
+    await io.click({ handoffCopy: 'item-2', proposal: 'proposal-2' }); await io.click({ handoffDownload: 'item-1', proposal: 'proposal-1' });
+    assert.match(copied[0], /^# Second\n\n---\n[\s\S]*\(findings\)/); assert.doesNotMatch(copied[0], /# First/);
+    assert.match(downloads[0][0], /^# First\n\n---\n[\s\S]*Who &?<?edits/); assert.equal(downloads[0][2], 'Plan -one--handoff.md');
+  } finally { delete globalThis.document; }
+});

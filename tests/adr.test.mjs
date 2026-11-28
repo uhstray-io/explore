@@ -397,6 +397,7 @@ test('the dialog keeps the title and edits, accepts through review-proposal, and
     assert.match(io.body.innerHTML, /Your agent will read 1 answer and the findings of 1 idea/); assert.match(io.body.innerHTML, /value="Sync daily"/, 'the title survives the preview');
     await io.click({ adrSend: '' });
     assert.deepEqual(calls.at(-1), [null, 'request-map-job', { jobType: ADR_DRAFT, selection: [{ nodeId: 'root', questionId: 'q-1' }, { nodeId: 'root' }], titleHint: 'Sync daily' }]);
+    assert.doesNotMatch(io.body.innerHTML, /value="Sync daily"/, 'the next record starts without a title');
     map = fixtureMap(); io.dialog.mapChanged();
     await io.body.fire('input', { target: { dataset: { adrText: 'item-1' }, value: '# Mine' } });
     // A poll while the user types never redraws.
