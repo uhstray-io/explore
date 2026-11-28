@@ -52,11 +52,11 @@ async function inspect({ workspace = process.cwd(), timeout = 2500 } = {}) {
   try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && mapFolderPattern.test(entry.name)).length; }
   catch (error) { if (error.code !== 'ENOENT') add('maps', 'warning', 'Saved-map directory could not be inspected.'); }
   // Maps that cannot be opened, by ID (J2): each can still be recovered from its saved versions in the app.
-  const damagedMaps = await unreadableMaps(workspace);
-  if (Array.isArray(damagedMaps) && damagedMaps.length) add('damaged-maps', 'warning', `These maps cannot be opened: ${damagedMaps.map(map => `${map.id} (${map.problem})`).join(', ')}. In Explore, choose one under Maps to copy an earlier version out as a new map.`);
+  const found = await unreadableMaps(workspace), damagedMaps = Array.isArray(found) && found.length ? found : null;
+  if (damagedMaps) add('damaged-maps', 'warning', `These maps cannot be opened: ${damagedMaps.map(map => `${map.id} (${map.problem})`).join(', ')}. In Explore, choose one under Maps to copy an earlier version out as a new map.`);
   const lock = await inspectLock(workspace);
   const version = await packageVersion();
-  const result = { ready: false, state: 'not-started', version: version ?? 'unversioned', workspace, skillDirectory, savedMaps, ...(Array.isArray(damagedMaps) && damagedMaps.length ? { damagedMaps } : {}), lock, checks,
+  const result = { ready: false, state: 'not-started', version: version ?? 'unversioned', workspace, skillDirectory, savedMaps, ...(damagedMaps ? { damagedMaps } : {}), lock, checks,
     start: { executable: process.execPath, args: [path.join(skillDirectory, 'scripts/server.mjs'), '--workspace', workspace, '--port', '0'] },
     note: 'Read-only diagnostics. No server was started, files changed, or model/provider connection tested.' };
   let connection;

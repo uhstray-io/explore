@@ -41,6 +41,18 @@ export function restorableHash(map) {
   return hash({ title, originalIdea, rootId, nodes, edges, jobs });
 }
 export function shouldRecord(labels) { return labels.some(label => !bookkeeping.has(label)); }
+// A version file's header, or why no version can be read from it. A damaged file is left alone and never offered.
+function readHeader(id, mapId, bytes, size) {
+  if (!bytes) return { header: null, problem: 'unreadable' };
+  const decoded = decodeMap(bytes);
+  if (decoded.problem) return { header: null, problem: decoded.problem };
+  const record = decoded.map;
+  if (record?.format === 'explore-version' && record.mapId === mapId && record.version !== 1) return { header: null, problem: 'unsupported-version' };
+  if (!(record?.format === 'explore-version' && record.version === 1 && record.mapId === mapId && typeof record.at === 'string' && Array.isArray(record.labels) && record.map && Number.isSafeInteger(record.revision)))
+    return { header: null, problem: 'invalid-version' };
+  const header = describe(id, record, size), problem = readProblem(record.map, mapId);
+  return { header: problem ? { ...header, problem } : header };
+}
 const describe = (id, record, bytes) => ({ id, mapId: record.mapId, revision: record.revision, at: record.at, labels: record.labels,
   ...(record.author ? { author: record.author } : {}), ...(record.name ? { name: record.name } : {}), ...(record.checkpoint ? { checkpoint: true } : {}), ...(record.kept ? { kept: true } : {}), contentHash: record.contentHash, bytes });
 
@@ -59,55 +71,36 @@ export class Versions {
   folder(mapId) { return path.join(this.directory, mapId, 'versions'); }
   file(mapId, id) { need(typeof id === 'string' && idPattern.test(id), 'Version not found.', 404); return path.join(this.folder(mapId), `${id}.json`); }
   // Newest first. Files are immutable except for their name, so headers are cached by size and time.
-  async scan(mapId) {
+  async scan(mapId) { return (await this.scanAll(mapId)).versions; }
+  // Every version file in one pass, cached by size and time: `versions` are the readable ones, each saying whether
+  // its map can be used by the rule that opens a map (J2); `rejected` are files no version can be read from, with
+  // why. A history folder that is a link is never read, so nothing behind it is listed or removed.
+  async scanAll(mapId) {
     let names = [];
-    // A history folder that is a link is never read, so nothing behind it is listed or removed.
     const folder = await lstat(this.folder(mapId)).catch(() => null);
-    if (folder && !folder.isDirectory()) return [];
+    if (folder && !folder.isDirectory()) return { versions: [], rejected: [] };
     try { names = (await readdir(this.folder(mapId))).filter(name => name.endsWith('.json') && idPattern.test(name.slice(0, -5))); }
     catch (error) { if (error.code !== 'ENOENT') throw error; }
-    const versions = [];
+    const versions = [], rejected = [];
     for (const name of names) {
       const file = path.join(this.folder(mapId), name), id = name.slice(0, -5);
       let info;
       try { info = await lstat(file); } catch { continue; }
       if (!info.isFile()) continue; // A link or folder is never a version.
-      const key = file;
-      let cached = this.headers.get(key);
+      let cached = this.headers.get(file);
       if (!cached || cached.mtimeMs !== info.mtimeMs || cached.size !== info.size) {
-        let header = null;
-        try {
-          const record = JSON.parse(await readFile(file, 'utf8'));
-          if (record?.format === 'explore-version' && record.version === 1 && record.mapId === mapId && typeof record.at === 'string' && Array.isArray(record.labels) && record.map) header = describe(id, record, info.size);
-          if (header) { const problem = readProblem(record.map, mapId); if (problem) header.problem = problem; }
-        } catch {} // A damaged version file is left alone and not offered.
-        cached = { mtimeMs: info.mtimeMs, size: info.size, header };
-        this.headers.set(key, cached);
+        cached = { mtimeMs: info.mtimeMs, size: info.size, ...readHeader(id, mapId, await readFile(file).catch(() => null), info.size) };
+        this.headers.set(file, cached);
       }
-      if (cached.header) versions.push(cached.header);
+      if (cached.header) versions.push(cached.header); else rejected.push({ id, problem: cached.problem });
     }
-    return versions.sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id));
+    return { versions: versions.sort((a, b) => b.at.localeCompare(a.at) || b.id.localeCompare(a.id)), rejected: rejected.sort((a, b) => b.id.localeCompare(a.id)) };
   }
   async list(mapId) {
-    const versions = await this.scan(mapId);
+    const { versions, rejected } = await this.scanAll(mapId);
     // Versions older than the feature, or tidied away, are not listed; committed ones remain in Git history.
-    // Each says whether it can be used (J2); a version file that cannot be read at all is listed apart.
-    return { versions: versions.map(({ contentHash, mapId: _, ...version }) => version), unusable: await this.unusable(mapId, versions),
+    return { versions: versions.map(({ contentHash, mapId: _, ...version }) => version), unusable: rejected,
       earlierMissing: !versions.length || versions.at(-1).revision > 1, limits: this.limits };
-  }
-  // Version-named files that scan could not read, with the reason a map file of those bytes would have.
-  async unusable(mapId, versions) {
-    const known = new Set(versions.map(version => version.id)), out = [];
-    let names = [];
-    try { names = (await readdir(this.folder(mapId))).filter(name => name.endsWith('.json') && idPattern.test(name.slice(0, -5)) && !known.has(name.slice(0, -5))); }
-    catch { return []; }
-    for (const name of names) {
-      const file = path.join(this.folder(mapId), name);
-      try { if (!(await lstat(file)).isFile()) continue; } catch { continue; }
-      const decoded = decodeMap(await readFile(file).catch(() => Buffer.from('')));
-      out.push({ id: name.slice(0, -5), problem: decoded.problem ?? 'invalid-version' });
-    }
-    return out.sort((a, b) => b.id.localeCompare(a.id));
   }
   async get(mapId, id) {
     let record;

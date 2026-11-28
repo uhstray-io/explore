@@ -84,7 +84,7 @@ async function refreshOnce() {
     const current = version === openVersion ? state.map : null;
     const listed = current && data.maps.find(m => m.id === current.id), change = openMapChange(listed, current);
     if (change === 'removed' || change === 'unreadable') {
-      toast(change === 'removed' ? 'This map is no longer in the workspace, for example after a branch switch.' : `${unreadableLabel(listed.problem)}. It opens again once its file is fixed.`);
+      toast(change === 'removed' ? 'This map is no longer in the workspace, for example after a branch switch.' : `${unreadableLabel(listed.problem)}. It opens again once its file is fixed, or recover an earlier version from Maps.`);
       showWelcome();
     } else if (change === 'changed') {
       // A pull can bring an older revision, so only a save made meanwhile in this tab outranks the fetched map.
@@ -402,6 +402,7 @@ async function previewVersion(id, undo = null) {
   try {
     const preview = await api(`/maps/${mapId}/versions/${encodeURIComponent(id)}`);
     if (state.map?.id !== mapId) return;
+    if (preview.damaged) throw new Error('This map can no longer be opened. Recover a version from Maps instead.');
     state.versionChoice = { ...preview, undo }; state.versionPreview = preview;
     state.historySource = preview.map; state.historyStep = Math.max(0, growthTimeline(preview.map).latestStep);
     renderMap(false, true);

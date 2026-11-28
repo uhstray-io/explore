@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rename, symlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { runDoctor } from '../skills/explore/scripts/doctor.mjs';
 import { recoverHtml } from '../skills/explore/assets/recover-dialog.js';
+import { versionLabel } from '../skills/explore/assets/workspace-view.js';
 
 // Recovery tools (J2, #44). Illustrative maps under .test-output, never ideas/.
 async function workspace() {
@@ -61,6 +62,9 @@ test('a damaged map never stops the workspace: its versions list, preview and co
     assert.match(opened.title, /\(recovered\)$/);
     assert.ok(!opened.jobs.some(job => ['queued', 'running'].includes(job.status)), 'no queued or running work in the copy');
     assert.ok(!opened.nodes.some(node => ['queued', 'running'].includes(node.status)));
+    assert.equal(opened.library, undefined); assert.ok(!JSON.stringify(opened.jobs).includes('claimHash'));
+    assert.match(opened.jobs.find(job => job.status === 'interrupted').error, /^Recovered/);
+    assert.equal(versionLabel((await call(`/maps/${copy.body.recovered}/versions`)).body.versions[0]), 'Recovered from a version');
     assert.deepEqual(await fingerprint(folder), before, 'the damaged map’s files are byte-for-byte unchanged');
   } finally { await app.close(); }
 });
@@ -97,8 +101,10 @@ test('versions that cannot be used are listed with a reason and refused, and a n
     // A map saved by a newer Explore is read for recovery but never written.
     const file = path.join(dir, 'ideas', map.id, 'map.json'), newer = JSON.stringify({ ...JSON.parse(await readFile(file, 'utf8')), schemaVersion: 2 });
     await writeFile(file, newer);
-    await call('/maps?archived=include'); await call(`/maps/${map.id}/versions`); await call('/recover-copy', { mapId: map.id, version: good.id });
+    await call('/maps?archived=include'); await call(`/maps/${map.id}/versions`);
+    assert.equal((await call('/recover-copy', { mapId: map.id, version: good.id })).status, 200);
     assert.equal(await readFile(file, 'utf8'), newer);
+    assert.equal((await call(`/maps/${'map-'.padEnd(70, 'a')}/versions`)).status, 404, 'an ID no map can have');
   } finally { await app.close(); }
 });
 
@@ -120,4 +126,48 @@ test('the recovery list offers Preview and Copy only for usable versions, and sa
   assert.match(html, /data-recover-preview="v1"/); assert.match(html, /data-recover-copy="v1"/);
   assert.doesNotMatch(html, /data-recover-preview="v2"|data-recover-copy="v2"|data-recover-copy="v0"/);
   assert.match(html, /revision 3[^<]*<\/strong>[\s\S]*?Cannot be used/); assert.match(html, /Cannot be used: unresolved Git conflict/);
+});
+
+test('version files are checked before anything shows them: a text revision, a newer format and a linked folder', async t => {
+  const { dir, app, call } = await workspace();
+  try {
+    const map = await versioned(app), folder = path.join(dir, 'ideas', map.id, 'versions');
+    const [good] = (await call(`/maps/${map.id}/versions`)).body.versions;
+    const record = JSON.parse(await readFile(path.join(folder, `${good.id}.json`), 'utf8'));
+    await writeFile(path.join(folder, '20200101T000000000Z-aaaaaa.json'), JSON.stringify({ ...record, revision: '<img src=x onerror=alert(1)>' }));
+    await writeFile(path.join(folder, '20200102T000000000Z-aaaaaa.json'), JSON.stringify({ ...record, version: 2 }));
+    const listed = (await call(`/maps/${map.id}/versions`)).body;
+    assert.ok(listed.versions.every(version => Number.isSafeInteger(version.revision)));
+    assert.deepEqual(listed.unusable, [{ id: '20200102T000000000Z-aaaaaa', problem: 'unsupported-version' }, { id: '20200101T000000000Z-aaaaaa', problem: 'invalid-version' }]);
+    // A history folder that is a link is never read, so nothing behind it is offered.
+    const outside = path.join(dir, 'outside'); await rename(folder, outside);
+    try { await symlink(outside, folder, 'junction'); } catch { t.skip('Links cannot be made here.'); return; }
+    const linked = (await call(`/maps/${map.id}/versions`)).body;
+    assert.deepEqual([linked.versions, linked.unusable], [[], []]);
+  } finally { await app.close(); }
+});
+
+test('a version is usable by the rule that opens a map, so what the list offers can be copied', async () => {
+  const { dir, app, call } = await workspace();
+  try {
+    const map = await versioned(app), folder = path.join(dir, 'ideas', map.id, 'versions');
+    const [good] = (await call(`/maps/${map.id}/versions`)).body.versions;
+    const record = JSON.parse(await readFile(path.join(folder, `${good.id}.json`), 'utf8'));
+    record.map.nodes[0].sources = [{ title: 'Archive', url: 'ftp://example.org/notes', note: 'An old link.' }];
+    record.map.title = 'T'.repeat(100);
+    const id = '20200103T000000000Z-aaaaaa';
+    await writeFile(path.join(folder, `${id}.json`), JSON.stringify({ ...record, at: '2020-01-03T00:00:00.000Z' }));
+    const listed = (await call(`/maps/${map.id}/versions`)).body.versions.find(version => version.id === id);
+    assert.equal(listed.problem, undefined);
+    const copy = await call('/recover-copy', { mapId: map.id, version: id });
+    assert.equal(copy.status, 200);
+    const title = (await call(`/maps/${copy.body.recovered}`)).body.title;
+    assert.ok(title.length <= 100); assert.match(title, / \(recovered\)$/);
+  } finally { await app.close(); }
+});
+
+test('the recovery list escapes everything it shows', () => {
+  const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
+  const html = recoverHtml({ versions: [{ id: 'v"1', at: '2026-11-02T10:00:00.000Z', revision: '<img src=x onerror=alert(1)>', labels: [], name: '<b>x</b>' }], unusable: [] }, { esc });
+  assert.doesNotMatch(html, /<img|<b>/); assert.match(html, /&lt;img/); assert.match(html, /data-recover-copy="v&quot;1"/);
 });
