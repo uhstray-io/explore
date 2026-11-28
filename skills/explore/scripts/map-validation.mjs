@@ -56,8 +56,8 @@ export function readMapFile(bytes, folderId) {
 }
 // The reason, if any, that the server cannot open this parsed map.
 export function readProblem(map, folderId) {
-  const blocking = validateMap(map, { folderId }).errors.find(error => error.unreadable);
-  return !blocking ? null : blocking.code === 'unsupported-version' ? 'unsupported-version' : 'invalid-map';
+  const blocking = validateMap(map, { folderId }).errors.filter(error => error.unreadable);
+  return !blocking.length ? null : blocking.some(error => error.code === 'unsupported-version') ? 'unsupported-version' : 'invalid-map';
 }
 
 // Generated Markdown names the revision it was made from, so an out-of-date view can be found.
@@ -76,6 +76,8 @@ const messages = {
   'duplicate-open-job': 'Another open job of the same kind is already waiting on this idea.',
   'source-url': 'Sources must link with HTTP or HTTPS.',
   'invalid-growth': 'Growth history is malformed.',
+  'invalid-assignments': 'Assignments must be version 1 with a list of items; a newer Explore may have written them.',
+  'duplicate-open-assignment': 'Someone else is already asked to look at this idea.',
   'invalid-position': 'A saved position must be a pair of numbers.',
   'contains-parent': "A containment link disagrees with the idea's parent.",
 };
@@ -83,6 +85,8 @@ const messages = {
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isText = value => typeof value === 'string';
 const httpUrl = value => { try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; } };
+// A block a newer Explore wrote: reported as that, so the map waits for it rather than being repaired or recovered.
+const newer = value => Number.isSafeInteger(value?.version) && value.version > 1;
 const isGrowth = value => isRecord(value) && value.version === 1 && Array.isArray(value.batches);
 // A field rule: `test` accepts good values and `code` names a failure. `optional` lets the field be absent
 // and `nullable` lets it be null. `unreadable` marks failures the server cannot open a map with; it can
@@ -96,13 +100,17 @@ const shapes = {
   map: { id: anId({ unreadable: true }), title: text({ unreadable: true }), revision: rule(Number.isSafeInteger, { unreadable: true }), updatedAt: text({ unreadable: true }),
     library: rule(value => isRecord(value) && ['pinned', 'archived'].every(key => value[key] === undefined || typeof value[key] === 'boolean'), { optional: true }),
     rootId: anId(), nodes: rule(value => Array.isArray(value) && value.length > 0, { unreadable: true }), edges: list({ unreadable: true }), jobs: list({ unreadable: true }),
-    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), inbox: list({ optional: true }),
+    history: list({ unreadable: true }), view: rule(isRecord, { optional: true }), inbox: list({ optional: true }), assignments: rule(value => isRecord(value) && (newer(value) || (value.version === 1 && Array.isArray(value.items))), { code: 'invalid-assignments', optional: true, unreadable: true }),
     mode: oneOf(new Set(Object.keys(modes)), { optional: true }), objective: rule(value => isText(value) && value.length <= goalMax, { optional: true }), successCriteria: rule(value => isText(value) && value.length <= goalMax, { optional: true }), guidanceUpdatedAt: text({ optional: true }), glossary: list({ optional: true, unreadable: true }), growth: rule(isGrowth, { code: 'invalid-growth', optional: true }) },
   // Generated views read every idea's title and summary and every source's title, so those must be text too.
   node: { id: anId({ unreadable: true }), title: text({ unreadable: true }), kind: oneOf(nodeKinds), status: oneOf(workStates), reviewState: oneOf(reviewStates),
     prompt: text({ optional: true }), doneWhen: text({ optional: true }), summary: text({ unreadable: true }), body: text({ optional: true }), parentId: anId({ optional: true, nullable: true }),
     stale: rule(value => typeof value === 'boolean', { optional: true }), questions: list({ unreadable: true }), sources: list({ unreadable: true }), assumptions: list({ optional: true }), hypothesis: rule(isRecord, { optional: true }), notes: list({ optional: true }) },
   thought: { id: anId(), text: text(), state: oneOf(new Set(['open', 'placed', 'discarded'])) },
+  // An idea's Markdown view reads its open request: who it is for, its note, who took it and its events.
+  assignment: { id: anId({ unreadable: true }), nodeId: anId({ unreadable: true }), requestedFor: text({ unreadable: true }), note: text({ optional: true, unreadable: true }), status: oneOf(new Set(['requested', 'taken', 'done'])),
+    takenBy: rule(value => isRecord(value) && isText(value.name), { optional: true, unreadable: true }), events: list({ unreadable: true }) },
+  assignmentEvent: { at: text(), type: text(), by: rule(value => isRecord(value) && isText(value.name), { optional: true, unreadable: true }), to: text({ optional: true }), note: text({ optional: true }) },
   note: { text: text() },
   hypothesis: { test: text(), outcome: oneOf(new Set(hypothesisOutcomes), { nullable: true }), history: list() },
   question: { id: anId(), text: text(), answer: text({ optional: true, nullable: true }), disproveIf: text({ optional: true }) },
@@ -136,6 +144,9 @@ export function validateMap(map, { folderId } = {}) {
   const nodes = Array.isArray(map.nodes) ? map.nodes : [], edges = Array.isArray(map.edges) ? map.edges : [], jobs = Array.isArray(map.jobs) ? map.jobs : [];
   if (Array.isArray(map.glossary)) map.glossary.forEach((entry, i) => check(entry, shapes.term, `glossary[${i}]`, { unreadable: true }));
   if (Array.isArray(map.inbox)) map.inbox.forEach((thought, i) => check(thought, shapes.thought, `inbox[${i}]`));
+  if (isRecord(map.assignments) && newer(map.assignments)) report('unsupported-version', 'assignments.version', true);
+  const assignments = isRecord(map.assignments) && map.assignments.version === 1 && Array.isArray(map.assignments.items) ? map.assignments.items : [];
+  assignments.forEach((item, i) => { if (check(item, shapes.assignment, `assignments.items[${i}]`, { unreadable: true }) && Array.isArray(item.events)) item.events.forEach((event, j) => check(event, shapes.assignmentEvent, `assignments.items[${i}].events[${j}]`, { unreadable: true })); });
   nodes.forEach((node, i) => {
     if (!check(node, shapes.node, `nodes[${i}]`, { unreadable: true })) return;
     if (Array.isArray(node.questions)) node.questions.forEach((question, j) => check(question, shapes.question, `nodes[${i}].questions[${j}]`));
@@ -179,6 +190,13 @@ export function validateMap(map, { folderId } = {}) {
     // Work covering the whole map has no idea; unknown job types belong to newer versions and are kept.
     if (missing(job.nodeId)) report('missing-node', `jobs[${i}].nodeId`);
     if (isOpenJob(job)) { const key = openJobKey(job); if (open.has(key)) report('duplicate-open-job', `jobs[${i}]`); open.add(key); }
+  });
+  const assignmentIds = new Set(), asked = new Set();
+  assignments.forEach((item, i) => {
+    if (!isRecord(item)) return;
+    if (isText(item.id)) { if (assignmentIds.has(item.id)) report('duplicate-id', `assignments.items[${i}].id`); assignmentIds.add(item.id); }
+    if (missing(item.nodeId)) report('missing-node', `assignments.items[${i}].nodeId`);
+    if (isText(item.nodeId) && (item.status === 'requested' || item.status === 'taken')) { if (asked.has(item.nodeId)) report('duplicate-open-assignment', `assignments.items[${i}]`); asked.add(item.nodeId); }
   });
   // Folds (Z6): a list of idea IDs; anything else is reported, and shownNodes ignores it.
   if (isRecord(map.view) && map.view.collapsed !== undefined && !(Array.isArray(map.view.collapsed) && map.view.collapsed.every(validId))) report('invalid-field', 'view.collapsed');
