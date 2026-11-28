@@ -115,7 +115,7 @@ function contextSentHtml(sent, map) {
   const left = entries(sent.omitted), total = Number.isSafeInteger(sent.omittedTotal) ? sent.omittedTotal : left.length;
   const omitted = left.map(item => `<li>${idea(item.id)} <span class="form-note">${escapeHtml(Object.hasOwn(leftOutWords, item.reason) ? leftOutWords[item.reason] : 'left out')}</span></li>`).join('');
   return `<details class="context-sent" data-editor="context-sent"><summary>Context sent with the last run</summary>${included ? `<ul>${included}</ul>` : '<p class="form-note">Nothing else from the map: no other idea was linked or had answers.</p>'}`
-    + `${total ? `<p class="form-note">Left out, so your agent did not read them:</p><ul>${omitted}</ul>${total > left.length ? `<p class="form-note">And ${total - left.length} more.</p>` : ''}` : ''}</details>`;
+    + `${total > 0 ? `<p class="form-note">Left out, so your agent did not read them:</p><ul>${omitted}</ul>${total > left.length ? `<p class="form-note">And ${total - left.length} more.</p>` : ''}` : ''}</details>`;
 }
 // Under an idea's findings: how much map context its last investigation used, which guidance it followed, and what
 // context it was sent.

@@ -24,18 +24,21 @@ const byId = (a, b) => (a.node.id < b.node.id ? -1 : a.node.id > b.node.id ? 1 :
 // matches by how many words they share.
 export function rankContext(map, node) {
   const nodes = new Map(map.nodes.map(n => [n.id, n])), parentOf = n => nodes.get(n?.parentId);
-  const path = [];
-  for (let up = parentOf(node); up && !path.includes(up); up = parentOf(up)) path.unshift(up);
+  const path = [], onPath = new Set();
+  for (let up = parentOf(node); up && !onPath.has(up); up = parentOf(up)) { onPath.add(up); path.push(up); }
+  path.reverse();
   const required = path.map(n => ({ node: n, reasons: [n.id === map.rootId ? 'The original idea' : 'On the path to this idea'] }));
   const taken = new Set([node.id, ...path.map(n => n.id)]);
   // Computed once per idea: tree distance from the selected one (through the nearest shared ancestor), and whether
-  // its sent answers are unsettled (not Decided, unrecorded, or from an earlier premise) or it is flagged.
-  const lineage = n => { const line = []; for (let at = n; at && !line.includes(at.id); at = parentOf(at)) line.push(at.id); return line; };
-  const mine = lineage(node), facts = new Map();
+  // its sent answers are unsettled (not Decided, unrecorded, or from an earlier premise) or it is flagged. Each walk
+  // up stops at the first of this idea's own ancestors, so a deep map costs its depth once per idea, not squared.
+  const mine = new Map(), facts = new Map();
+  for (let at = node, steps = 0; at && !mine.has(at.id); at = parentOf(at)) mine.set(at.id, steps++);
+  const distanceOf = n => { const seen = new Set(); for (let at = n, steps = 0; at && !seen.has(at.id); at = parentOf(at), steps++) { if (mine.has(at.id)) return steps + mine.get(at.id); seen.add(at.id); } return Infinity; };
   const factsOf = n => {
     if (!facts.has(n.id)) {
-      const theirs = lineage(n), shared = theirs.findIndex(id => mine.includes(id)), answers = sentAnswers(n);
-      facts.set(n.id, { distance: shared < 0 ? Infinity : shared + mine.indexOf(theirs[shared]), unsettled: !!n.stale || answers.some(q => q.supersededAt || effectiveAnswerState(q)?.state !== 'decided'), answers });
+      const answers = sentAnswers(n);
+      facts.set(n.id, { distance: distanceOf(n), unsettled: !!n.stale || answers.some(q => q.supersededAt || effectiveAnswerState(q)?.state !== 'decided'), answers });
     }
     return facts.get(n.id);
   };
@@ -93,20 +96,19 @@ export function admitContext(packet, { required, candidates }, { budget, entry, 
   if (pathCost(path) > room) path = required.map(item => clipRequired(entry(item)));
   if (pathCost(path) > room) path = required.map(item => bareRequired(entry(item)));
   const pathKept = [...required];
-  while (path.length > 1 && pathCost(path) > room) { path.splice(1, 1); omitted.push({ candidate: pathKept.splice(1, 1)[0], reason: 'path' }); }
+  for (let total = pathCost(path); path.length > 1 && total > room;) { total -= JSON.stringify(path.splice(1, 1)[0]).length + 1; omitted.push({ candidate: pathKept.splice(1, 1)[0], reason: 'path' }); }
   for (const item of path) { room -= cost(context, item); context.push(item); }
   const admit = list => { for (const candidate of list) { if (context.length >= contextLimit) omitted.push({ candidate, reason: 'limit' }); else if (!take(context, entry(candidate))) omitted.push({ candidate, reason: 'budget' }); } };
   admit(candidates.filter(c => c.group <= 2));
   let dropped = 0;
   for (const item of feedback) if (!take(kept, item)) dropped++;
   admit(candidates.filter(c => c.group > 2));
-  // What was left out (the path's own ideas first, since the path is admitted first), while it fits; omittedTotal
-  // always counts them all.
+  // What was left out (the path's own ideas first, since the path is admitted first): in the packet, the first of them
+  // that fit in the room left; omittedTotal always counts them all. The job's record, never sent, keeps the first 20.
+  const first = omitted.slice(0, omittedLimit).map(({ candidate, reason }) => ({ id: candidate.node.id, title: candidate.node.title.length > 80 ? `${candidate.node.title.slice(0, 79)}…` : candidate.node.title, reason }));
   const listed = [];
-  for (const { candidate, reason } of omitted.slice(0, omittedLimit)) {
-    if (!take(listed, { id: candidate.node.id, title: candidate.node.title.length > 80 ? `${candidate.node.title.slice(0, 79)}…` : candidate.node.title, reason })) break;
-  }
+  for (const item of first) if (!take(listed, item)) break;
   return { context, questionFeedback: kept, omittedFeedback: packet.omittedFeedback + dropped, omittedContext: omitted.length, ...(ranked ? { selectionPolicy } : {}),
     ...(omitted.length ? { omittedTotal: omitted.length, omitted: listed } : {}),
-    [selectionKey]: { included: context.map(item => ({ id: item.id, reasons: item.reasons })), omitted: listed.map(({ id, reason }) => ({ id, reason })), omittedTotal: omitted.length } };
+    [selectionKey]: { included: context.map(item => ({ id: item.id, reasons: item.reasons })), omitted: first.map(({ id, reason }) => ({ id, reason })), omittedTotal: omitted.length } };
 }

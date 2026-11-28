@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { Store } from '../skills/explore/scripts/store.mjs';
-import { rankContext, terms, selectionKey, contextLimit } from '../skills/explore/scripts/relevance.mjs';
+import { rankContext, admitContext, terms, selectionKey, contextLimit } from '../skills/explore/scripts/relevance.mjs';
 import { runNoteHtml } from '../skills/explore/assets/workspace-view.js';
 
 // Relevant answers from elsewhere on the map (C13, #16). Illustrative fixtures only, never ideas/.
@@ -178,6 +178,7 @@ test('the inspector lists what the last run was sent and left out; an older job 
   const older = runNoteHtml({ contextCharacters: 4200 }, map);
   assert.doesNotMatch(older, /context-sent/); assert.match(older, /4,200 characters/);
   assert.match(runNoteHtml({ contextSelection: { included: [], omitted: [], omittedTotal: 0 } }, map), /Nothing else from the map/);
+  assert.doesNotMatch(runNoteHtml({ contextSelection: { included: [], omitted: [], omittedTotal: -2 } }, map), /Left out/, 'a count below one lists nothing');
 });
 
 test('ranking details: prerequisites by distance, unsettled first in every group, both sides of the tree, no idea twice', () => {
@@ -283,4 +284,49 @@ test('an ordinary packet carries no empty selection fields, and the inspector su
   assert.match(runNoteHtml({ contextSelection: { included: [{ id: 'node-a', reasons: ['<b>'] }], omitted: [], omittedTotal: 0 } }, page), /&lt;b&gt;/);
   assert.match(runNoteHtml({ contextSelection: { included: [], omitted: [{ id: 'node-a', reason: 'path' }], omittedTotal: 1 } }, page), /on the path here, but too far up to fit/);
   assert.match(await readFile('skills/explore/assets/app.js', 'utf8'), /runNoteHtml\(job, state\.visibleMap\)/, 'the app passes the map, so ideas show by name');
+});
+
+// The packet as admission measured it: every count at its widest, and the omitted list present. Exactly the budget
+// is reachable, so any mistake in what admission reserves or counts shows up as a packet over it.
+const widened = (packet, fields) => JSON.stringify({ ...packet, ...fields, omittedContext: 1e9, omittedFeedback: 1e9, omittedTotal: 1e9, omitted: fields.omitted ?? [] }).length;
+
+test('admission is exact at every budget, feedback skips only what does not fit, and the job keeps the first 20 left out', () => {
+  const required = [{ node: node('root', null, { title: 'Root' }), reasons: ['The original idea'] }];
+  const candidates = Array.from({ length: 30 }, (_, i) => ({ node: node('n' + i, 'root', { title: 'Idea ' + i + ' ' + 't'.repeat((i % 7) * 9) }), reasons: ['Answered elsewhere on the map'], group: (i % 4) + 1, size: 40 + ((i * 37) % 300) }));
+  const entry = c => ({ id: c.node.id, title: c.node.title, reasons: c.reasons, text: 'x'.repeat(c.size ?? 50) });
+  const feedback = [{ id: 'q-big', note: 'f'.repeat(400) }, { id: 'q-small', note: 'f' }];
+  const packet = { instruction: 'Explore.', omittedFeedback: 5 };
+  const admit = budget => admitContext(packet, { required, candidates }, { budget, entry, feedback, clipRequired: e => e, bareRequired: e => e });
+  const least = widened(packet, admit(0));
+  let smallOnly = false, listedFewer = false, exact = 0;
+  for (let budget = least; budget <= least + 7000; budget++) {
+    const fields = admit(budget), record = fields[selectionKey], listed = (fields.omitted ?? []).map(item => item.id), size = widened(packet, fields);
+    assert.ok(size <= budget, `within ${budget}: ${size}`); if (size === budget) exact++;
+    assert.ok(JSON.stringify({ ...packet, ...fields }).length <= size, 'the real counts are never wider');
+    assert.equal(record.omitted.length, Math.min(20, fields.omittedContext), 'the job keeps the first 20, whatever the room');
+    assert.deepEqual(listed, record.omitted.slice(0, listed.length).map(item => item.id), 'the packet lists the first ones that fit, in order');
+    if (listed.length < record.omitted.length) listedFewer = true;
+    if (fields.questionFeedback.length === 1 && fields.questionFeedback[0].id === 'q-small') { smallOnly = true; assert.equal(fields.omittedFeedback, 6, 'the earlier count, plus the one left out'); }
+  }
+  assert.ok(exact > 10, 'many budgets are filled exactly'); assert.ok(smallOnly, 'a small rated question still fits after a big one did not'); assert.ok(listedFewer, 'some budget lists fewer than the job keeps');
+});
+
+test('a path too long to fit keeps as many of the nearest ideas as fit, at every budget', () => {
+  const required = [{ node: node('root', null, { title: 'Root' }), reasons: ['The original idea'] }, ...Array.from({ length: 12 }, (_, i) => ({ node: node('up' + i, 'root', { title: 'Level ' + i + ' ' + 'l'.repeat(i * 5) }), reasons: ['On the path to this idea'] }))];
+  const entry = c => ({ id: c.node.id, title: c.node.title, reasons: c.reasons, summary: 's'.repeat(300) });
+  const bare = ({ id, title, reasons }) => ({ id, title, reasons });
+  const packet = { instruction: 'Explore.', omittedFeedback: 0 };
+  const admit = budget => admitContext(packet, { required, candidates: [] }, { budget, entry, feedback: [], clipRequired: e => e, bareRequired: bare });
+  let cut = 0;
+  for (let budget = widened(packet, admit(0)); budget <= 2600; budget++) {
+    const fields = admit(budget), size = widened(packet, fields), path = fields[selectionKey].omitted.filter(item => item.reason === 'path');
+    assert.ok(size <= budget, `within ${budget}`); assert.equal(fields.context[0].id, 'root');
+    if (!path.length) continue;
+    cut++;
+    const next = bare(entry(required.find(item => item.node.id === path.at(-1).id)));
+    const pathOnly = widened(packet, { ...fields, omitted: [] }); // The listing takes only the room the path left.
+    assert.ok(pathOnly + JSON.stringify(next).length + 1 > budget, `${budget}: the nearest idea left out would not have fit`);
+    assert.deepEqual(fields.context.slice(1).map(item => item.id), required.slice(1 + path.length).map(item => item.node.id), 'the farthest go first');
+  }
+  assert.ok(cut > 100);
 });
