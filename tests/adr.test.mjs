@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile, readdir, symlink, rm, access } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, readdir, symlink, rm, access, rename } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import path from 'node:path';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { mapBrief } from '../skills/explore/scripts/brief.mjs';
 import { adrDialogHtml, adrFileText, adrSlug, adrName, adrToday, renderAdr, ADR_DRAFT } from '../skills/explore/assets/adr.js';
 import { adrDialog } from '../skills/explore/assets/adr-dialog.js';
+import { controlKey } from '../skills/explore/assets/dialog-focus.js';
 
 // Lightweight ADR (F5, #27). Illustrative fixtures only, never ideas/.
 const esc = value => String(value).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[char]));
@@ -174,6 +176,88 @@ test('a failed map save takes the file back, so a retry writes one file under th
   } finally { await app.close(); }
 });
 
+// Replaces the exclusive open of a file in docs/adr/, once, with `replacement(realOpen, file, flags)`; every other open is real.
+const fsp = createRequire(import.meta.url)('node:fs/promises');
+async function withAdrOpen(replacement, run) {
+  const real = fsp.open;
+  fsp.open = (file, flags, ...rest) => {
+    if (flags !== 'wx' || !String(file).includes(`${path.sep}adr${path.sep}`)) return real(file, flags, ...rest);
+    fsp.open = real; syncBuiltinESMExports();
+    return replacement(real, file, flags);
+  };
+  syncBuiltinESMExports();
+  try { return await run(); } finally { fsp.open = real; syncBuiltinESMExports(); }
+}
+// A new accepted draft, its save preview, and a save of exactly that.
+async function readyToSave(ctx, text) {
+  const { proposal, item } = await drafted(ctx);
+  await accept(ctx, proposal, item, text);
+  const preview = (await ctx.http(`/maps/${ctx.map.id}/adr-file?proposal=${proposal.id}&item=${item.id}`)).body;
+  const recorded = async () => (await ctx.store.get(ctx.map.id)).proposals.find(entry => entry.id === proposal.id).items[0].file;
+  const save = async () => ctx.http(`/maps/${ctx.map.id}/adr-file`, { proposalId: proposal.id, itemId: item.id, path: preview.path, sha256: preview.sha256, expectedRevision: (await ctx.store.get(ctx.map.id)).revision });
+  return { preview, save, recorded };
+}
+
+test('once the map is saved the file stays with its record, even if a version or the readable views fail to write', async () => {
+  const ctx = await setup(), { app, store, workspace } = ctx;
+  try {
+    let ready = await readyToSave(ctx);
+    const project = store.project;
+    store.project = async () => { store.project = project; throw new Error('README.md is locked.'); };
+    let answer = await ready.save();
+    assert.equal(answer.status, 500); assert.match(answer.body.error, /readable views could not be generated/);
+    assert.equal(await readFile(path.join(workspace, ready.preview.path), 'utf8'), ready.preview.text, 'the file is kept');
+    assert.equal((await ready.recorded()).path, ready.preview.path, 'and recorded');
+    answer = await ready.save();
+    assert.equal(answer.status, 409); assert.match(answer.body.error, /already saved/);
+    ready = await readyToSave(ctx);
+    const record = store.versions.record;
+    store.versions.record = async () => { store.versions.record = record; throw new Error('No room for versions.'); };
+    answer = await ready.save();
+    assert.equal(answer.status, 500); assert.match(answer.body.error, /version could not be recorded/);
+    assert.equal(await exists(path.join(workspace, ready.preview.path)), true); assert.equal((await ready.recorded()).path, ready.preview.path);
+  } finally { await app.close(); }
+});
+
+test('a write or open that fails, or a link swapped in before the write, leaves no file and no record', async () => {
+  const ctx = await setup(), { app, workspace } = ctx;
+  try {
+    let ready = await readyToSave(ctx);
+    let answer = await withAdrOpen(async (open, file, flags) => {
+      const handle = await open(file, flags);
+      return { stat: options => handle.stat(options), close: () => handle.close(), writeFile: async () => { throw Object.assign(new Error('The disk is full.'), { code: 'ENOSPC' }); } };
+    }, ready.save);
+    assert.notEqual(answer.status, 200); assert.equal(await exists(path.join(workspace, ready.preview.path)), false, 'a part-written file is taken back');
+    assert.equal(await ready.recorded(), undefined);
+    answer = await withAdrOpen(async () => { throw Object.assign(new Error('denied'), { code: 'EACCES' }); }, ready.save);
+    assert.equal(answer.status, 400); assert.match(answer.body.error, /could not be written \(EACCES\)\. Nothing was saved/);
+    // docs/adr/ becomes a link between the check and the write: caught after it, and the file taken back.
+    const folder = path.join(workspace, 'docs', 'adr'), elsewhere = await mkdtemp(path.join(path.resolve('.test-output'), 'adr-swap-'));
+    answer = await withAdrOpen(async (open, file, flags) => { await rename(folder, `${folder}-moved`); await symlink(elsewhere, folder, 'junction'); return open(file, flags); }, ready.save);
+    assert.equal(answer.status, 400); assert.match(answer.body.error, /changed while saving; nothing was saved/);
+    assert.deepEqual(await readdir(elsewhere), [], 'nothing left through the link'); assert.equal(await ready.recorded(), undefined);
+    await rm(folder); await rename(`${folder}-moved`, folder);
+    answer = await ready.save();
+    assert.equal(answer.status, 200, 'the same save works once the folder is plain again');
+  } finally { await app.close(); }
+});
+
+test('an existing Docs folder in another case is used; 64 KiB counts bytes, on accepting and on saving', async () => {
+  const ctx = await setup(), { app, workspace, store, map } = ctx;
+  try {
+    await mkdir(path.join(workspace, 'Docs', 'adr'), { recursive: true });
+    let ready = await readyToSave(ctx);
+    assert.equal((await ready.save()).status, 200); assert.equal(await exists(path.join(workspace, ready.preview.path)), true);
+    const { proposal, item } = await drafted(ctx);
+    await assert.rejects(accept(ctx, proposal, item, `# T\n${'€'.repeat(21846)}`), /64 KiB/, '21,850 characters, 65,542 bytes');
+    await ctx.act({ type: 'review-proposal', proposalId: proposal.id, itemId: item.id, decision: 'dismissed' });
+    ready = await readyToSave(ctx, `# T\n${'€'.repeat(21842)}`); // 65,530 bytes accepted; the file's header makes it larger.
+    const answer = await ready.save();
+    assert.equal(answer.status, 400); assert.match(answer.body.error, /at most 64 KiB/);
+    assert.equal(await exists(path.join(workspace, ready.preview.path)), false); assert.equal(store.view(await store.get(map.id)).proposals.at(-1).items[0].file, undefined);
+  } finally { await app.close(); }
+});
+
 test('a linked docs/ or docs/adr/ is refused, and saving leaves ideas, questions, links and growth unchanged', async () => {
   const ctx = await setup(), { app, store, workspace, map, http } = ctx;
   try {
@@ -213,6 +297,13 @@ test('a draft whose records changed, before or during the work, is marked; the f
   assert.equal(adrFileText('# T\nStatus: Accepted\nDate: yesterday\n\nIntro.\n\n## Context\n\nDate: 1 Nov was the last outage.\n\n```\na\n\n\n\nb\n```\n', '2026-11-28'),
     '# T\n\nStatus: Proposed\nDate: 2026-11-28\n\nIntro.\n\n## Context\n\nDate: 1 Nov was the last outage.\n\n```\na\n\n\n\nb\n```\n', 'only the header is set; the body is kept as written');
   assert.equal(adrFileText('No title.\n', '2026-11-28'), 'Status: Proposed\nDate: 2026-11-28\n\nNo title.\n');
+  // Without a "## " heading, and with paragraphs before the first one, every other line is kept, blank ones included.
+  assert.equal(adrFileText('# T\n\nStatus: Proposed\nDate: <date saved>\n\n### Context\n\nDate: the outage was 1 November.\n\nPara one.\n\nPara two.\n', '2026-11-28'),
+    '# T\n\nStatus: Proposed\nDate: 2026-11-28\n\n### Context\n\nDate: the outage was 1 November.\n\nPara one.\n\nPara two.\n');
+  assert.equal(adrFileText('# T\r\n\r\nStatus: Proposed\r\nDate: x\r\n\r\nIntro one.\r\n\r\nIntro two.\r\n\r\n## Context\r\n', '2026-11-28'), '# T\n\nStatus: Proposed\nDate: 2026-11-28\n\nIntro one.\n\nIntro two.\n\n## Context\n');
+  assert.equal(adrFileText('# T\nStatus: P\nDate: x\n\nDate: the outage.\n', '2026-11-28'), '# T\n\nStatus: Proposed\nDate: 2026-11-28\n\nDate: the outage.\n', 'only the first Date line is the header\'s');
+  assert.equal(adrFileText('# T\nStatus: P\nDate: x\nDate: the outage.\n', '2026-11-28'), '# T\n\nStatus: Proposed\nDate: 2026-11-28\n\nDate: the outage.\n', 'even directly under it');
+  assert.equal(adrFileText('# T\nBody.\n', '2026-11-28'), '# T\n\nStatus: Proposed\nDate: 2026-11-28\n\nBody.\n', 'a header the user removed comes back');
   assert.equal(adrSlug('Store notes — on the device!'), 'store-notes-on-the-device'); assert.equal(adrSlug('!!!'), 'decision');
   assert.deepEqual([adrName('docs/adr/0001-a.md'), adrName('docs/adr/../0001-a.md'), adrName(`docs/adr/0001-${'a'.repeat(61)}.md`)], ['0001-a.md', null, null]);
   assert.equal(adrToday(new Date(2026, 10, 28, 23, 30)), '2026-11-28', 'the local date, even late in the evening');
@@ -260,7 +351,10 @@ function fakeDialog({ map, act, api }) {
       elements.set(id, { id, innerHTML: '', open: false, addEventListener(type, fn) { (handlers[type] ??= []).push(fn); }, fire(type, event = {}) { return Promise.all((handlers[type] || []).map(fn => fn(event))); },
         showModal() { this.open = true; }, close() { this.open = false; }, focus() { focused.push(`#${id}`); }, contains: () => false,
         querySelector(selector) {
-          const present = selector.startsWith('#') ? this.innerHTML.includes(`id="${selector.slice(1).split(' ')[0]}"`) : this.innerHTML.includes(selector.slice(1, -1).replace(/^([\w-]+)$/, '$1='));
+          // An element's tag must carry every attribute the selector names, as `[a="x"][b="y"]` does.
+          const has = (tag, part) => (part.includes('=') ? tag.includes(part) : new RegExp(`\\s${part}[\\s=>]`).test(tag));
+          const present = selector.startsWith('#') ? this.innerHTML.includes(`id="${selector.slice(1).split(' ')[0]}"`)
+            : (this.innerHTML.match(/<[^>]+>/g) ?? []).some(tag => selector.match(/\[[^\]]+\]/g).every(part => has(tag, part.slice(1, -1))));
           if (!present) return null;
           if (!found.has(selector)) found.set(selector, { disabled: false, value: '', textContent: '', focus() { focused.push(selector); } });
           return found.get(selector);
@@ -317,5 +411,29 @@ test('the dialog keeps the title and edits, accepts through review-proposal, and
     Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => copied.push(text) } }, configurable: true });
     await io.click({ adrCopy: 'item-1' });
     assert.match(copied[0], new RegExp(`^# Sync <daily>\\n\\nStatus: Proposed\\nDate: ${adrToday()}\\n`)); assert.doesNotMatch(copied[0], /<date saved>/);
+  } finally { delete globalThis.document; }
+});
+
+test('a redraw keeps focus on the same answer\'s box, and a saved record copies with the day it was saved', async () => {
+  assert.equal(controlKey({ id: '', dataset: { adrNode: 'root', adrQuestion: 'q-2' } }), '[data-adr-node="root"][data-adr-question="q-2"]');
+  assert.notEqual(controlKey({ dataset: { adrNode: 'root', adrQuestion: 'q-1' } }), controlKey({ dataset: { adrNode: 'root', adrQuestion: 'q-2' } }));
+  assert.equal(controlKey({ id: 'adr-number', dataset: { adrNode: 'root' } }), '#adr-number'); assert.equal(controlKey({ dataset: {} }), null);
+  let map = fixtureMap();
+  map.proposals[0].items[0].review = 'accepted';
+  map.nodes[0].questions.push({ id: 'q-2', text: 'How often?', answer: 'Daily.' });
+  const io = fakeDialog({ map: () => map, act: async () => true, api: async () => ({}) });
+  try {
+    await io.element('adr-open').fire('click');
+    globalThis.document.activeElement = { id: '', dataset: { adrNode: 'root', adrQuestion: 'q-2' }, closest: () => null }; io.body.contains = element => !!element;
+    // A poll brings another change (the first answer reworded) while the second answer's box has focus.
+    map = { ...map, revision: 4, nodes: [{ ...map.nodes[0], questions: [{ ...map.nodes[0].questions[0], text: 'Who edits now?' }, map.nodes[0].questions[1]] }] }; io.dialog.mapChanged();
+    assert.match(io.body.innerHTML, /Who edits now\?/, 'redrawn');
+    assert.equal(io.focused.at(-1), '[data-adr-node="root"][data-adr-question="q-2"]');
+    globalThis.document.activeElement = null; io.body.contains = () => false;
+    map.proposals[0].items[0].file = { path: 'docs/adr/0001-sync-daily.md', savedAt: new Date(2026, 0, 2, 12).toISOString() };
+    const copied = [];
+    Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => copied.push(text) } }, configurable: true });
+    await io.click({ adrCopy: 'item-1' });
+    assert.match(copied[0], /\nDate: 2026-01-02\n/, 'the file as saved, not re-dated today');
   } finally { delete globalThis.document; }
 });

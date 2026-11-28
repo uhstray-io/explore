@@ -30,14 +30,18 @@ export function renderAdr(map, draft) {
   const sections = adrSections.map(([key, heading]) => `## ${heading}\n\n${draft[key]?.trim() || 'Not recorded.'}\n`);
   return `# ${draft.title}\n\nStatus: Proposed\nDate: <date saved>\n\n${sections.join('\n')}\n## Sources from the exploration\n\n${draft.refs.map(ref => adrSourceLine(map, ref)).join('\n')}\n`;
 }
-// The exact file: the accepted text with its header's Status set to Proposed and its Date to the save date. Only the
-// header (before the first section) is touched, so the user's own lines are kept as they wrote them.
+// The exact file: the accepted text with Status set to Proposed and Date to the save date. Only the title and the
+// Status and Date lines right after it are touched; every other line, blank ones included, is kept as the user wrote it.
 export function adrFileText(text, date) {
-  const lines = text.replace(/\r\n/g, '\n').split('\n'), first = lines.findIndex(line => line.startsWith('## ')), end = first < 0 ? lines.length : first;
-  const header = lines.slice(0, end).filter(line => line.trim() && !/^(Status|Date):/.test(line)), title = header.findIndex(line => line.startsWith('# '));
-  const rest = header.slice(title + 1), head = [...header.slice(0, title + 1), '', 'Status: Proposed', `Date: ${date}`, ...(rest.length ? ['', ...rest] : [])];
-  const body = lines.slice(end).join('\n').trimEnd();
-  return `${head.join('\n').trim()}\n${body ? `\n${body}\n` : ''}`;
+  const lines = text.replace(/\r\n/g, '\n').replace(/\n+$/, '').split('\n'), first = lines.findIndex(line => line.trim());
+  const title = first >= 0 && lines[first].startsWith('# ') ? lines[first] : null;
+  let end = title === null ? 0 : first + 1;
+  while (end < lines.length && !lines[end].trim()) end++;
+  const seen = new Set();
+  for (let field; end < lines.length && (field = /^(Status|Date):/.exec(lines[end])?.[1]) && !seen.has(field); end++) seen.add(field);
+  const rest = lines.slice(end);
+  while (rest.length && !rest[0].trim()) rest.shift(); // Only the spacing between the header and the text.
+  return `${[...(title === null ? [] : [title, '']), 'Status: Proposed', `Date: ${date}`, ...(rest.length ? ['', ...rest] : [])].join('\n')}\n`;
 }
 export const adrSlug = title => String(title ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '') || 'decision';
 export const adrPath = (number, slug) => `docs/adr/${String(number).padStart(4, '0')}-${slug}.md`;

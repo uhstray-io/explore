@@ -2,7 +2,7 @@
 // the user's project outside ideas/ and .explore/: docs/adr/ in the workspace, only from the browser's Save file, only an
 // accepted draft whose exact bytes the user previewed, and never over an existing file. Explore never runs Git.
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { textField } from './fields.mjs';
 import { packetBudget } from './guidance.mjs';
@@ -109,14 +109,13 @@ const findItem = (map, input) => {
   need(item, 'That draft no longer exists.', 404);
   return item;
 };
-// The folder: docs/adr/ in the workspace, plain folders all the way (never through a link), as it resolves on disk.
+// docs/ and docs/adr/ in the workspace: 'missing', 'plain' (a folder, not a link) or 'other'.
+const folders = workspace => [path.join(workspace, 'docs'), path.join(workspace, 'docs', 'adr')];
+const folderKinds = workspace => Promise.all(folders(workspace).map(dir => lstat(dir).then(info => (info.isDirectory() && !info.isSymbolicLink() ? 'plain' : 'other'), () => 'missing')));
+// The folder: docs/adr/ in the workspace, plain folders all the way (never through a link), or not there yet.
 async function adrFolder(workspace) {
-  const docs = path.join(workspace, 'docs'), folder = path.join(docs, 'adr');
-  for (const dir of [docs, folder]) {
-    const info = await lstat(dir).catch(() => null);
-    need(!info || (info.isDirectory() && !info.isSymbolicLink()), 'docs/adr/ must be a plain folder in this workspace, not a link or a file.');
-  }
-  return folder;
+  need((await folderKinds(workspace)).every(kind => kind !== 'other'), 'docs/adr/ must be a plain folder in this workspace, not a link or a file.');
+  return folders(workspace)[1];
 }
 // The file: only its name comes from the request, and it lands directly in the folder.
 function adrTarget(folder, relative) {
@@ -149,11 +148,15 @@ export const adrActions = {
     let handle;
     try { handle = await open(target, 'wx'); }
     catch (error) { need(error.code !== 'EEXIST', `A file is already at ${input.path}; nothing was written. Choose another number.`, 409); need(false, `The file could not be written (${error.code ?? 'error'}). Nothing was saved.`); }
-    const takeBack = () => unlink(target).catch(() => {}); // Created by this save alone, so removing it touches nothing else.
+    // Created by this save alone; removed only while the path still names that same file, so taking it back never
+    // removes another one (if a link were swapped in after the write).
+    let made = null;
+    const takeBack = async () => { const now = await lstat(target, { bigint: true }).catch(() => null); if (made && now?.isFile() && now.ino === made.ino && now.dev === made.dev) await unlink(target).catch(() => {}); };
     try {
+      made = await handle.stat({ bigint: true });
       await handle.writeFile(bytes, 'utf8'); await handle.close();
-      // A link swapped in between the check and the write is caught here, and the file taken back.
-      need(await realpath(folder) === path.join(await realpath(file.workspace), 'docs', 'adr'), 'docs/adr/ changed while saving; nothing was saved.');
+      // The folders are checked again as they were before the write: a link swapped in between is caught, and the file taken back.
+      need((await folderKinds(file.workspace)).every(kind => kind === 'plain'), 'docs/adr/ changed while saving; nothing was saved.');
     } catch (error) { await handle.close().catch(() => {}); await takeBack(); throw error; }
     item.file = { path: input.path, sha256: input.sha256, savedAt: new Date().toISOString() };
     store.event(map, 'adr-saved', null, input.path);

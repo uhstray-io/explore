@@ -1,4 +1,5 @@
 import { adrDialogHtml, adrDrafts, adrPathNote, adrSlug, adrFileText, adrToday, ADR_DRAFT } from './adr.js';
+import { controlKey, cssQuote as quote } from './dialog-focus.js';
 
 // The decision record dialog (F5), opened from Map tools: choose answers and findings, preview what the agent reads
 // (F1's job preview), queue the draft, edit and accept it, then save it to docs/adr/ after previewing the exact file.
@@ -8,9 +9,6 @@ import { adrDialogHtml, adrDrafts, adrPathNote, adrSlug, adrFileText, adrToday, 
 export function adrDialog({ map, act, api, esc, toast, live, listening }) {
   const $ = selector => document.querySelector(selector), dialog = $('#adr-dialog'), body = $('#adr-body');
   let chosen = [], preview = null, edits = {}, hint = '', save = null, written = null;
-  // A control as a selector, to find it again after a redraw: its id, or its first data attribute.
-  const quote = value => (globalThis.CSS?.escape ? CSS.escape(value) : String(value).replace(/["\\]/g, '\\$&'));
-  const keyOf = element => (element.id ? `#${quote(element.id)}` : Object.entries(element.dataset ?? {}).map(([key, value]) => `[data-${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}="${quote(value)}"]`)[0] ?? null);
   // Focus stays in the dialog: on the first of `selectors` found and enabled, else a heading.
   const focus = (...selectors) => { (selectors.filter(Boolean).map(selector => body.querySelector(selector)).find(target => target && !target.disabled) ?? body.querySelector('#adr-draft-heading') ?? $('#adr-title'))?.focus(); };
   const render = () => {
@@ -18,7 +16,7 @@ export function adrDialog({ map, act, api, esc, toast, live, listening }) {
     if (preview && preview.mapRevision !== shown.revision) preview = null; // A preview describes the map it was made for.
     const html = adrDialogHtml({ map: shown, esc, listening: listening(), live: live(), chosen, preview, edits, hint, save });
     if (html === written) return; // Never compare with innerHTML read back.
-    const active = document.activeElement, kept = active && body.contains?.(active) ? keyOf(active) : null;
+    const active = document.activeElement, kept = active && body.contains?.(active) ? controlKey(active) : null;
     body.innerHTML = written = html;
     if (kept) focus(kept, '#adr-status', '[data-adr-node]');
   };
@@ -82,7 +80,9 @@ export function adrDialog({ map, act, api, esc, toast, live, listening }) {
       if (/A file is already at/.test(refusal)) { save.free = false; pathChanged(); } // Another tab or person took the number.
       return;
     }
-    if (data.adrCopy) { try { await navigator.clipboard.writeText(adrFileText(item(data.adrCopy)?.item.text ?? '', adrToday())); toast('Copied.'); } catch { toast('Copying is not available here.'); } }
+    if (data.adrCopy) { // A saved record copies as it was saved, dated that day.
+      const copied = item(data.adrCopy)?.item;
+      try { await navigator.clipboard.writeText(adrFileText(copied?.text ?? '', adrToday(copied?.file ? new Date(copied.file.savedAt) : undefined))); toast('Copied.'); } catch { toast('Copying is not available here.'); } }
   });
   return { mapChanged() { if (dialog.open && !body.contains?.(document.activeElement?.closest?.('textarea, input:not([type=checkbox])') ?? null)) render(); } };
 }
