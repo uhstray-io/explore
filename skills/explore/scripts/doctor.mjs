@@ -2,7 +2,7 @@ import path from 'node:path';
 import { mapFolderPattern } from './map-validation.mjs';
 import { packageVersion } from './package-version.mjs';
 import { runtimePath, inspectLock } from './server-lock.mjs';
-import { toSupportReport, countUnreadableMaps, writeSupportReport, leftOut, maxReportBytes } from './support-report.mjs';
+import { toSupportReport, countUnreadableMaps, unreadableMaps, writeSupportReport, leftOut, maxReportBytes } from './support-report.mjs';
 import { fileURLToPath } from 'node:url';
 import { readFile, readdir, stat, access } from 'node:fs/promises';
 
@@ -30,7 +30,7 @@ export async function readConnection(workspace) {
 }
 
 // The package files every installed copy needs; the support report lists missing ones by these names only.
-export const packageFiles = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/package-version.mjs', 'scripts/install.mjs', 'scripts/server-lock.mjs', 'scripts/support-report.mjs', 'scripts/git.mjs', 'scripts/library.mjs', 'scripts/search.mjs', 'scripts/links.mjs', 'scripts/storage.mjs', 'scripts/listeners.mjs', 'scripts/neighbourhood.mjs', 'scripts/fields.mjs', 'scripts/result-checks.mjs', 'scripts/transfer.mjs', 'version.json', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/rail.js', 'assets/storage-dialog.js', 'assets/history-limits.js', 'assets/alerts.js', 'assets/since-visit.js', 'assets/question-clicks.js', 'assets/listening.js', 'assets/agent-dialog.js', 'assets/style.css', 'assets/constellation.css', 'scripts/changes.mjs', 'assets/changes-dialog.js', 'assets/export-formats.js', 'assets/export-dialog.js', 'assets/branch-restore.js', 'scripts/branch-restore.mjs', 'assets/viewer-picker.js', 'assets/viewer-page.js', 'assets/viewer.css', 'scripts/viewer.mjs', 'assets/usage-dialog.js', 'scripts/stats.mjs'];
+export const packageFiles = ['SKILL.md', 'scripts/server.mjs', 'scripts/store.mjs', 'scripts/job-types.mjs', 'scripts/contributor.mjs', 'scripts/files.mjs', 'scripts/versions.mjs', 'scripts/options.mjs', 'scripts/map-jobs.mjs', 'scripts/question-actions.mjs', 'scripts/restart.mjs', 'scripts/map-validation.mjs', 'scripts/validate.mjs', 'scripts/package-version.mjs', 'scripts/install.mjs', 'scripts/server-lock.mjs', 'scripts/support-report.mjs', 'scripts/git.mjs', 'scripts/library.mjs', 'scripts/search.mjs', 'scripts/links.mjs', 'scripts/storage.mjs', 'scripts/listeners.mjs', 'scripts/neighbourhood.mjs', 'scripts/fields.mjs', 'scripts/result-checks.mjs', 'scripts/transfer.mjs', 'version.json', 'scripts/context.mjs', 'scripts/brief.mjs', 'scripts/cli.mjs', 'scripts/doctor.mjs', 'references/bridge.md', 'references/exploration.md', 'references/format.md', 'assets/index.html', 'assets/app.js', 'assets/graph.js', 'assets/history.js', 'assets/workspace-view.js', 'assets/questions.js', 'assets/rail.js', 'assets/storage-dialog.js', 'assets/history-limits.js', 'assets/alerts.js', 'assets/since-visit.js', 'assets/question-clicks.js', 'assets/listening.js', 'assets/agent-dialog.js', 'assets/style.css', 'assets/constellation.css', 'scripts/changes.mjs', 'assets/changes-dialog.js', 'assets/export-formats.js', 'assets/export-dialog.js', 'assets/branch-restore.js', 'scripts/branch-restore.mjs', 'assets/viewer-picker.js', 'assets/viewer-page.js', 'assets/viewer.css', 'scripts/viewer.mjs', 'assets/usage-dialog.js', 'scripts/stats.mjs', 'assets/recover-dialog.js'];
 async function missingPackageFiles() {
   const missing = [];
   for (const file of packageFiles) try { await access(path.join(skillDirectory, file)); } catch { missing.push(file); }
@@ -51,9 +51,12 @@ async function inspect({ workspace = process.cwd(), timeout = 2500 } = {}) {
   let savedMaps = 0;
   try { savedMaps = (await readdir(path.join(workspace, 'ideas'), { withFileTypes: true })).filter(entry => entry.isDirectory() && mapFolderPattern.test(entry.name)).length; }
   catch (error) { if (error.code !== 'ENOENT') add('maps', 'warning', 'Saved-map directory could not be inspected.'); }
+  // Maps that cannot be opened, by ID (J2): each can still be recovered from its saved versions in the app.
+  const found = await unreadableMaps(workspace), damagedMaps = Array.isArray(found) && found.length ? found : null;
+  if (damagedMaps) add('damaged-maps', 'warning', `These maps cannot be opened: ${damagedMaps.map(map => `${map.id} (${map.problem})`).join(', ')}. In Explore, choose one under Maps to copy an earlier version out as a new map.`);
   const lock = await inspectLock(workspace);
   const version = await packageVersion();
-  const result = { ready: false, state: 'not-started', version: version ?? 'unversioned', workspace, skillDirectory, savedMaps, lock, checks,
+  const result = { ready: false, state: 'not-started', version: version ?? 'unversioned', workspace, skillDirectory, savedMaps, ...(damagedMaps ? { damagedMaps } : {}), lock, checks,
     start: { executable: process.execPath, args: [path.join(skillDirectory, 'scripts/server.mjs'), '--workspace', workspace, '--port', '0'] },
     note: 'Read-only diagnostics. No server was started, files changed, or model/provider connection tested.' };
   let connection;

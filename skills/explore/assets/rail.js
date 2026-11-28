@@ -11,11 +11,11 @@ export function railHtml(maps, { esc, currentId, showArchived, unreadableLabel =
   const shown = listedMaps(maps, showArchived ? 'only' : 'exclude');
   if (!shown.length) return `<p class="empty-list">${showArchived ? 'No archived maps.' : 'Your ideas will find a home here.'}</p>`;
   return shown.map(map => {
-    if (map.unreadable) return `<div class="rail-item"><button class="map-link unreadable" data-map="${esc(map.id)}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(map.id)}</strong><small>${esc(unreadableLabel(map.problem))}</small></span></button></div>`;
+    if (map.unreadable) return `<div class="rail-item"><button class="map-link unreadable" data-map-recover="${esc(map.id)}" aria-label="Recover ${esc(map.id)}: ${esc(unreadableLabel(map.problem))}"><span class="map-icon" aria-hidden="true">⌘</span><span><strong>${esc(map.id)}</strong><small>${esc(unreadableLabel(map.problem))}</small></span></button></div>`;
     const current = currentId === map.id, id = esc(map.id);
     const details = [map.demo ? 'Example map' : `${map.count} ${map.count === 1 ? 'idea' : 'ideas'}`, map.pending ? `${map.pending} queued` : '', map.pinned ? 'Pinned' : '', map.archived ? 'Archived' : ''].filter(Boolean).join(' · ');
     const item = (label, attributes) => `<button type="button" role="menuitem" tabindex="-1" ${attributes}>${label}</button>`;
-    const menu = `<div class="item-more-wrap"><button type="button" class="item-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-rail-${id}" data-menu="rail-${id}" aria-label="More for ${esc(map.title)}">⋯</button><div class="item-menu" role="menu" id="menu-rail-${id}" aria-label="More for ${esc(map.title)}" hidden>${item(map.pinned ? 'Unpin' : 'Pin', `data-map-pin="${id}" data-pinned="${!map.pinned}"`)}${item(map.archived ? 'Unarchive' : 'Archive', `data-map-archive="${id}" data-archived="${!map.archived}"`)}</div></div>`;
+    const menu = `<div class="item-more-wrap"><button type="button" class="item-more" aria-haspopup="menu" aria-expanded="false" aria-controls="menu-rail-${id}" data-menu="rail-${id}" aria-label="More for ${esc(map.title)}">⋯</button><div class="item-menu" role="menu" id="menu-rail-${id}" aria-label="More for ${esc(map.title)}" hidden>${item(map.pinned ? 'Unpin' : 'Pin', `data-map-pin="${id}" data-pinned="${!map.pinned}"`)}${item(map.archived ? 'Unarchive' : 'Archive', `data-map-archive="${id}" data-archived="${!map.archived}"`)}${item('Recover a version…', `data-map-recover="${id}"`)}</div></div>`;
     return `<div class="rail-item"><button class="map-link ${current ? 'current' : ''}" data-map="${id}" ${current ? 'aria-current="page"' : ''}><span class="map-icon" aria-hidden="true">${map.pinned ? '★' : '⌘'}</span><span><strong>${esc(map.title)}</strong><small>${details}</small></span></button>${menu}</div>`;
   }).join('');
 }
@@ -28,7 +28,7 @@ export function searchResultsHtml(result, { esc }) {
 
 // The rail in the page: list, Archived toggle, Pin and Archive, and search. `act(mapId, input)` runs an action on any
 // map through the app's own queue and resolves true when it saved.
-export function railPanel({ esc, maps, currentId, unreadableLabel, act, api, openReference }) {
+export function railPanel({ esc, maps, currentId, unreadableLabel, act, api, openReference, recover }) {
   const $ = selector => document.querySelector(selector), list = $('#map-list'), box = $('#map-search-results'), search = $('#map-search');
   let showArchived = false, timer = null, shown = null;
   function render() {
@@ -39,6 +39,13 @@ export function railPanel({ esc, maps, currentId, unreadableLabel, act, api, ope
   }
   $('#archived-toggle').addEventListener('click', event => { showArchived = !showArchived; event.currentTarget.setAttribute('aria-pressed', String(showArchived)); render(); });
   list.addEventListener('click', async event => {
+    const recovering = event.target.closest('[data-map-recover]');
+    if (recovering) {
+      event.stopPropagation(); recovering.closest('.item-menu')?.setAttribute('hidden', '');
+      const map = maps().find(entry => entry.id === recovering.dataset.mapRecover);
+      if (map) recover({ id: map.id, title: map.title, problem: map.unreadable ? map.problem : null });
+      return;
+    }
     const button = event.target.closest('[data-map-pin], [data-map-archive]'); if (!button) return;
     event.stopPropagation(); button.closest('.item-menu').hidden = true;
     const mapId = button.dataset.mapPin || button.dataset.mapArchive;
