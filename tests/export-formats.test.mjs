@@ -8,6 +8,7 @@ import { exportAs, exportScope, exportFormats } from '../skills/explore/assets/e
 import { Store } from '../skills/explore/scripts/store.mjs';
 import { startServer } from '../skills/explore/scripts/server.mjs';
 import { packageFiles } from '../skills/explore/scripts/doctor.mjs';
+import { constellationLayout, minimumSpacing } from '../skills/explore/assets/graph.js';
 
 // Diagram and document exports (I3, #41). Illustrative maps only, never ideas/.
 const node = (id, parentId, extra = {}) => ({ id, parentId, title: `Idea ${id}`, kind: 'research', prompt: `Premise ${id}.`, body: `Premise ${id}.`, summary: `Premise ${id}.`,
@@ -154,8 +155,9 @@ test('the CLI writes each format for a map or a branch, refuses to overwrite, an
 test('findings from an earlier round stay unreviewed while the idea is queued, running or interrupted; a restarted idea has none', () => {
   for (const status of ['queued', 'running', 'interrupted', 'awaiting-answer']) {
     const map = fixture(); Object.assign(map.nodes[3], { status, title: 'Photos' });
-    for (const format of Object.keys(exportFormats)) assert.match(exportAs(map, format, { nodeId: 'photos' }).text, /unreviewed/, `${status} in ${format}`);
-    assert.match(exportAs(map, 'print', { nodeId: 'photos' }).text, /class="state provisional"/);
+    for (const format of ['mermaid', 'canvas', 'svg']) assert.match(exportAs(map, format, { nodeId: 'photos' }).text, /unreviewed/, `${status} in ${format}`);
+    const section = exportAs(map, 'print', { nodeId: 'photos' }).text.split('<section class="idea">')[1];
+    assert.match(section, /<p class="state provisional">[^<]*unreviewed/, `${status} in print`);
   }
   // A restart resets findings to the premise: nothing to review yet.
   const restarted = fixture(); Object.assign(restarted.nodes[3], { status: 'interrupted', body: 'Premise photos.', summary: 'Premise photos.', questions: [], sources: [] });
@@ -176,4 +178,14 @@ test('SVG ideas never overlap, even when saved on one spot', () => {
   const centres = [...exportAs(crowded, 'svg').text.matchAll(/<circle cx="([\d.-]+)" cy="([\d.-]+)"/g)].map(match => ({ x: Number(match[1]), y: Number(match[2]) }));
   assert.equal(centres.length, crowded.nodes.length);
   assert.ok(centres.every((a, i) => centres.slice(i + 1).every(b => Math.abs(a.x - b.x) >= 210 || Math.abs(a.y - b.y) >= 112)));
+});
+
+test('cards keep the map’s shape: on a laid-out tree, few need moving', () => {
+  const nodes = [node('root', null)];
+  for (let i = 0; i < 6; i++) { nodes.push(node(`b${i}`, 'root')); for (let j = 0; j < 5; j++) nodes.push(node(`b${i}-${j}`, `b${i}`)); }
+  const map = { ...fixture(), nodes, edges: nodes.slice(1).map(entry => ({ from: entry.parentId, to: entry.id, type: 'contains' })) };
+  const positions = constellationLayout(map).positions, scale = (320 + 40) / minimumSpacing;
+  const cards = JSON.parse(exportAs(map, 'canvas').text).nodes;
+  const moved = cards.filter(card => card.x !== Math.round(positions[card.id].x * scale - 160) || card.y !== Math.round(positions[card.id].y * scale - 95));
+  assert.ok(moved.length <= cards.length / 10, `${moved.length} of ${cards.length} cards moved`);
 });

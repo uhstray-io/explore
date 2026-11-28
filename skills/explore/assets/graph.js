@@ -17,6 +17,8 @@ export function branchIds(map, nodeId) {
   return ids;
 }
 
+// The least distance the layout leaves between two ideas' centres (more beside the root). Exports scale by it.
+export const minimumSpacing = 58;
 // Saved coordinates are absolute centers. Layout never writes, activates, or edits nodes.
 export function constellationLayout(map) {
   const nodes = new Map(map.nodes.map(node => [node.id, node]));
@@ -110,7 +112,7 @@ export function constellationLayout(map) {
   for (let step = 0; step < 35; step++) {
     for (let a = 0; a < points.length; a++) for (let b = a + 1; b < points.length; b++) {
       const dx = points[b].x - points[a].x, dy = points[b].y - points[a].y;
-      const clearance = (map.nodes[a].id === root.id || map.nodes[b].id === root.id) ? 68 : 58;
+      const clearance = (map.nodes[a].id === root.id || map.nodes[b].id === root.id) ? minimumSpacing + 10 : minimumSpacing;
       if (Math.abs(dx) >= clearance || Math.abs(dy) >= clearance) continue;
       const distance = Math.hypot(dx, dy) || 1;
       if (distance >= clearance) continue;

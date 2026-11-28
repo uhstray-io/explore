@@ -1,4 +1,4 @@
-import { presentation, reviewWord, branchIds, constellationLayout } from './graph.js';
+import { presentation, reviewWord, branchIds, constellationLayout, minimumSpacing } from './graph.js';
 import { isWaiting, hasCurrentAnswer, certaintyText } from './questions.js';
 import { markdownText, downloadName, outgoing } from './workspace-view.js';
 
@@ -61,12 +61,12 @@ function mermaid(map, { nodes, tree, links }) {
     ...links.map(link => `  ${short.get(link.from)} -.->|${link.relation}| ${short.get(link.to)}`)].join('\n') + '\n';
 }
 
-// Cards around each idea's saved or laid-out centre, spread so that ideas the layout keeps apart (84 px, as in
-// constellationLayout) clear each other vertically; any card still overlapping another moves below it. The sweep
-// ends: a card only moves down, each time to just below a card already placed. Returns top-left corners.
-const layoutSpacing = 84;
+// Cards around each idea's saved or laid-out centre, spread so that two ideas the layout keeps its least distance
+// apart clear each other side by side, which keeps the map's shape; any card still overlapping another (ideas saved
+// on one spot) moves below it. The sweep ends: a card only moves down, each time to just below a card already
+// placed. Returns top-left corners.
 function placeCards(nodes, positions, width, height, gap) {
-  const points = nodes.map(node => positions[node.id] ?? { x: 0, y: 0 }), scale = Math.max(1, (height + gap) / layoutSpacing);
+  const points = nodes.map(node => positions[node.id] ?? { x: 0, y: 0 }), scale = (width + gap) / minimumSpacing;
   const boxes = nodes.map((node, index) => ({ id: node.id, x: Math.round(points[index].x * scale - width / 2), y: Math.round(points[index].y * scale - height / 2) }));
   const placed = [], clear = (a, b) => a.x >= b.x + width + gap || b.x >= a.x + width + gap || a.y >= b.y + height + gap || b.y >= a.y + height + gap;
   for (const box of [...boxes].sort((a, b) => a.y - b.y || a.x - b.x)) {
