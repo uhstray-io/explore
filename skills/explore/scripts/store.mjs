@@ -4,7 +4,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import { defaultRegistry, INVESTIGATE, isInvestigation, jobTypeOf } from './job-types.mjs';
 import { atomicWrite, atomicJson } from './files.mjs';
 import { hasContent, mapGitStatus } from './git.mjs';
-import { Versions, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
+import { Versions, presentationOnly, compareVersion, restorableHash, shouldRecord, snapshotOf, contentHash } from './versions.mjs';
 import { answerStates, isOpen, isBlocking, certaintyText, hasCurrentAnswer, answeredSince, laterQuestions, replaceAnswer, importanceName, normalizeQuestion, questionJobs, RESEARCH } from '../assets/questions.js';
 import { normalizeComparison, comparisonLines } from './options.mjs';
 import { includedKey, proposalOutdated } from './map-jobs.mjs';
@@ -72,13 +72,6 @@ function researchLines(job, stale) {
 // One source as the Markdown views list evidence.
 const evidenceLine = s => ['', `- [${s.title.replace(/[\[\]]/g, '')}](${s.url}) (retrieved ${s.retrievedAt}): ${s.note}`];
 export { atomicJson } from './files.mjs';
-// Whether two saved forms of a map differ only in pin or archive state and the counters every save changes.
-function onlyLibraryChanged(before, after) {
-  try {
-    const strip = bytes => { const { library, revision, updatedAt, ...rest } = JSON.parse(bytes.toString('utf8')); return JSON.stringify(rest); };
-    return strip(before) === strip(after);
-  } catch { return false; }
-}
 
 export class Store {
   // `onSaved(map)` is told about every saved change, whatever caused it (the server restarts listening windows).
@@ -124,7 +117,7 @@ export class Store {
     const known = this.adopted.get(mapId);
     this.adopted.set(mapId, { fingerprint, bytes });
     if (!known || known.fingerprint === fingerprint) return; // The first read after start adopts silently.
-    if (onlyLibraryChanged(known.bytes, bytes)) return; // Pin and archive state, like a layout, is not news (I1).
+    if (presentationOnly(known.bytes, bytes)) return; // Pin and archive state alone is not news (I1).
     const change = { at: now(), preserved: null, inGit: false };
     this.outside.set(mapId, change);
     // Keep the version that was replaced as a version, unless version history or Git already has it,
@@ -160,6 +153,16 @@ export class Store {
     await rm(dir, { recursive: true, force: true });
   }
   tracking(mapId) { return { fingerprint: this.adopted.get(mapId)?.fingerprint ?? null, outsideChange: this.outside.get(mapId) ?? null }; }
+  // Every map folder, loaded or with the reason it could not be: one broken map never stops a reader (I1 search).
+  async eachMap() {
+    await mkdir(this.directory, { recursive: true });
+    const out = [];
+    for (const entry of (await readdir(this.directory, { withFileTypes: true })).filter(e => e.isDirectory() && mapFolderPattern.test(e.name))) {
+      try { out.push({ id: entry.name, map: await this.get(entry.name) }); }
+      catch (error) { if (!(error instanceof Problem && error.code === 'not-found')) out.push({ id: entry.name, problem: error.code || 'unreadable' }); }
+    }
+    return out;
+  }
   async list() {
     await mkdir(this.directory, { recursive: true });
     const entries = await readdir(this.directory, { withFileTypes: true });
@@ -174,10 +177,11 @@ export class Store {
       }
       readable.push({ id: m.id, title: m.title, revision: m.revision, updatedAt: m.updatedAt, fingerprint: this.basis.get(m),
         count: m.nodes.length, demo: !!m.demo, pending: m.jobs.filter(j => j.status === 'queued' && this.jobType(jobTypeOf(j))).length,
-        pinned: !!m.library?.pinned, archived: !!m.library?.archived, busy: m.jobs.some(j => j.status === 'queued' || j.status === 'running') });
+        pinned: !!m.library?.pinned, archived: !!m.library?.archived, busy: m.jobs.some(j => j.status === 'queued' || j.status === 'running'),
+        changedAt: m.history.at(-1)?.at ?? m.updatedAt });
     }
     // Pinned maps first, then the most recently changed (I1).
-    return [...readable.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt.localeCompare(a.updatedAt)), ...maps];
+    return [...readable.sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.changedAt.localeCompare(a.changedAt)), ...maps];
   }
   // A save writes only over the version its change was based on; otherwise someone changed the file meanwhile.
   // Each content change is recorded as a version just before map.json is replaced; moving ideas and the
@@ -411,11 +415,13 @@ export class Store {
       // An edit made from an outdated view never overwrites a map changed outside Explore, even
       // when the revision numbers happen to match. The browser names the version it shows.
       // Whatever is on disk is adopted first, so a version replaced by a reset or pull is kept.
-      const known = this.adopted.get(mapId)?.fingerprint;
-      const { map, fingerprint } = await this.withMapLock(mapId, async () => { const current = await this.read(mapId); await this.adopt(mapId, current); return current; });
+      const known = this.adopted.get(mapId)?.fingerprint, knownBytes = this.adopted.get(mapId)?.bytes;
+      const current = await this.withMapLock(mapId, async () => { const read = await this.read(mapId); await this.adopt(mapId, read); return read; });
+      const { map, fingerprint } = current;
       // A view behind Explore's own save is simply stale; only a different file is an outside change.
       need(input.expectedRevision === map.revision, 'This map changed. Refresh and try again; your text has been kept.', 409);
-      need((input.expectedFingerprint ?? known ?? fingerprint) === fingerprint, changedOutside, 409, 'changed-outside');
+      const viewed = input.expectedFingerprint ?? known ?? fingerprint, before = this.adopted.get(mapId);
+      need(viewed === fingerprint || (viewed === known && before && presentationOnly(knownBytes ?? before.bytes, current.bytes)), changedOutside, 409, 'changed-outside');
       const declared = Object.hasOwn(this.registry.actions, input.type) ? this.registry.actions[input.type] : null;
       const mapLevel = mapLevelActions.has(input.type) || declared?.target === 'map';
       const n = mapLevel ? null : map.nodes.find(node => node.id === input.nodeId);

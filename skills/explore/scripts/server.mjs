@@ -12,6 +12,7 @@ import { createListeners } from './listeners.mjs';
 import { defaultListenMinutes } from '../assets/listening.js';
 import { previewRestart } from './restart.mjs';
 import { searchMaps } from './search.mjs';
+import { listedMaps } from '../assets/rail.js';
 import { createStorage } from './storage.mjs';
 import { packageVersion } from './package-version.mjs';
 import { ensureRuntime, inspectLock, lockIsFree } from './server-lock.mjs';
@@ -60,7 +61,7 @@ export async function startServer({ workspace = process.cwd(), port = 4317, data
           // Archived maps leave the default list, except one with work waiting, which is never hidden (I1).
           const archived = url.searchParams.get('archived') || 'exclude';
           if (!['exclude', 'include', 'only'].includes(archived)) throw new Problem('Use archived=exclude, include or only.');
-          const maps = (await store.list()).filter(map => archived === 'include' || (archived === 'only' ? map.archived : !map.archived || map.busy));
+          const maps = listedMaps(await store.list(), archived);
           return send(res, 200, { maps, bridge: bridgeStatus() });
         }
         if (req.method === 'GET' && url.pathname === '/api/search') { const q = url.searchParams; return send(res, 200, await searchMaps(store, { query: q.get('query'), offset: q.get('offset') ?? 0, limit: q.get('limit') ?? 10, revision: q.get('revision') ?? undefined })); }

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { atomicJson } from './store.mjs';
 import { runDoctor, readConnection } from './doctor.mjs';
 import { runtimePath } from './server-lock.mjs';
+import { catalogRevision } from './search.mjs';
 
 const args = process.argv.slice(2);
 const command = args[0] || 'help';
@@ -66,7 +67,7 @@ try {
           output = await api(`/api/search?${query}`); break;
         }
         const value = await api(`/api/maps?archived=${encodeURIComponent(option('archived', 'exclude'))}`);
-        const revision = createHash('sha256').update(JSON.stringify(value.maps.map(m => [m.id, m.revision, m.updatedAt]))).digest('hex').slice(0, 16);
+        const revision = catalogRevision(value.maps);
         const { items, ...paging } = page(value.maps, revision, ['id', 'title']);
         output = { ...(command === 'status' ? { address: connection.address, bridge: value.bridge } : {}), ...paging, maps: items };
         break;

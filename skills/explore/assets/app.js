@@ -1,6 +1,6 @@
 import { constellationLayout, connectionPath, presentation, overviewView, focusedView } from './graph.js';
 import { growthTimeline, mapAtGrowthStep } from './history.js';
-import { railHtml, searchResultsHtml } from './rail.js';
+import { railPanel } from './rail.js';
 import { agentDialog } from './agent-dialog.js';
 import { createAlerts, pollDelay } from './alerts.js';
 import { storageDialog } from './storage-dialog.js';
@@ -56,10 +56,7 @@ function connectionView(offline = false) {
   hint.classList.toggle('hidden', !state.map || state.historyStep !== null || connected || !state.map.jobs.some(j => j.status === 'queued' && !j.unsupported));
   hint.textContent = 'Queued safely. Use the agent button above to continue.';
 }
-function renderRail() {
-  const html = railHtml(state.maps, { esc, currentId: state.map?.id, showArchived: !!state.showArchived, unreadableLabel });
-  if ($('#map-list').innerHTML !== html) $('#map-list').innerHTML = html;
-}
+function renderRail() { rail.render(); }
 // One refresh at a time: a caller waits for the one already running instead of skipping it, so a tab shown again
 // sees what that refresh brings.
 function refresh() {
@@ -743,20 +740,13 @@ $('#new-map').addEventListener('click', showCreate); $('#start-exploration').add
 for (const button of document.querySelectorAll('.close-dialog')) button.addEventListener('click', () => button.closest('dialog').close());
 // Alerts when a result arrives (K12): a count in the tab title while hidden, and opt-in notifications.
 const alerts = createAlerts({ open: ({ mapId, nodeId }) => openReference({ mapId, nodeId }) });
-// Pin and archive (I1): a map in the rail, not necessarily the open one, so the action names its own revision.
-async function libraryAction(button) {
-  const id = button.dataset.mapPin || button.dataset.mapArchive, listed = state.maps.find(map => map.id === id); if (!listed) return;
-  const input = button.dataset.mapPin ? { type: 'pin', pinned: button.dataset.pinned === 'true' } : { type: 'archive', archived: button.dataset.archived === 'true' };
-  try { await api(`/maps/${id}/action`, { ...input, expectedRevision: listed.revision }); await refresh(); if (state.map?.id === id) state.map = await api(`/maps/${id}`), renderMap(); }
-  catch (error) { toast(error.message); }
-}
-$('#archived-toggle').addEventListener('click', () => { state.showArchived = !state.showArchived; $('#archived-toggle').setAttribute('aria-pressed', String(state.showArchived)); renderRail(); });
-let searchTimer = null;
-$('#map-search').addEventListener('input', event => {
-  clearTimeout(searchTimer); const query = event.target.value.trim(), box = $('#map-search-results');
-  if (query.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
-  searchTimer = setTimeout(async () => { try { box.innerHTML = searchResultsHtml(await api(`/search?query=${encodeURIComponent(query)}`), { esc }); box.hidden = false; } catch (error) { box.innerHTML = `<p class="empty-list">${esc(error.message)}</p>`; box.hidden = false; } }, 300);
-});
+// The rail (I1): Pin and Archive act on any map through the action queue; the open map uses its own revision.
+const rail = railPanel({ esc, maps: () => state.maps, currentId: () => state.map?.id, unreadableLabel, api, openReference,
+  act: async (mapId, input) => {
+    if (state.map?.id === mapId) return act(null, input.type, input);
+    const listed = state.maps.find(map => map.id === mapId); if (!listed) return false;
+    try { await api(`/maps/${mapId}/action`, { ...input, expectedRevision: listed.revision }); await refresh(); return true; } catch (error) { toast(error.message); return false; }
+  } });
 const showHelp = agentDialog({ api, toast, alerts, session: () => state.session || {}, map: () => state.map });
 $('#bridge-status').addEventListener('click', showHelp);
 $('#storage-open').addEventListener('click', storageDialog({ api, esc, titleOf: id => state.maps.find(map => map.id === id)?.title ?? id }));
@@ -839,8 +829,6 @@ document.addEventListener('click', async event => {
     catch { state.linkFallbackFor = node.id; renderDetail(true); $('#link-fallback')?.select(); }
     return;
   }
-  const libraryButton = event.target.closest('[data-map-pin], [data-map-archive]');
-  if (libraryButton) { closeMenus(); await libraryAction(libraryButton); return; }
   const menuToggle = event.target.closest('[data-menu]');
   if (menuToggle) { const opening = menuToggle.getAttribute('aria-expanded') !== 'true'; closeMenus(); if (opening) openMenu(menuToggle); return; }
   if (!event.target.closest('.item-menu')) closeMenus();

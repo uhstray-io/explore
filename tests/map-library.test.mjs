@@ -70,7 +70,7 @@ test('search finds text only in an answer or a source note, with short excerpts 
   result = await searchMaps(store, { query: 'SOLAR' });
   assert.equal(result.hits[0].matches[0].field, 'source');
   const long = await settled('Long map', 'x'.repeat(50) + ' needle ' + 'y'.repeat(400));
-  for (let i = 0; i < 5; i++) await act(long, { type: 'suggest', nodeId: long.rootId, title: `needle ${i}`, body: 'needle' });
+  for (let i = 0; i < 5; i++) await act(long, { type: 'suggest', nodeId: long.rootId, title: `needle ${i}`, body: `needle in branch ${i}` });
   const found = (await searchMaps(store, { query: 'needle' })).hits.find(h => h.mapId === long.id);
   assert.equal(found.matches.length, 3); assert.ok(found.more > 0); assert.ok(found.matches.every(m => m.excerpt.length <= 160));
   const paged = await searchMaps(store, { query: 'Nothing relevant', limit: 2 });
@@ -115,4 +115,22 @@ test('the rail lists pinned maps first, offers Pin and Archive in each map\'s â‹
   assert.match(html, /data-map-archive="map-b"[^>]*>Archive</);
   const archivedView = railHtml(maps, { esc: String, currentId: null, showArchived: true });
   assert.match(archivedView, /Old/); assert.match(archivedView, /data-map-archive="map-c"[^>]*>Unarchive</);
+});
+
+test('one idea\'s repeated sentence is one match, so a real match elsewhere is not hidden', async () => {
+  const { store, settled, act } = await workspace();
+  const map = await settled('Field notebook', 'Whether mesh radio works.');
+  await act(map, { type: 'suggest', nodeId: map.rootId, title: 'Antenna', body: 'A taller mesh radio antenna.' });
+  const hit = (await searchMaps(store, { query: 'mesh radio' })).hits[0];
+  assert.ok(hit.matches.some(match => match.nodeId !== map.rootId), 'the Antenna idea is among the matches');
+});
+
+test('unpinning or archiving never moves a map up, and a change that changes nothing is refused', async () => {
+  const { store, settled, act } = await workspace();
+  const older = await settled('Garden plan', 'A shared allotment.');
+  const newer = await settled('Field notebook', 'Notes.');
+  await act(older, { type: 'pin', pinned: true });
+  await act(older, { type: 'pin', pinned: false });
+  assert.deepEqual((await store.list()).map(m => m.id), [newer.id, older.id]);
+  await assert.rejects(act(older, { type: 'pin', pinned: false }), error => error.status === 409);
 });
